@@ -18,6 +18,7 @@ ns.name = addonName
 --   STORE_CHANGED             anything in the store changed, views should refresh
 --   EMULATOR_STATE(running)   the emulator started or stopped
 --   DEBUG_CHANGED(enabled)    developer tools were enabled or disabled
+--   CONNECTION_CHANGED        the configured chat channel changed state
 local Bus = { handlers = {} }
 ns.Bus = Bus
 
@@ -91,6 +92,7 @@ end
 local ACCOUNT_DEFAULTS = {
 	switches = {}, -- filled from data\settings.lua at startup
 	debug = false,
+	connection = { name = "", enabled = false },
 }
 
 local CHARACTER_DEFAULTS = {
@@ -146,6 +148,11 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 			ACCOUNT_DEFAULTS.switches[setting.id] = setting.default
 		end
 		ApplyDefaults(QuestPartyDB, ACCOUNT_DEFAULTS)
+		-- Local source installs expose developer tools after every reload.
+		-- The packager sets X-Debug to false for distributed builds.
+		if C_AddOns.GetAddOnMetadata(addonName, "X-Debug") == "true" then
+			QuestPartyDB.debug = true
+		end
 		QuestPartyDB.settings = nil -- replaced by switches
 		-- Retired controls must not remain active through older saved preferences.
 		QuestPartyDB.switches.chatDetails = nil

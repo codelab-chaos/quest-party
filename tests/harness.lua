@@ -1,8 +1,8 @@
 -- Small game boundary for headless tests. Addon logic runs unchanged.
 local Harness = {}
 
-function Harness.new(saved, character)
-	local world = { now = 10000, frames = {}, timers = {}, sent = {}, chat = {}, party = {}, quests = {} }
+function Harness.new(saved, character, debugBuild)
+	local world = { now = 10000, frames = {}, timers = {}, sent = {}, chat = {}, party = {}, quests = {}, channels = {}, joins = {}, leaves = {} }
 	local env = setmetatable({}, { __index = _G })
 	env._G = env
 	env.unpack = unpack or table.unpack
@@ -12,7 +12,25 @@ function Harness.new(saved, character)
 	env.StaticPopupDialogs = {}
 	env.SlashCmdList = {}
 	env.StaticPopup_Show = function(_, sender, _, data) world.popup = { sender = sender, data = data } end
-	env.DEFAULT_CHAT_FRAME = { AddMessage = function(_, text) world.chat[#world.chat + 1] = text end }
+	env.DEFAULT_CHAT_FRAME = {
+		channelList = {},
+		GetID = function() return 1 end,
+		AddMessage = function(_, text) world.chat[#world.chat + 1] = text end,
+		AddChannel = function(self, name) self.channelList[#self.channelList + 1] = name end,
+	}
+	env.GetChannelName = function(name)
+		local channel = world.channels[name:lower()]
+		return channel and channel.id or 0, channel and channel.name
+	end
+	env.JoinPermanentChannel = function(name)
+		world.joins[#world.joins + 1] = name
+		if world.joinRejected then return nil end
+		return 0, name
+	end
+	env.LeaveChannelByName = function(name)
+		world.leaves[#world.leaves + 1] = name
+		world.channels[name:lower()] = nil
+	end
 	env.GetTime = function() return world.now end
 	env.GetServerTime = env.GetTime
 	env.UnitName = function() return "Tester" end
@@ -63,7 +81,10 @@ function Harness.new(saved, character)
 		end
 		self.now = finish
 	end
-	env.C_AddOns = { GetAddOnMetadata = function() return "0.1.0" end }
+	env.C_AddOns = { GetAddOnMetadata = function(_, key)
+		if key == "X-Debug" then return debugBuild and "true" or "false" end
+		return "0.1.0"
+	end }
 	env.Enum = { SendAddonMessageResult = { Success = 0, AddonMessageThrottle = 1, ChannelThrottle = 2, AddOnMessageLockdown = 3, TargetOffline = 4 } }
 	env.C_ChatInfo = {
 		RegisterAddonMessagePrefix = function(prefix) world.prefix = prefix end,
@@ -97,6 +118,17 @@ function Harness.new(saved, character)
 		chunk("QuestParty", ns)
 	end
 	world.ns, world.env = ns, env
+	function world:event(event, ...)
+		for _, frame in ipairs(self.frames) do
+			if frame.events[event] and frame.scripts.OnEvent then
+				frame.scripts.OnEvent(frame, event, ...)
+			end
+		end
+	end
+	function world:join(name, id)
+		self.channels[name:lower()] = { id = id or 5, name = name }
+		self:event("CHAT_MSG_CHANNEL_NOTICE", "YOU_JOINED", nil, nil, nil, nil, nil, 0, id or 5, name)
+	end
 	local startup = world.frames[1]
 	startup.scripts.OnEvent(startup, "ADDON_LOADED", "QuestParty")
 	function world:ingest(kind, data, player)

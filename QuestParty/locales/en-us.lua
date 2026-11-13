@@ -75,6 +75,15 @@ ns.L = {
 	VIEW_TIP_TO_COMPACT = "Click for one-line rows.",
 	VIEW_TIP_TO_DETAILED = "Click for detailed rows.",
 	OPTIONS_BACK = "Back to feed",
+	CHANNEL_LABEL = "Channel",
+	CHANNEL_CONNECT = "Create / Join",
+	CHANNEL_DISCONNECT = "Disconnect",
+	CHANNEL_DISCONNECTED = "Not connected",
+	CHANNEL_JOINING = "Joining %s...",
+	CHANNEL_CONNECTED = "Connected to %s",
+	CHANNEL_JOIN_FAILED = "Couldn't join. Check WoW chat, then retry.",
+	CHANNEL_INVALID_NAME = "Use a name up to 30 characters, without spaces.",
+	CHANNEL_DISCONNECT_FIRST = "Disconnect before switching channels.",
 
 	-- Feature switches
 	SET_QUESTS = "Quests",

@@ -22,6 +22,7 @@ class PackagingTests(unittest.TestCase):
                 self.assertTrue(all(name.startswith("QuestParty/") for name in release.namelist()))
                 toc = release.read("QuestParty/QuestParty.toc").decode()
                 self.assertIn("## Version: 0.2.0-rc.1\n", toc)
+                self.assertIn("## X-Debug: false\n", toc)
                 self.assertEqual(release.read("QuestParty/LICENSE"), (ROOT / "LICENSE").read_bytes())
                 for line in toc.splitlines():
                     if line.strip() and not line.startswith("#"):

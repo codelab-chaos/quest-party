@@ -39,9 +39,11 @@ def build(version=None, output_dir=None):
             name = "QuestParty/" + line.strip().replace("\\", "/")
             if name not in files:
                 raise ValueError(f"TOC references an untracked or missing file: {name}")
-    files["QuestParty/QuestParty.toc"] = re.sub(
+    packaged_toc = re.sub(
         r"^## Version:.*$", f"## Version: {version}", toc, flags=re.MULTILINE
-    ).encode()
+    )
+    packaged_toc = re.sub(r"^## X-Debug:.*$", "## X-Debug: false", packaged_toc, flags=re.MULTILINE)
+    files["QuestParty/QuestParty.toc"] = packaged_toc.encode()
     files["QuestParty/LICENSE"] = (ROOT / "LICENSE").read_bytes()
     output = Path(output_dir) if output_dir else ROOT / "dist"
     output.mkdir(parents=True, exist_ok=True)

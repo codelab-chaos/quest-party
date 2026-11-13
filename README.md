@@ -1,8 +1,10 @@
 # Quest Party
 
 A WoW Forever addon for a party feed of quest progress, levels and achievements.
-Channel-based sharing is the next development step; automatic group discovery
-and character-name friend links have been retired. Install the `QuestParty`
+Options includes a channel name with **Create / Join**, connection status and
+**Disconnect**. It remembers the name and reconnects on login until disconnected.
+Channel progress broadcasting is the next development step; automatic group
+discovery and character-name friend links have been retired. Install the `QuestParty`
 folder inside `World of Warcraft/_forever_/Interface/AddOns`, then use `/qp` in game.
 
 ## Builds and releases
@@ -64,6 +66,10 @@ Check for Lua errors with `/console scriptErrors 1` before reloading.
 
 For local installation, `scripts/deploy.sh` uses the AddOns path in
 `.deploy-target` (ignored by Git) or `WOW_ADDONS_DIR`.
+
+Local source installs start in debug mode, making the emulator button available
+after every reload. `/qp debug off` hides it until the next reload. Packaged ZIPs
+disable this development default; users can still opt in with `/qp debug on`.
 
 ## License
 

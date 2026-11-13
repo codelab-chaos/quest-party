@@ -429,6 +429,28 @@ local function UpdateFilter()
 	filterDropdown.label:SetText(FilterLabel(filter))
 end
 
+local function UpdateConnectionOptions(resetName)
+	if not optionsView or not optionsView.connection then return end
+	local controls = optionsView.connection
+	local session, config = ns.Session, ns.db.connection
+	if resetName then controls.name:SetText(config.name) end
+	controls.join:SetEnabled(session.state ~= "joining" and session.state ~= "connected")
+	controls.disconnect:SetEnabled(config.enabled)
+	if session.state == "connected" then
+		controls.status:SetText(L.CHANNEL_CONNECTED:format(config.name))
+		controls.status:SetTextColor(0.4, 1, 0.5)
+	elseif session.state == "joining" then
+		controls.status:SetText(L.CHANNEL_JOINING:format(config.name))
+		controls.status:SetTextColor(1, 0.82, 0)
+	elseif session.state == "failed" then
+		controls.status:SetText(session.error or L.CHANNEL_JOIN_FAILED)
+		controls.status:SetTextColor(1, 0.4, 0.4)
+	else
+		controls.status:SetText(L.CHANNEL_DISCONNECTED)
+		controls.status:SetTextColor(0.7, 0.7, 0.7)
+	end
+end
+
 -- Repaints every footer toggle from its current state.
 local function UpdateFooterToggles()
 	for _, button in ipairs(footerToggles) do
@@ -472,6 +494,7 @@ function Panel:ShowOptions(show)
 	optionsButton:UpdateFill()
 	if show then
 		emptyText:Hide()
+		UpdateConnectionOptions(true)
 		for _, check in ipairs(optionsView.checks) do
 			check:SetChecked(ns.IsEnabled(check.settingId))
 		end
@@ -713,10 +736,69 @@ local function BuildOptions()
 	title:SetText(L.OPTIONS)
 
 	local contentTop = LAYOUT.filterHeight + 6
+	local optionsScroll = CreateFrame("ScrollFrame", nil, optionsView, "ScrollFrameTemplate")
+	optionsScroll:SetPoint("TOPLEFT", 6, -contentTop)
+	optionsScroll:SetPoint("BOTTOMRIGHT", -28, 8)
+	optionsScroll.ScrollBar:ClearAllPoints()
+	optionsScroll.ScrollBar:SetPoint("TOPLEFT", optionsScroll, "TOPRIGHT", 6, -2)
+	optionsScroll.ScrollBar:SetPoint("BOTTOMLEFT", optionsScroll, "BOTTOMRIGHT", 6, 2)
+	local content = CreateFrame("Frame", nil, optionsScroll)
+	content:SetSize(1, 112 + #ns.Settings * LAYOUT.optionHeight)
+	optionsScroll:SetScrollChild(content)
+	local function ResizeOptions(self)
+		content:SetWidth(self:GetWidth())
+	end
+	optionsScroll:HookScript("OnSizeChanged", ResizeOptions)
+	optionsScroll:HookScript("OnShow", ResizeOptions)
+	ResizeOptions(optionsScroll)
+
+	local channelLabel = content:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+	channelLabel:SetPoint("TOPLEFT", 4, -2)
+	channelLabel:SetText(L.CHANNEL_LABEL)
+	local name = CreateFrame("EditBox", nil, content, "InputBoxTemplate")
+	name:SetHeight(22)
+	name:SetPoint("TOPLEFT", 8, -20)
+	name:SetPoint("TOPRIGHT", -4, -20)
+	name:SetAutoFocus(false)
+	name:SetMaxLetters(30)
+	local join = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+	join:SetSize(88, 22)
+	join:SetPoint("TOPLEFT", 4, -47)
+	join:SetText(L.CHANNEL_CONNECT)
+	local disconnect = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+	disconnect:SetSize(76, 22)
+	disconnect:SetPoint("TOPRIGHT", -4, -47)
+	disconnect:SetText(L.CHANNEL_DISCONNECT)
+	local status = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	status:SetPoint("TOPLEFT", 4, -75)
+	status:SetPoint("TOPRIGHT", -4, -75)
+	status:SetHeight(30)
+	status:SetJustifyH("LEFT")
+	status:SetJustifyV("TOP")
+	status:SetWordWrap(true)
+	optionsView.connection = { name = name, join = join, disconnect = disconnect, status = status }
+	local function Connect()
+		local ok, errorMessage = ns.Session:Connect(name:GetText())
+		name:ClearFocus()
+		UpdateConnectionOptions(ok)
+		if not ok then
+			status:SetText(errorMessage)
+			status:SetTextColor(1, 0.4, 0.4)
+		end
+	end
+	join:SetScript("OnClick", Connect)
+	name:SetScript("OnEnterPressed", Connect)
+	name:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+	disconnect:SetScript("OnClick", function()
+		ns.Session:Disconnect()
+		UpdateConnectionOptions(true)
+	end)
+	UpdateConnectionOptions(true)
+
 	for index, setting in ipairs(ns.Settings) do
-		local check = CreateFrame("CheckButton", nil, optionsView, "UICheckButtonTemplate")
+		local check = CreateFrame("CheckButton", nil, content, "UICheckButtonTemplate")
 		check:SetSize(LAYOUT.optionHeight, LAYOUT.optionHeight)
-		check:SetPoint("TOPLEFT", 4, -contentTop - (index - 1) * LAYOUT.optionHeight)
+		check:SetPoint("TOPLEFT", 0, -112 - (index - 1) * LAYOUT.optionHeight)
 		check.settingId = setting.id
 		check.Text:SetFontObject("GameFontHighlight")
 		check.Text:SetText(setting.label)
@@ -887,4 +969,8 @@ Bus:On("DEBUG_CHANGED", function()
 		UpdateFooterToggles()
 		Panel:Refresh()
 	end
+end)
+
+Bus:On("CONNECTION_CHANGED", function()
+	UpdateConnectionOptions(false)
 end)
