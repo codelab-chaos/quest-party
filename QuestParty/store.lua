@@ -21,10 +21,31 @@ local db
 
 local function CardKey(entry, card)
 	local parts = { card.kind, entry.player }
+	if card.kind == "quest" and entry.data.questID then
+		parts[#parts + 1] = "id"
+		parts[#parts + 1] = tostring(entry.data.questID)
+		return table.concat(parts, KEY_SEPARATOR)
+	end
 	for _, key in ipairs(card.keys) do
 		parts[#parts + 1] = tostring(entry.data[key])
 	end
 	return table.concat(parts, KEY_SEPARATOR)
+end
+
+-- Older saves and the emulator identify quests by title. Adopt the stable ID
+-- when the owner supplies it, retaining the existing progress and start time.
+local function FindCard(entry, card)
+	local key = CardKey(entry, card)
+	local record = db.cards[key]
+	if not record and card.kind == "quest" and entry.data.questID then
+		local legacyKey = CardKey({ player = entry.player, data = { quest = entry.data.quest } }, card)
+		record = db.cards[legacyKey]
+		if record then
+			db.cards[legacyKey] = nil
+			db.cards[key] = record
+		end
+	end
+	return record, key
 end
 
 -- A counter that orders everything by when it last changed. Seconds are too coarse:
@@ -141,8 +162,7 @@ end
 
 -- Finds or creates the card an entry belongs to, and stamps it as just updated.
 local function TouchCard(entry, card)
-	local key = CardKey(entry, card)
-	local record = db.cards[key]
+	local record, key = FindCard(entry, card)
 	if not record then
 		record = {
 			kind = card.kind,
@@ -154,6 +174,10 @@ local function TouchCard(entry, card)
 			record.data[dataKey] = entry.data[dataKey]
 		end
 		db.cards[key] = record
+	end
+	if card.kind == "quest" and entry.data.questID then
+		record.data.questID = entry.data.questID
+		record.data.quest = entry.data.quest
 	end
 	record.class = entry.class
 	record.time = entry.time
@@ -206,8 +230,55 @@ function cardModes.tally(entry, def)
 end
 
 function cardModes.close(entry, def)
-	db.cards[CardKey(entry, def.card)] = nil
+	local _, key = FindCard(entry, def.card)
+	db.cards[key] = nil
 	return true
+end
+
+-- Reattach a saved, unidentified objective once the owning player's quest log
+-- supplies its ID. Other players' cards are never inferred from our quest log.
+function Store:IdentifyQuest(player, questID, title, objectiveName)
+	local card = ns.FeedTypes.quest_progress.card
+	local entry = { player = player, data = { questID = questID, quest = title } }
+	local record = FindCard(entry, card)
+	local changed = record and (record.data.questID ~= questID or record.data.quest ~= title)
+	if record then
+		record.data.questID, record.data.quest = questID, title
+	end
+	if objectiveName then
+		local oldKey = CardKey({ player = player, data = { quest = ns.L.UNKNOWN_QUEST } }, card)
+		local old = db.cards[oldKey]
+		local objective = old and old.data.objectives[objectiveName]
+		if objective then
+			if not record then
+				entry.class, entry.time = old.class, objective.time or old.time
+				record = TouchCard(entry, card)
+			end
+			local current = record.data.objectives[objectiveName]
+			if not current then
+				record.data.objectiveCount = record.data.objectiveCount + 1
+				current = { order = record.data.objectiveCount }
+				record.data.objectives[objectiveName] = current
+			end
+			if not current.time or (objective.time or old.time) > current.time then
+				current.have, current.need = objective.have, objective.need
+				current.time, current.sequence = objective.time or old.time, objective.sequence or old.sequence
+			end
+			record.time = math.max(record.time, objective.time or old.time)
+			record.sequence = math.max(record.sequence, objective.sequence or old.sequence)
+			old.data.objectives[objectiveName] = nil
+			old.data.objectiveCount = old.data.objectiveCount - 1
+			if not next(old.data.objectives) then db.cards[oldKey] = nil end
+			for _, row in ipairs(db.feed) do
+				if row.player == player and row.type == "quest_progress"
+					and row.data.quest == ns.L.UNKNOWN_QUEST and row.data.objective == objectiveName then
+					row.data.quest, row.data.questID = title, questID
+				end
+			end
+			changed = true
+		end
+	end
+	if changed then Bus:Fire("STORE_CHANGED") end
 end
 
 function Store:Ingest(entry)

@@ -18,6 +18,8 @@ local ABANDON_WAIT_SECONDS = 1
 local questTitles = {} -- [questID] = title, kept so a turn-in can still name the quest
 local turnedIn = {} -- [questID] = true, briefly, to tell a turn-in from an abandon
 local lastKill, lastCredit
+local knownQuests, watchedQuests, progressSeen, pending = {}, {}, {}, {}
+local lastQuestUpdate
 
 -- Text the game marks as secret (some combat states) cannot be read by addons.
 local function Readable(text)
@@ -48,53 +50,166 @@ end
 
 -- ========= Quest log lookups ================================================
 local function QuestTitle(questID)
+	knownQuests[questID] = true
 	local title = C_QuestLog.GetTitleForQuestID(questID)
-	if title then
+	if Readable(title) and title ~= "" then
 		questTitles[questID] = title
 	end
-	return title or questTitles[questID] or L.UNKNOWN_QUEST
+	return questTitles[questID] or L.UNKNOWN_QUEST
 end
 
--- Finds which quest an objective line belongs to, by looking for a quest objective
--- with the same counts whose text contains the same words.
-local function QuestForObjective(objective, have, need)
+local function ObjectiveName(text)
+	if not Readable(text) then return nil end
+	text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+	text = text:gsub("|H.-|h(.-)|h", "%1"):gsub("%[([^%]]+)%]", "%1")
+	text = text:match(Patterns.progress) or text
+	return (text:gsub("%s+", " "):match("^%s*(.-)%s*$"))
+end
+
+local function ReadableNumber(value)
+	return type(value) == "number" and not (issecretvalue and issecretvalue(value))
+end
+
+-- The owner can provide a full mid-quest snapshot even if QP never saw acceptance.
+-- Titles and objective counts come from the owner's log, not the receiver's log.
+function Collectors:GetQuestSnapshot(onlyQuestID)
+	local ids = {}
 	for index = 1, C_QuestLog.GetNumQuestLogEntries() do
 		local info = C_QuestLog.GetInfo(index)
 		if info and not info.isHeader and info.questID then
-			questTitles[info.questID] = info.title
-			for _, entry in ipairs(C_QuestLog.GetQuestObjectives(info.questID) or {}) do
-				if entry.numRequired == need and entry.numFulfilled == have
-					and Readable(entry.text) and entry.text:find(objective, 1, true) then
-					return info.title
+			knownQuests[info.questID] = true
+			if Readable(info.title) and info.title ~= "" then questTitles[info.questID] = info.title end
+		end
+	end
+	for id in pairs(knownQuests) do ids[id] = true end
+	for _, card in ipairs(ns.Store:GetCards("quest")) do
+		if card.player == UnitName("player") and card.data.questID then ids[card.data.questID] = true end
+	end
+	if onlyQuestID then ids = { [onlyQuestID] = true } end
+	local snapshot = {}
+	for id in pairs(ids) do
+		local entries = (onlyQuestID or C_QuestLog.GetLogIndexForQuestID(id)) and C_QuestLog.GetQuestObjectives(id)
+		local title = QuestTitle(id)
+		if entries and title ~= L.UNKNOWN_QUEST then
+			local quest = { questID = id, quest = title, objectives = {} }
+			for index, entry in ipairs(entries) do
+				local name = ObjectiveName(entry.text)
+				if name and name ~= "" and ReadableNumber(entry.numFulfilled)
+					and ReadableNumber(entry.numRequired) and entry.numRequired > 0 then
+					quest.objectives[#quest.objectives + 1] = {
+						index = index, objective = name, have = entry.numFulfilled, need = entry.numRequired,
+					}
 				end
+			end
+			snapshot[#snapshot + 1] = quest
+		end
+	end
+	table.sort(snapshot, function(a, b) return a.questID < b.questID end)
+	return snapshot
+end
+
+-- Counts may lag behind the info message. A unique objective identifies its quest
+-- without requiring equal counts; ambiguous matches wait for an ID-bearing event.
+local function QuestForObjective(objective, have, need, hint)
+	local name = ObjectiveName(objective)
+	if not name then return nil end
+	local matches = {}
+	for _, quest in ipairs(Collectors:GetQuestSnapshot(hint)) do
+		for _, entry in ipairs(quest.objectives) do
+			if entry.need == need and entry.objective:lower() == name:lower() then
+				local match = { questID = quest.questID, quest = quest.quest, objective = entry.objective }
+				matches[#matches + 1] = match
 			end
 		end
 	end
-	return L.UNKNOWN_QUEST
+	if #matches == 1 then return matches[1] end
 end
 
 -- ========= Kill and credit pairing ==========================================
-local function EmitKill(kill, quest)
-	Emit("kill", { mob = kill.mob, xp = kill.xp, quest = quest })
+local function EmitKill(kill, quest, questID)
+	Emit("kill", { mob = kill.mob, xp = kill.xp, quest = quest, questID = questID })
 end
 
 local function OnKill(mob, xp)
 	local now = GetTime()
 	if lastCredit and now - lastCredit.time <= KILL_LINK_SECONDS then
-		EmitKill({ mob = mob, xp = xp }, lastCredit.quest)
+		EmitKill({ mob = mob, xp = xp }, lastCredit.quest, lastCredit.questID)
 		lastCredit = nil
 	else
 		lastKill = { mob = mob, xp = xp, time = now }
 	end
 end
 
-local function OnCredit(quest)
-	local now = GetTime()
-	if lastKill and now - lastKill.time <= KILL_LINK_SECONDS then
-		EmitKill(lastKill, quest)
+local function OnCredit(quest, questID, creditTime)
+	local now = creditTime or GetTime()
+	if lastKill and math.abs(now - lastKill.time) <= KILL_LINK_SECONDS then
+		EmitKill(lastKill, quest, questID)
 		lastKill = nil
 	else
-		lastCredit = { quest = quest, time = now }
+		lastCredit = { quest = quest, questID = questID, time = now }
+	end
+end
+
+local function EmitProgress(quest, objective, have, need, creditTime, fromLog)
+	local seen = progressSeen[quest.questID] or {}
+	progressSeen[quest.questID] = seen
+	local key = objective:lower()
+	local previous = seen[key]
+	if previous and previous.have == have and previous.need == need then return end
+	-- A message can arrive before the log's new count. Do not immediately undo it.
+	if fromLog and previous and have < previous.have and GetTime() - previous.time < 1 then return false end
+	seen[key] = { have = have, need = need, time = GetTime() }
+	ns.Store:IdentifyQuest(UnitName("player"), quest.questID, quest.quest, objective)
+	Emit("quest_progress", { questID = quest.questID, quest = quest.quest, objective = objective, have = have, need = need })
+	if have > 0 and (not previous or have > previous.have) then
+		OnCredit(quest.quest, quest.questID, creditTime)
+	end
+end
+
+local function ResolvePending(hint)
+	local index = 1
+	while index <= #pending do
+		local update = pending[index]
+		if GetTime() - update.time > 10 then
+			table.remove(pending, index)
+		else
+			local match = QuestForObjective(update.objective, update.have, update.need, hint)
+			if match then
+				table.remove(pending, index)
+				EmitProgress(match, match.objective, update.have, update.need, update.time)
+			else
+				index = index + 1
+			end
+		end
+	end
+end
+
+local function RefreshQuest(questID)
+	local retry
+	for _, quest in ipairs(Collectors:GetQuestSnapshot(questID)) do
+		for _, objective in ipairs(quest.objectives) do
+			if EmitProgress(quest, objective.objective, objective.have, objective.need, nil, true) == false then retry = true end
+		end
+	end
+	if retry then
+		C_Timer.After(1, function()
+			if watchedQuests[questID] and not turnedIn[questID] then RefreshQuest(questID) end
+		end)
+	end
+end
+
+local function RepairSavedQuests()
+	local player = UnitName("player")
+	for _, quest in ipairs(Collectors:GetQuestSnapshot()) do
+		ns.Store:IdentifyQuest(player, quest.questID, quest.quest)
+	end
+	for _, card in ipairs(ns.Store:GetCards("quest")) do
+		if card.player == player and card.data.quest == L.UNKNOWN_QUEST then
+			for name, objective in pairs(card.data.objectives) do
+				local match = QuestForObjective(name, objective.have, objective.need)
+				if match then ns.Store:IdentifyQuest(player, match.questID, match.quest, name) end
+			end
+		end
 	end
 end
 
@@ -102,23 +217,41 @@ end
 local handlers = {}
 
 function handlers.QUEST_ACCEPTED(questID)
-	Emit("quest_accepted", { quest = QuestTitle(questID) })
+	Emit("quest_accepted", { questID = questID, quest = QuestTitle(questID) })
 end
 
 function handlers.QUEST_TURNED_IN(questID, xpReward)
 	turnedIn[questID] = true
-	Emit("quest_complete", { quest = QuestTitle(questID), xp = xpReward or 0 })
+	Emit("quest_complete", { questID = questID, quest = QuestTitle(questID), xp = xpReward or 0 })
+	progressSeen[questID], watchedQuests[questID] = nil, nil
 end
 
 function handlers.QUEST_REMOVED(questID)
 	local title = QuestTitle(questID)
+	watchedQuests[questID] = nil
 	C_Timer.After(ABANDON_WAIT_SECONDS, function()
 		if not turnedIn[questID] then
-			Emit("quest_abandoned", { quest = title })
+			Emit("quest_abandoned", { questID = questID, quest = title })
 		end
 		turnedIn[questID] = nil
 		questTitles[questID] = nil
+		knownQuests[questID], watchedQuests[questID], progressSeen[questID] = nil, nil, nil
 	end)
+end
+
+function handlers.QUEST_WATCH_UPDATE(questID)
+	knownQuests[questID], watchedQuests[questID] = true, true
+	lastQuestUpdate = { questID = questID, time = GetTime() }
+	ResolvePending(questID)
+	RefreshQuest(questID)
+end
+
+function handlers.QUEST_LOG_UPDATE()
+	ResolvePending()
+	for questID in pairs(watchedQuests) do
+		if not turnedIn[questID] then RefreshQuest(questID) end
+	end
+	RepairSavedQuests()
 end
 
 -- Quest progress and discoveries arrive as on-screen info messages. The message is
@@ -131,9 +264,17 @@ function handlers.UI_INFO_MESSAGE(first, second)
 	local objective, have, need = message:match(Patterns.progress)
 	if objective then
 		have, need = tonumber(have), tonumber(need)
-		local quest = QuestForObjective(objective, have, need)
-		Emit("quest_progress", { quest = quest, objective = objective, have = have, need = need })
-		OnCredit(quest)
+		local match = QuestForObjective(objective, have, need)
+		if not match and lastQuestUpdate and GetTime() - lastQuestUpdate.time <= KILL_LINK_SECONDS then
+			match = QuestForObjective(objective, have, need, lastQuestUpdate.questID)
+		end
+		if match then
+			EmitProgress(match, match.objective, have, need, GetTime())
+		else
+			pending[#pending + 1] = { objective = objective, have = have, need = need, time = GetTime() }
+			if #pending > 64 then table.remove(pending, 1) end
+			C_Timer.After(0.1, function() ResolvePending() end)
+		end
 		return
 	end
 	local zone = message:match(Patterns.discoveryXp) or message:match(Patterns.discovery)
@@ -193,6 +334,7 @@ function Collectors:RunTest()
 end
 
 Bus:On("READY", function()
+	RepairSavedQuests()
 	local frame = CreateFrame("Frame")
 	for event in pairs(handlers) do
 		frame:RegisterEvent(event)

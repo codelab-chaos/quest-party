@@ -249,6 +249,209 @@ test("collectors ignore secret and non-text messages", function()
 	equal(#w.ns.Store:GetFeed(true), 0)
 end)
 
+test("own objective lookup retains quest ID when the quest log count lags", function()
+	local w = Harness.new()
+	w:quest(2, 5)
+	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 286, "Kobolds slain: 3/5")
+	local card = w.ns.Store:GetCards("quest")[1]
+	equal(card.data.questID, 1)
+	equal(card.data.quest, "A Quest")
+	equal(card.data.objectives["Kobolds slain"].have, 3)
+	w.ns.Collectors:Handle("QUEST_WATCH_UPDATE", 1)
+	equal(card.data.objectives["Kobolds slain"].have, 3)
+end)
+
+test("ID-bearing quest events work without a prior QP card or visible log row", function()
+	local w = Harness.new()
+	w.questData[47] = { title = "Rib Harvest", objectives = {
+		{ text = "Notched Rib: 3/5", numFulfilled = 3, numRequired = 5 },
+	} }
+	local outgoing
+	w.ns.Bus:On("ENTRY_OUTGOING", function(entry) outgoing = entry end)
+	w.ns.Collectors:Handle("QUEST_WATCH_UPDATE", 47)
+	local card = w.ns.Store:GetCards("quest")[1]
+	equal(card.data.questID, 47)
+	equal(card.data.quest, "Rib Harvest")
+	equal(card.data.objectives["Notched Rib"].have, 3)
+	equal(outgoing.data.questID, 47)
+	equal(outgoing.data.quest, "Rib Harvest")
+	equal(#w.sent, 0) -- preparing an outgoing entry does not imply channel transport
+end)
+
+test("ambiguous objective messages wait for the owning quest's ID", function()
+	local w = Harness.new()
+	w:quest(1, 3)
+	w.quests[2] = { questID = 2, title = "Another Quest", objectives = {
+		{ text = "Kobolds slain: 1/3", numFulfilled = 1, numRequired = 3 },
+	} }
+	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 286, "Kobolds slain: 2/3")
+	equal(#w.ns.Store:GetCards("quest"), 0)
+	w.ns.Collectors:Handle("QUEST_WATCH_UPDATE", 2)
+	local cards = w.ns.Store:GetCards("quest")
+	equal(#cards, 1)
+	equal(cards[1].data.questID, 2)
+	equal(cards[1].data.objectives["Kobolds slain"].have, 2)
+end)
+
+test("objective and title data arriving later resolve without an Unknown quest card", function()
+	local w = Harness.new()
+	w.quests[1] = { questID = 1 }
+	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 286, "Notched Rib: 3/5")
+	w.ns.Collectors:Handle("QUEST_WATCH_UPDATE", 1)
+	equal(#w.ns.Store:GetCards("quest"), 0)
+	w.quests[1].title = "Rib Harvest"
+	w.quests[1].objectives = { { text = "Notched Rib: 2/5", numFulfilled = 2, numRequired = 5 } }
+	w:advance(0.1)
+	equal(w.ns.Store:GetCards("quest")[1].data.quest, "Rib Harvest")
+	equal(w.ns.Store:GetCards("quest")[1].data.questID, 1)
+end)
+
+test("matching counts do not disambiguate shared objectives when another quest's counts may lag", function()
+	local w = Harness.new()
+	w:quest(2, 3)
+	w.quests[2] = { questID = 2, title = "Another Quest", objectives = {
+		{ text = "Kobolds slain: 1/3", numFulfilled = 1, numRequired = 3 },
+	} }
+	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 286, "Kobolds slain: 2/3")
+	equal(#w.ns.Store:GetCards("quest"), 0)
+	w.ns.Collectors:Handle("QUEST_WATCH_UPDATE", 2)
+	equal(w.ns.Store:GetCards("quest")[1].data.questID, 2)
+end)
+
+test("queued progress resolves in order after quest data loads", function()
+	local w = Harness.new()
+	for have = 1, 3 do w.ns.Collectors:Handle("UI_INFO_MESSAGE", 286, "Kobolds slain: " .. have .. "/5") end
+	w:quest(3, 5)
+	w:advance(0.1)
+	equal(w.ns.Store:GetCards("quest")[1].data.objectives["Kobolds slain"].have, 3)
+end)
+
+test("a deferred log read can report a genuine objective count decrease", function()
+	local w = Harness.new()
+	w:quest(3, 5)
+	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 286, "Kobolds slain: 3/5")
+	w:quest(2, 5)
+	w.ns.Collectors:Handle("QUEST_WATCH_UPDATE", 1)
+	equal(w.ns.Store:GetCards("quest")[1].data.objectives["Kobolds slain"].have, 3)
+	w:advance(1.1)
+	equal(w.ns.Store:GetCards("quest")[1].data.objectives["Kobolds slain"].have, 2)
+end)
+
+test("cached objective data for removed quests is excluded from active snapshots", function()
+	local w = Harness.new()
+	w.questData[47] = { title = "Rib Harvest", objectives = {
+		{ text = "Notched Rib: 3/5", numFulfilled = 3, numRequired = 5 },
+	} }
+	w.ns.Collectors:Handle("QUEST_WATCH_UPDATE", 47)
+	w.questData[47].removed = true
+	equal(#w.ns.Collectors:GetQuestSnapshot(), 0)
+end)
+
+test("native and text progress events are deduplicated", function()
+	local w = Harness.new()
+	w:quest(1, 3)
+	local outgoing = 0
+	w.ns.Bus:On("ENTRY_OUTGOING", function(entry)
+		if entry.type == "quest_progress" then outgoing = outgoing + 1 end
+	end)
+	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 286, "Kobolds slain: 1/3")
+	w.ns.Collectors:Handle("QUEST_WATCH_UPDATE", 1)
+	w.ns.Collectors:Handle("QUEST_LOG_UPDATE")
+	equal(outgoing, 1)
+	equal(#w.ns.Store:GetCards("quest"), 1)
+end)
+
+test("mid-quest snapshots supply ID, title and all current objective counts", function()
+	local w = Harness.new()
+	w:quest(3, 5)
+	w.quests[1].objectives[2] = { text = "|cffffffff|Hitem:123|h[Notched Rib]|h|r: 2/4", numFulfilled = 2, numRequired = 4 }
+	local snapshot = w.ns.Collectors:GetQuestSnapshot()
+	equal(#snapshot, 1)
+	equal(snapshot[1].questID, 1)
+	equal(snapshot[1].quest, "A Quest")
+	equal(snapshot[1].objectives[1].have, 3)
+	equal(snapshot[1].objectives[2].objective, "Notched Rib")
+	equal(snapshot[1].objectives[2].have, 2)
+	equal(#w.ns.Store:GetCards("quest"), 0)
+	equal(#w.sent, 0)
+end)
+
+test("saved unidentified objectives are repaired only for the owning player", function()
+	local w = Harness.new()
+	for _, player in ipairs({ "Tester", "Buddy" }) do
+		w:ingest("quest_progress", { quest = w.ns.L.UNKNOWN_QUEST, objective = "Kobolds slain", have = 3, need = 5 }, player)
+	end
+	w:quest(3, 5)
+	w.ns.Bus:Fire("READY")
+	local own, buddy
+	for _, card in ipairs(w.ns.Store:GetCards("quest")) do
+		if card.player == "Tester" then own = card else buddy = card end
+	end
+	equal(own.data.quest, "A Quest")
+	equal(own.data.questID, 1)
+	equal(own.data.objectives["Kobolds slain"].have, 3)
+	equal(buddy.data.quest, w.ns.L.UNKNOWN_QUEST)
+	equal(buddy.data.questID, nil)
+end)
+
+test("repairing a completed unidentified objective updates history without announcing twice", function()
+	local w = Harness.new()
+	w:ingest("quest_progress", { quest = w.ns.L.UNKNOWN_QUEST, objective = "Kobolds slain", have = 5, need = 5 })
+	w:quest(5, 5)
+	w.ns.Bus:Fire("READY")
+	equal(#w.ns.Store:GetFeed(true), 1)
+	equal(w.ns.Store:GetFeed(true)[1].data.questID, 1)
+	equal(w.ns.Store:GetFeed(true)[1].data.quest, "A Quest")
+	equal(#w.chat, 1)
+end)
+
+test("title-only saved cards gain IDs without losing their start time or progress", function()
+	local w = Harness.new()
+	progress(w, 2)
+	local created = w.ns.Store:GetCards("quest")[1].created
+	w:advance(3)
+	w:quest(2, 3)
+	w.ns.Bus:Fire("READY")
+	local cards = w.ns.Store:GetCards("quest")
+	equal(#cards, 1)
+	equal(cards[1].data.questID, 1)
+	equal(cards[1].created, created)
+	equal(cards[1].data.objectives.Kobolds.have, 2)
+end)
+
+test("quest IDs survive reload and keep one card when the title changes", function()
+	local w = Harness.new()
+	w:ingest("quest_progress", { questID = 47, quest = "Original Title", objective = "Ribs", have = 2, need = 5 })
+	w = Harness.new(w.ns.db, w.ns.charDb)
+	w:ingest("quest_progress", { questID = 47, quest = "Updated Title", objective = "Ribs", have = 3, need = 5 })
+	equal(#w.ns.Store:GetCards("quest"), 1)
+	equal(w.ns.Store:GetCards("quest")[1].data.quest, "Updated Title")
+	w:ingest("quest_complete", { questID = 47, quest = "Completion Title", xp = 100 })
+	equal(#w.ns.Store:GetCards("quest"), 0)
+end)
+
+test("quests sharing a title remain distinct when their IDs differ", function()
+	local w = Harness.new()
+	for _, id in ipairs({ 47, 48 }) do
+		w:ingest("quest_progress", { questID = id, quest = "Same Title", objective = "Ribs", have = 2, need = 5 })
+	end
+	equal(#w.ns.Store:GetCards("quest"), 2)
+	local rows = w.ns.ViewModel:Build("quests")
+	equal(#rows, 2)
+	assert(rows[1].questID ~= rows[2].questID)
+end)
+
+test("delayed objective resolution cannot claim a newer unrelated kill", function()
+	local w = Harness.new()
+	w.ns.SetEnabled("kills", true)
+	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 286, "Kobolds slain: 1/3")
+	w:advance(2)
+	w.ns.Collectors:Handle("CHAT_MSG_COMBAT_XP_GAIN", "Rabbit dies, you gain 1 experience.")
+	w:quest(1, 3)
+	w.ns.Collectors:Handle("QUEST_LOG_UPDATE")
+	equal(w.ns.Store:GetCards("quest")[1].data.kills, 0)
+end)
+
 test("localized message patterns escape punctuation and reject reordered arguments", function()
 	local ns = Harness.new().ns
 	local pattern = ns.FromFormat("Found [%s]: %d.")

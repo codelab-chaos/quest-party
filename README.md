@@ -7,6 +7,12 @@ Channel progress broadcasting is the next development step; automatic group
 discovery and character-name friend links have been retired. Install the `QuestParty`
 folder inside `World of Warcraft/_forever_/Interface/AddOns`, then use `/qp` in game.
 
+Own quest updates retain the game's quest ID, title and objective counts, including
+quests accepted before QP started tracking. ID-bearing quest events resolve
+ambiguous progress messages; uniquely matched saved "Unknown quest" objectives
+are repaired from their owner's log. The collector can also read a mid-quest
+snapshot for a future channel relay. Snapshots and progress are not broadcast yet.
+
 ## Builds and releases
 
 Every push to `main` and every pull request runs Lua 5.1 syntax checks, addon

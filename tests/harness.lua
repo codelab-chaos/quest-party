@@ -2,7 +2,7 @@
 local Harness = {}
 
 function Harness.new(saved, character, debugBuild)
-	local world = { now = 10000, frames = {}, timers = {}, sent = {}, chat = {}, party = {}, quests = {}, channels = {}, joins = {}, leaves = {} }
+	local world = { now = 10000, frames = {}, timers = {}, sent = {}, chat = {}, party = {}, quests = {}, questData = {}, channels = {}, joins = {}, leaves = {} }
 	local env = setmetatable({}, { __index = _G })
 	env._G = env
 	env.unpack = unpack or table.unpack
@@ -94,11 +94,21 @@ function Harness.new(saved, character, debugBuild)
 			return world.sendResult or 0
 		end,
 	}
+	local function FindQuest(id)
+		if world.questData[id] then return world.questData[id] end
+		for _, quest in pairs(world.quests) do
+			if quest.questID == id then return quest end
+		end
+	end
 	env.C_QuestLog = {
-		GetTitleForQuestID = function(id) return world.quests[id] and world.quests[id].title end,
+		GetTitleForQuestID = function(id) local quest = FindQuest(id); return quest and quest.title end,
+		GetLogIndexForQuestID = function(id)
+			for index, quest in ipairs(world.quests) do if quest.questID == id then return index end end
+			if world.questData[id] and not world.questData[id].removed then return 100 end
+		end,
 		GetNumQuestLogEntries = function() return #world.quests end,
 		GetInfo = function(index) return world.quests[index] end,
-		GetQuestObjectives = function(id) return world.quests[id] and world.quests[id].objectives end,
+		GetQuestObjectives = function(id) local quest = FindQuest(id); return quest and quest.objectives end,
 	}
 	local ns = {}
 	local modules = {

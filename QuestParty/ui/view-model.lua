@@ -90,6 +90,7 @@ local function ProgressRow(record, objective, now)
 		summary = detail,
 		progress = progress,
 		quest = record.data.quest,
+		questID = record.data.questID,
 		stale = age > ns.Timing.staleSeconds,
 		pulse = (age <= PULSE_SECONDS) and (record.key .. "/" .. objective.name .. "/" .. objective.have),
 	}
@@ -157,6 +158,7 @@ local function TrackerRow(quest, records, now)
 		summary = L.TRACKER_MEMBERS:format(#records),
 		progress = overall.need > 0 and overall or nil,
 		quest = quest,
+		questID = records[1].data.questID,
 		stale = allStale,
 		pulse = (age <= PULSE_SECONDS) and ("tracker/" .. quest .. "/" .. sequence),
 	}
@@ -166,16 +168,17 @@ end
 local function TrackerRows(kindName, now)
 	local byQuest, order = {}, {}
 	for _, record in ipairs(ns.Store:GetCards(kindName)) do
-		local quest = record.data.quest
-		if not byQuest[quest] then
-			byQuest[quest] = {}
-			order[#order + 1] = quest
+		local key = record.data.questID or record.data.quest
+		if not byQuest[key] then
+			byQuest[key] = {}
+			order[#order + 1] = key
 		end
-		table.insert(byQuest[quest], record)
+		table.insert(byQuest[key], record)
 	end
 	local rows = {}
-	for _, quest in ipairs(order) do
-		rows[#rows + 1] = TrackerRow(quest, byQuest[quest], now)
+	for _, key in ipairs(order) do
+		local records = byQuest[key]
+		rows[#rows + 1] = TrackerRow(records[1].data.quest, records, now)
 	end
 	return rows
 end
