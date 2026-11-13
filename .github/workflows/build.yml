@@ -1,0 +1,51 @@
+name: Checks and package
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: Version to stamp into the packaged addon
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Test and build addon
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y lua5.1
+      - name: Check Lua syntax
+        run: find QuestParty tests -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
+      - name: Run addon tests
+        run: lua5.1 tests/run.lua
+      - name: Test packaging
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Build installable ZIP
+        env:
+          BUILD_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ -n "$BUILD_VERSION" ]]; then
+            python3 scripts/package.py --version "$BUILD_VERSION"
+          else
+            python3 scripts/package.py
+          fi
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: QuestParty-build
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
