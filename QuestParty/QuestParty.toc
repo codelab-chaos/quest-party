@@ -1,0 +1,31 @@
+## Interface: 16001
+## Title: Quest Party
+## Notes: Share quest progress, levels and achievements with your party in a live feed.
+## Author: Wizwonk
+## Version: 0.1.0
+## AllowLoadGameType: forever
+## ExcludeLoadGameType: standard, classic
+## Category: Quests
+## IconTexture: Interface\Icons\spell_nature_astralrecalgroup
+## SavedVariables: QuestPartyDB
+## SavedVariablesPerCharacter: QuestPartyCharDB
+## AddonCompartmentFunc: QuestParty_OnAddonCompartmentClick
+
+core.lua
+locales\en-us.lua
+data\feed-types.lua
+data\filters.lua
+data\settings.lua
+store.lua
+comms\protocol.lua
+comms\transport.lua
+comms\session.lua
+collectors\patterns.lua
+collectors\samples.lua
+collectors\collectors.lua
+emulator\script.lua
+emulator\emulator.lua
+ui\view-model.lua
+ui\panel.lua
+ui\chat-echo.lua
+commands.lua
