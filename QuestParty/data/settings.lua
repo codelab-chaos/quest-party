@@ -22,9 +22,7 @@ for _, setting in ipairs(ns.Settings) do
 	ns.SettingById[setting.id] = setting
 end
 
--- How long a persistent card can go without an update.
+-- Cached cards remain available until cleared or closed by a quest update.
 ns.Timing = {
 	staleSeconds = 5 * 60, -- then it is drawn grayed out
-	expireSeconds = 60 * 60, -- then it is removed
-	pruneSeconds = 60, -- how often expired cards are swept
 }

@@ -4,7 +4,10 @@ Quest Party brings your adventures in **World of Warcraft: Forever** into one
 compact, live feed. Follow quest objectives, level-ups, achievements, discoveries,
 and profession gains without losing ongoing progress in a stream of chat.
 
-- **Persistent quest cards** keep objectives and item counts visible as you play.
+- **Persistent quest cards** keep objectives and item counts visible across
+  reloads, even without a channel connection. Your own quests refresh from your
+  quest log; cached cards stay visible and turn gray after five minutes without
+  an update.
 - **Filter tabs** let you focus on quests, XP, achievements, professions, or the party view.
 - **Detailed and compact views** fit the way you like to track your adventures.
 - **Customizable output** lets you choose event categories, include your own

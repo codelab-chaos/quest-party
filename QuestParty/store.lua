@@ -146,13 +146,7 @@ function Store:Init()
 			entry.data.objective = ns.ObjectiveName(entry.data.objective) or entry.data.objective
 		end
 	end
-	self:Prune()
 	Resequence()
-	C_Timer.NewTicker(ns.Timing.pruneSeconds, function()
-		if Store:Prune() then
-			Bus:Fire("STORE_CHANGED")
-		end
-	end)
 end
 
 function Store:Clear()
@@ -160,19 +154,6 @@ function Store:Clear()
 	wipe(db.cards)
 	wipe(db.members)
 	Bus:Fire("STORE_CHANGED")
-end
-
--- Removes cards that have gone too long without an update. Returns true if any went.
-function Store:Prune()
-	local cutoff = GetServerTime() - ns.Timing.expireSeconds
-	local removed = false
-	for key, card in pairs(db.cards) do
-		if card.time < cutoff then
-			db.cards[key] = nil
-			removed = true
-		end
-	end
-	return removed
 end
 
 local function TouchMember(entry, def)
@@ -224,6 +205,30 @@ local function TouchCard(entry, card)
 	record.time = entry.time
 	record.sequence = NextSequence()
 	return record
+end
+
+-- Restore the owner's current log without replaying acceptance, completion,
+-- chat echoes or outgoing events. A snapshot replaces old objective lines, but
+-- keeps the saved start time and kill/XP tallies on the existing card.
+function Store:HydrateQuest(player, class, quest, includeDetails)
+	local record = TouchCard({ player = player, class = class, time = GetServerTime(), data = quest }, ns.FeedTypes.quest_accepted.card)
+	if includeDetails then
+		local previous, objectives = record.data.objectives, {}
+		for order, entry in ipairs(quest.objectives) do
+			local objective = previous[entry.objective]
+			for _, candidate in pairs(previous) do
+				if candidate.index == entry.index then objective = candidate; break end
+			end
+			if not objective or objective.have ~= entry.have or objective.need ~= entry.need then
+				objective = { time = record.time, sequence = record.sequence }
+			end
+			objective.name, objective.index, objective.order = entry.objective, entry.index, order
+			objective.have, objective.need = entry.have, entry.need
+			objectives[entry.objective] = objective
+		end
+		record.data.objectives, record.data.objectiveCount = objectives, #quest.objectives
+	end
+	Bus:Fire("STORE_CHANGED")
 end
 
 -- Card behaviors, keyed by card.mode. Each returns true when the entry should

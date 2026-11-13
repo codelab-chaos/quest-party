@@ -20,6 +20,7 @@ local turnedIn = {} -- [questID] = true, briefly, to tell a turn-in from an aban
 local lastKill, lastCredit
 local knownQuests, watchedQuests, progressSeen, pending = {}, {}, {}, {}
 local lastQuestUpdate
+local ready = false
 
 -- Text the game marks as secret (some combat states) cannot be read by addons.
 local function Readable(text)
@@ -75,6 +76,11 @@ function Collectors:GetQuestSnapshot(onlyQuestID)
 			if Readable(info.title) and info.title ~= "" then questTitles[info.questID] = info.title end
 		end
 	end
+	-- Watched quests can be hidden beneath collapsed headers in the log.
+	for index = 1, C_QuestLog.GetNumQuestWatches() do
+		local id = C_QuestLog.GetQuestIDForQuestWatchIndex(index)
+		if id then knownQuests[id] = true end
+	end
 	for id in pairs(knownQuests) do ids[id] = true end
 	for _, card in ipairs(ns.Store:GetCards("quest")) do
 		if card.player == UnitName("player") and card.data.questID then ids[card.data.questID] = true end
@@ -85,11 +91,12 @@ function Collectors:GetQuestSnapshot(onlyQuestID)
 		local entries = (onlyQuestID or C_QuestLog.GetLogIndexForQuestID(id)) and C_QuestLog.GetQuestObjectives(id)
 		local title = QuestTitle(id)
 		if entries and title ~= L.UNKNOWN_QUEST then
-			local quest = { questID = id, quest = title, objectives = {} }
+			local quest = { questID = id, quest = title, objectives = {}, objectivesReady = true }
 			for index, entry in ipairs(entries) do
 				local name = ObjectiveName(entry.text)
-				if name and name ~= "" and ReadableNumber(entry.numFulfilled)
-					and ReadableNumber(entry.numRequired) and entry.numRequired > 0 then
+				if not name or name == "" or not ReadableNumber(entry.numFulfilled) or not ReadableNumber(entry.numRequired) then
+					quest.objectivesReady = false
+				elseif entry.numRequired > 0 then
 					quest.objectives[#quest.objectives + 1] = {
 						index = index, objective = name, have = entry.numFulfilled, need = entry.numRequired,
 					}
@@ -209,6 +216,24 @@ local function RepairSavedQuests()
 	end
 end
 
+-- Baseline each local quest once its log data is available. Later log changes
+-- go through the normal collector, so genuine progress still produces events.
+local function HydrateOwnQuests(force)
+	if not ns.IsEnabled("showSelf") or not ns.IsEnabled("quests") then return end
+	local player = UnitName("player")
+	local _, class = UnitClass("player")
+	for _, quest in ipairs(Collectors:GetQuestSnapshot()) do
+		if quest.objectivesReady and not turnedIn[quest.questID] and (force or not progressSeen[quest.questID]) then
+			ns.Store:HydrateQuest(player, class, quest, ns.IsEnabled("questDetails"))
+			local seen = {}
+			for _, objective in ipairs(quest.objectives) do
+				seen[objective.index] = { objective = objective.objective, have = objective.have, need = objective.need, time = GetTime() }
+			end
+			progressSeen[quest.questID], watchedQuests[quest.questID] = seen, true
+		end
+	end
+end
+
 -- ========= Event handlers ===================================================
 local handlers = {}
 
@@ -244,6 +269,7 @@ end
 
 function handlers.QUEST_LOG_UPDATE()
 	ResolvePending()
+	HydrateOwnQuests()
 	for questID in pairs(watchedQuests) do
 		if not turnedIn[questID] then RefreshQuest(questID) end
 	end
@@ -330,7 +356,9 @@ function Collectors:RunTest()
 end
 
 Bus:On("READY", function()
+	ready = true
 	RepairSavedQuests()
+	HydrateOwnQuests()
 	local frame = CreateFrame("Frame")
 	for event in pairs(handlers) do
 		frame:RegisterEvent(event)
@@ -338,4 +366,10 @@ Bus:On("READY", function()
 	frame:SetScript("OnEvent", function(_, event, ...)
 		Collectors:Handle(event, ...)
 	end)
+end)
+
+Bus:On("SETTING_CHANGED", function(id, enabled)
+	if ready and enabled and (id == "showSelf" or id == "quests" or id == "questDetails") then
+		HydrateOwnQuests(true)
+	end
 end)

@@ -120,12 +120,24 @@ test("feed keeps the latest 200 events", function()
 	equal(feed[200].data.level, 6)
 end)
 
-test("old cards expire while feed history remains", function()
+test("cached cards survive a week offline and reload without a channel", function()
 	local w = Harness.new()
-	w:ingest("quest_accepted", { quest = "A Quest" })
-	w:advance(w.ns.Timing.expireSeconds + w.ns.Timing.pruneSeconds)
-	equal(#w.ns.Store:GetCards("quest"), 0)
-	equal(#w.ns.Store:GetFeed(true), 1)
+	w:ingest("quest_accepted", { questID = 47, quest = "Buddy's Quest" }, "Buddy")
+	w:ingest("quest_progress", { questID = 47, quest = "Buddy's Quest", objective = "Ribs", have = 2, need = 5 }, "Buddy")
+	local updated = w.ns.Store:GetCards("quest")[1].time
+	w:advance(7 * 24 * 60 * 60)
+	equal(#w.ns.Store:GetCards("quest"), 1)
+	local reloaded = Harness.new(w.ns.db, w.ns.charDb, false, w.now)
+	reloaded.ns.Bus:Fire("READY")
+	local card = reloaded.ns.Store:GetCards("quest")[1]
+	equal(card.player, "Buddy")
+	equal(card.time, updated)
+	equal(card.data.objectives.Ribs.have, 2)
+	equal(reloaded.ns.ViewModel:Build("quests")[1].stale, true)
+	equal(#reloaded.ns.Store:GetFeed(true), 1)
+	equal(#reloaded.sent, 0)
+	reloaded.ns.Store:Clear()
+	equal(#reloaded.ns.Store:GetCards("quest"), 0)
 end)
 
 test("saved cards and ordering survive a fresh addon startup", function()
@@ -376,6 +388,124 @@ test("mid-quest snapshots supply ID, title and all current objective counts", fu
 	equal(#w.sent, 0)
 end)
 
+test("startup hydrates active quests quietly and observes their next real progress", function()
+	local w = Harness.new()
+	w:quest(2, 3)
+	w.quests[1].objectives[2] = { text = "Ribs: 5/5", numFulfilled = 5, numRequired = 5 }
+	w.quests[2] = { questID = 2, title = "Delivery", objectives = {} }
+	local outgoing = 0
+	w.ns.Bus:On("ENTRY_OUTGOING", function() outgoing = outgoing + 1 end)
+	w:event("PLAYER_LOGIN")
+	equal(#w.ns.Store:GetCards("quest"), 2)
+	local quest
+	for _, card in ipairs(w.ns.Store:GetCards("quest")) do
+		if card.data.questID == 1 then quest = card end
+	end
+	equal(quest.data.objectives["Kobolds slain"].have, 2)
+	equal(quest.data.objectives.Ribs.have, 5)
+	w:event("QUEST_LOG_UPDATE")
+	w:event("QUEST_WATCH_UPDATE", 1)
+	equal(outgoing, 0)
+	equal(#w.ns.Store:GetFeed(true), 0)
+	equal(#w.chat, 0)
+	w:quest(3, 3)
+	w:event("QUEST_LOG_UPDATE")
+	w:event("UI_INFO_MESSAGE", 286, "Kobolds slain: 3/3")
+	equal(quest.data.objectives["Kobolds slain"].have, 3)
+	equal(outgoing, 1)
+	equal(#w.ns.Store:GetFeed(true), 1)
+	equal(#w.chat, 1)
+	equal(#w.sent, 0)
+end)
+
+test("hydration refreshes saved counts and preserves start time and kill tallies", function()
+	local w = Harness.new()
+	w.ns.SetEnabled("kills", true)
+	w:ingest("quest_accepted", { questID = 1, quest = "A Quest" })
+	w:ingest("quest_progress", { questID = 1, quest = "A Quest", objective = "Kobolds slain", objectiveIndex = 1, have = 3, need = 5 })
+	w:ingest("quest_progress", { questID = 1, quest = "A Quest", objective = "Old duplicate line", have = 2, need = 5 })
+	w:ingest("kill", { questID = 1, quest = "A Quest", xp = 26 })
+	local created = w.ns.Store:GetCards("quest")[1].created
+	local reloaded = Harness.new(w.ns.db, w.ns.charDb, false, w.now + 24 * 60 * 60)
+	reloaded:quest(1, 5)
+	reloaded:event("PLAYER_LOGIN")
+	local card = reloaded.ns.Store:GetCards("quest")[1]
+	equal(card.created, created)
+	equal(card.data.kills, 1)
+	equal(card.data.xp, 26)
+	equal(card.data.objectiveCount, 1)
+	equal(card.data.objectives["Kobolds slain"].have, 1)
+	equal(card.data.objectives["Old duplicate line"], nil)
+	equal(#reloaded.ns.Store:GetFeed(true), 1)
+	equal(#reloaded.chat, 0)
+	reloaded:event("CHAT_MSG_COMBAT_XP_GAIN", "Rabbit dies, you gain 1 experience.")
+	equal(card.data.kills, 1)
+end)
+
+test("cached objectives remain until delayed quest log data becomes available", function()
+	local w = Harness.new()
+	w:ingest("quest_progress", { questID = 1, quest = "A Quest", objective = "Kobolds slain", have = 2, need = 3 })
+	local reloaded = Harness.new(w.ns.db, w.ns.charDb)
+	reloaded.quests[1] = { questID = 1, title = "A Quest" }
+	reloaded:event("PLAYER_LOGIN")
+	reloaded:event("QUEST_LOG_UPDATE")
+	equal(reloaded.ns.Store:GetCards("quest")[1].data.objectives["Kobolds slain"].have, 2)
+	reloaded:quest(3, 3)
+	reloaded:event("QUEST_LOG_UPDATE")
+	equal(reloaded.ns.Store:GetCards("quest")[1].data.objectives["Kobolds slain"].have, 3)
+	equal(#reloaded.ns.Store:GetFeed(true), 0)
+	equal(#reloaded.chat, 0)
+end)
+
+test("watched quests under collapsed headers hydrate without changing the log UI", function()
+	local w = Harness.new()
+	w.quests[1] = { isHeader = true, title = "Collapsed zone" }
+	w.questWatches[1] = 47
+	w.questData[47] = { title = "Rib Harvest", objectives = {
+		{ text = "Notched Rib: 3/5", numFulfilled = 3, numRequired = 5 },
+	} }
+	w:event("PLAYER_LOGIN")
+	equal(w.ns.Store:GetCards("quest")[1].data.questID, 47)
+	equal(w.ns.Store:GetCards("quest")[1].data.objectives["Notched Rib"].have, 3)
+	equal(#w.quests, 1)
+end)
+
+test("partial objective data cannot erase saved lines or replay old completions", function()
+	local w = Harness.new()
+	w:ingest("quest_progress", { questID = 1, quest = "A Quest", objective = "Ribs", objectiveIndex = 2, have = 2, need = 5 })
+	local reloaded = Harness.new(w.ns.db, w.ns.charDb)
+	reloaded:quest(3, 3)
+	reloaded.quests[1].objectives[2] = { text = "<secret>", numFulfilled = 2, numRequired = 5 }
+	reloaded:event("PLAYER_LOGIN")
+	equal(reloaded.ns.Store:GetCards("quest")[1].data.objectives.Ribs.have, 2)
+	reloaded.quests[1].objectives[2].text = "Ribs: 2/5"
+	reloaded:event("QUEST_LOG_UPDATE")
+	local card = reloaded.ns.Store:GetCards("quest")[1]
+	equal(card.data.objectives.Ribs.have, 2)
+	equal(card.data.objectives["Kobolds slain"].have, 3)
+	equal(#reloaded.ns.Store:GetFeed(true), 0)
+	equal(#reloaded.chat, 0)
+end)
+
+test("hydration respects Include self and quest switches and refreshes when enabled", function()
+	for _, setting in ipairs({ "showSelf", "quests", "questDetails" }) do
+		local w = Harness.new({ switches = { [setting] = false } })
+		w:quest(3, 3)
+		w:event("PLAYER_LOGIN")
+		local cards = w.ns.Store:GetCards("quest")
+		if setting == "questDetails" then
+			equal(#cards, 1)
+			equal(cards[1].data.objectiveCount, 0)
+		else
+			equal(#cards, 0)
+		end
+		w.ns.SetEnabled(setting, true)
+		equal(w.ns.Store:GetCards("quest")[1].data.objectives["Kobolds slain"].have, 3)
+		equal(#w.ns.Store:GetFeed(true), 0)
+		equal(#w.chat, 0)
+	end
+end)
+
 test("saved unidentified objectives are repaired only for the owning player", function()
 	local w = Harness.new()
 	for _, player in ipairs({ "Tester", "Buddy" }) do
@@ -416,7 +546,8 @@ test("title-only saved cards gain IDs without losing their start time or progres
 	equal(#cards, 1)
 	equal(cards[1].data.questID, 1)
 	equal(cards[1].created, created)
-	equal(cards[1].data.objectives.Kobolds.have, 2)
+	equal(cards[1].data.objectives["Kobolds slain"].have, 2)
+	equal(cards[1].data.objectives.Kobolds, nil)
 end)
 
 test("quest IDs survive reload and keep one card when the title changes", function()

@@ -1,8 +1,8 @@
 -- Small game boundary for headless tests. Addon logic runs unchanged.
 local Harness = {}
 
-function Harness.new(saved, character, debugBuild)
-	local world = { now = 10000, frames = {}, timers = {}, sent = {}, chat = {}, party = {}, quests = {}, questData = {}, channels = {}, joins = {}, leaves = {} }
+function Harness.new(saved, character, debugBuild, serverTime)
+	local world = { now = serverTime or 10000, frames = {}, timers = {}, sent = {}, chat = {}, party = {}, quests = {}, questData = {}, questWatches = {}, channels = {}, joins = {}, leaves = {} }
 	local env = setmetatable({}, { __index = _G })
 	env._G = env
 	env.unpack = unpack or table.unpack
@@ -107,6 +107,8 @@ function Harness.new(saved, character, debugBuild)
 			if world.questData[id] and not world.questData[id].removed then return 100 end
 		end,
 		GetNumQuestLogEntries = function() return #world.quests end,
+		GetNumQuestWatches = function() return #world.questWatches end,
+		GetQuestIDForQuestWatchIndex = function(index) return world.questWatches[index] end,
 		GetInfo = function(index) return world.quests[index] end,
 		GetQuestObjectives = function(id) local quest = FindQuest(id); return quest and quest.objectives end,
 	}
