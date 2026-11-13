@@ -67,6 +67,43 @@ configuration are kept. Both the Options button and `/qp clear` explain this in
 a confirmation dialog before deleting anything. Choose **Cancel** or press Escape
 to keep the saved state.
 
+## Slash commands
+
+Enter these in WoW's chat input. `/questparty` also works in place of `/qp`.
+Arguments in square brackets are optional.
+
+| Command | What it does |
+| --- | --- |
+| `/qp` | Show or hide the panel. |
+| `/qp help` | Print command help in your chat window. |
+| `/qp set` | List the feature switches and their current values. |
+| `/qp set <switch> [on/off]` | Turn a switch on or off; omit the last argument to toggle it. |
+| `/qp clear` | Ask for confirmation before deleting saved feed history, quest cards, and the player list. Settings and channel configuration are kept. |
+| `/qp icon [name-or-id]` | Set the title icon using an icon name, texture path, or numeric file ID. Omit the argument to restore the default icon. |
+| `/qp debug [on/off]` | Enable or disable debug mode; omit the argument to toggle it. |
+
+Available switches: `quests`, `questDetails`, `kills`, `levels`, `discovery`,
+`professions`, `achievements`, `chatEcho`, `chatOrder`, and `showSelf`.
+
+For example, `/qp set showSelf off` turns off **Include self**,
+`/qp set levels off` disables XP and level-up updates, and
+`/qp set chatOrder off` puts the newest entries at the top.
+
+### Debug commands
+
+Enable debug mode with `/qp debug on` to use these commands. The emulator toggle
+is also available in Options while debug mode is enabled.
+
+| Command | What it does |
+| --- | --- |
+| `/qp emu` | Start or stop the sample party emulator. |
+| `/qp emu start` | Start the emulator. |
+| `/qp emu stop` | Stop the emulator. |
+| `/qp emu step` | Play the next sample entry once. |
+| `/qp emu burst [n]` | Play sample entries immediately; defaults to 10. |
+| `/qp emu speed [n]` | Set playback speed from 0.25× to 20×; defaults to 1×. |
+| `/qp test` | Replay sample game events as your own character. |
+
 ## Builds and releases
 
 Every push to `main` and every pull request runs Lua 5.1 syntax checks, addon
