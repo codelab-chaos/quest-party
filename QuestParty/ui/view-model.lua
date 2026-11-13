@@ -39,7 +39,7 @@ local function SortedObjectives(record)
 	local result = {}
 	for name, objective in pairs(record.data.objectives) do
 		result[#result + 1] = {
-			name = name,
+			name = objective.name or name,
 			have = objective.have,
 			need = objective.need,
 			order = objective.order,

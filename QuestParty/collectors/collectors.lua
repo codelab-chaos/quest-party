@@ -58,13 +58,7 @@ local function QuestTitle(questID)
 	return questTitles[questID] or L.UNKNOWN_QUEST
 end
 
-local function ObjectiveName(text)
-	if not Readable(text) then return nil end
-	text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
-	text = text:gsub("|H.-|h(.-)|h", "%1"):gsub("%[([^%]]+)%]", "%1")
-	text = text:match(Patterns.progress) or text
-	return (text:gsub("%s+", " "):match("^%s*(.-)%s*$"))
-end
+local ObjectiveName = ns.ObjectiveName
 
 local function ReadableNumber(value)
 	return type(value) == "number" and not (issecretvalue and issecretvalue(value))
@@ -117,7 +111,7 @@ local function QuestForObjective(objective, have, need, hint)
 	for _, quest in ipairs(Collectors:GetQuestSnapshot(hint)) do
 		for _, entry in ipairs(quest.objectives) do
 			if entry.need == need and entry.objective:lower() == name:lower() then
-				local match = { questID = quest.questID, quest = quest.quest, objective = entry.objective }
+				local match = { questID = quest.questID, quest = quest.quest, objective = entry.objective, objectiveIndex = entry.index }
 				matches[#matches + 1] = match
 			end
 		end
@@ -150,17 +144,19 @@ local function OnCredit(quest, questID, creditTime)
 	end
 end
 
-local function EmitProgress(quest, objective, have, need, creditTime, fromLog)
+local function EmitProgress(quest, objective, have, need, creditTime, fromLog, objectiveIndex)
+	watchedQuests[quest.questID] = true
 	local seen = progressSeen[quest.questID] or {}
 	progressSeen[quest.questID] = seen
-	local key = objective:lower()
+	objectiveIndex = objectiveIndex or quest.objectiveIndex
+	local key = objectiveIndex or objective:lower()
 	local previous = seen[key]
-	if previous and previous.have == have and previous.need == need then return end
+	if previous and previous.have == have and previous.need == need and previous.objective == objective then return end
 	-- A message can arrive before the log's new count. Do not immediately undo it.
 	if fromLog and previous and have < previous.have and GetTime() - previous.time < 1 then return false end
-	seen[key] = { have = have, need = need, time = GetTime() }
+	seen[key] = { have = have, need = need, objective = objective, time = GetTime() }
 	ns.Store:IdentifyQuest(UnitName("player"), quest.questID, quest.quest, objective)
-	Emit("quest_progress", { questID = quest.questID, quest = quest.quest, objective = objective, have = have, need = need })
+	Emit("quest_progress", { questID = quest.questID, quest = quest.quest, objectiveIndex = objectiveIndex, objective = objective, have = have, need = need })
 	if have > 0 and (not previous or have > previous.have) then
 		OnCredit(quest.quest, quest.questID, creditTime)
 	end
@@ -188,7 +184,7 @@ local function RefreshQuest(questID)
 	local retry
 	for _, quest in ipairs(Collectors:GetQuestSnapshot(questID)) do
 		for _, objective in ipairs(quest.objectives) do
-			if EmitProgress(quest, objective.objective, objective.have, objective.need, nil, true) == false then retry = true end
+			if EmitProgress(quest, objective.objective, objective.have, objective.need, nil, true, objective.index) == false then retry = true end
 		end
 	end
 	if retry then
@@ -261,7 +257,7 @@ function handlers.UI_INFO_MESSAGE(first, second)
 	if not Readable(message) then
 		return
 	end
-	local objective, have, need = message:match(Patterns.progress)
+	local objective, have, need = ns.ParseObjectiveProgress(message)
 	if objective then
 		have, need = tonumber(have), tonumber(need)
 		local match = QuestForObjective(objective, have, need)

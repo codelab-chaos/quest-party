@@ -41,3 +41,22 @@ ns.Patterns = {
 	-- "Your skill in Herbalism has increased to 62". Captures: skill, level.
 	skill = FromFormat(Global("ERR_SKILL_UP_SI"), true) or "^Your skill in (.+) has increased to (%d+)",
 }
+
+-- Quest-log text can put counts before the item ("1/5 Vile Fin Scale")
+-- or after it ("Vile Fin Scale: 1/5"). Counts are never part of its identity.
+function ns.ObjectiveName(text)
+	if type(text) ~= "string" or (issecretvalue and issecretvalue(text)) then return nil end
+	text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+	text = text:gsub("|H.-|h(.-)|h", "%1"):gsub("%[([^%]]+)%]", "%1")
+	local _, _, prefixName = text:match("^%s*(%d+)%s*/%s*(%d+)%s+(.+)$")
+	text = prefixName or text:match(ns.Patterns.progress) or text
+	return (text:gsub("%s+", " "):match("^%s*(.-)%s*$"))
+end
+
+function ns.ParseObjectiveProgress(text)
+	local objective, have, need = text:match(ns.Patterns.progress)
+	if not objective then
+		have, need, objective = text:match("^%s*(%d+)%s*/%s*(%d+)%s+(.+)$")
+	end
+	if objective then return ns.ObjectiveName(objective), tonumber(have), tonumber(need) end
+end

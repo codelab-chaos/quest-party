@@ -12,6 +12,9 @@ quests accepted before QP started tracking. ID-bearing quest events resolve
 ambiguous progress messages; uniquely matched saved "Unknown quest" objectives
 are repaired from their owner's log. The collector can also read a mid-quest
 snapshot for a future channel relay. Snapshots and progress are not broadcast yet.
+Item counts update the existing objective line in either direction. Counts in
+the game's objective text are stripped from labels, and saved duplicate lines
+are merged on reload using the most recent recorded count.
 
 ## Builds and releases
 

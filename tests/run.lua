@@ -452,6 +452,112 @@ test("delayed objective resolution cannot claim a newer unrelated kill", functio
 	equal(w.ns.Store:GetCards("quest")[1].data.kills, 0)
 end)
 
+test("counts before item names update one objective instead of adding a line", function()
+	local w = Harness.new()
+	w:quest(0, 5)
+	w.quests[1].objectives[1].text = "0/5 Vile Fin Scale"
+	w.ns.Collectors:Handle("QUEST_WATCH_UPDATE", 1)
+	w.quests[1].objectives[1] = { text = "1/5 Vile Fin Scale", numFulfilled = 1, numRequired = 5 }
+	w.ns.Collectors:Handle("QUEST_WATCH_UPDATE", 1)
+	local card = w.ns.Store:GetCards("quest")[1]
+	equal(card.data.objectiveCount, 1)
+	equal(card.data.objectives["Vile Fin Scale"].have, 1)
+	equal(card.data.objectives["Vile Fin Scale"].index, 1)
+	equal(card.data.objectives["0/5 Vile Fin Scale"], nil)
+	local rows = w.ns.ViewModel:Build("quests")
+	equal(#rows[1].lines, 2)
+	equal(rows[1].lines[2].text, "Vile Fin Scale")
+	equal(rows[1].progress.have, 1)
+	equal(rows[1].progress.need, 5)
+end)
+
+test("item count decreases update the same line and remove completed styling", function()
+	local w = Harness.new()
+	w:quest(5, 5)
+	w.quests[1].objectives[1].text = "5/5 Vile Fin Scale"
+	w.ns.Collectors:Handle("QUEST_WATCH_UPDATE", 1)
+	w.quests[1].objectives[1] = { text = "4/5 Vile Fin Scale", numFulfilled = 4, numRequired = 5 }
+	w.ns.Collectors:Handle("QUEST_WATCH_UPDATE", 1)
+	w:advance(1.1)
+	local card = w.ns.Store:GetCards("quest")[1]
+	equal(card.data.objectiveCount, 1)
+	equal(card.data.objectives["Vile Fin Scale"].have, 4)
+	local row = w.ns.ViewModel:Build("quests")[1]
+	equal(row.lines[2].text, "Vile Fin Scale")
+	equal(row.lines[2].right, "4/5")
+end)
+
+test("prefix progress messages and native quest updates use the same objective", function()
+	local w = Harness.new()
+	w:quest(0, 5)
+	w.quests[1].objectives[1].text = "0/5 Vile Fin Scale"
+	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 286, "1/5 Vile Fin Scale")
+	w.quests[1].objectives[1] = { text = "1/5 Vile Fin Scale", numFulfilled = 1, numRequired = 5 }
+	w.ns.Collectors:Handle("QUEST_WATCH_UPDATE", 1)
+	local card = w.ns.Store:GetCards("quest")[1]
+	equal(card.data.objectiveCount, 1)
+	equal(card.data.objectives["Vile Fin Scale"].have, 1)
+end)
+
+test("log changes refresh items first discovered through an info message", function()
+	local w = Harness.new()
+	w:quest(3, 5)
+	w.quests[1].objectives[1].text = "3/5 Vile Fin Scale"
+	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 286, "3/5 Vile Fin Scale")
+	w:advance(2)
+	w.quests[1].objectives[1] = { text = "2/5 Vile Fin Scale", numFulfilled = 2, numRequired = 5 }
+	w.ns.Collectors:Handle("QUEST_LOG_UPDATE")
+	local card = w.ns.Store:GetCards("quest")[1]
+	equal(card.data.objectiveCount, 1)
+	equal(card.data.objectives["Vile Fin Scale"].have, 2)
+end)
+
+test("objective index preserves identity when its displayed wording changes", function()
+	local w = Harness.new()
+	w:quest(1, 5)
+	w.ns.Collectors:Handle("QUEST_WATCH_UPDATE", 1)
+	w.quests[1].objectives[1].text = "1/5 Kobolds defeated"
+	w.ns.Collectors:Handle("QUEST_WATCH_UPDATE", 1)
+	local card = w.ns.Store:GetCards("quest")[1]
+	equal(card.data.objectiveCount, 1)
+	equal(card.data.objectives["Kobolds slain"], nil)
+	equal(card.data.objectives["Kobolds defeated"].have, 1)
+end)
+
+test("saved count-prefixed duplicates merge using latest state rather than highest count", function()
+	local w = Harness.new()
+	w:ingest("quest_accepted", { quest = "A Quest" })
+	local card = w.ns.Store:GetCards("quest")[1]
+	card.data.objectives = {
+		["3/5 Vile Fin Scale"] = { have = 3, need = 5, order = 1, time = w.now, sequence = 2 },
+		["1/5 Vile Fin Scale"] = { have = 1, need = 5, order = 2, time = w.now, sequence = 3 },
+	}
+	card.data.objectiveCount = 2
+	w = Harness.new(w.ns.db, w.ns.charDb)
+	card = w.ns.Store:GetCards("quest")[1]
+	equal(card.data.objectiveCount, 1)
+	equal(card.data.objectives["Vile Fin Scale"].have, 1)
+	equal(card.data.objectives["Vile Fin Scale"].order, 1)
+	equal(#w.ns.ViewModel:Build("quests")[1].lines, 2)
+end)
+
+test("multiple item objectives maintain the correct aggregate progress", function()
+	local w = Harness.new()
+	w:quest(0, 3)
+	w.quests[1].objectives = {
+		{ text = "8/8 Duskbat Wing Membrane", numFulfilled = 8, numRequired = 8 },
+		{ text = "6/6 Darkhound Hide", numFulfilled = 6, numRequired = 6 },
+		{ text = "0/3 Vile Fin Murloc Skin", numFulfilled = 0, numRequired = 3 },
+	}
+	w.ns.Collectors:Handle("QUEST_WATCH_UPDATE", 1)
+	w.quests[1].objectives[3] = { text = "1/3 Vile Fin Murloc Skin", numFulfilled = 1, numRequired = 3 }
+	w.ns.Collectors:Handle("QUEST_WATCH_UPDATE", 1)
+	local row = w.ns.ViewModel:Build("quests")[1]
+	equal(#row.lines, 4)
+	equal(row.progress.have, 15)
+	equal(row.progress.need, 17)
+end)
+
 test("localized message patterns escape punctuation and reject reordered arguments", function()
 	local ns = Harness.new().ns
 	local pattern = ns.FromFormat("Found [%s]: %d.")

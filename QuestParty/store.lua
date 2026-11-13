@@ -98,6 +98,41 @@ local function DropOldCards()
 	end
 end
 
+local function IsNewer(a, b)
+	local aTime, bTime = a.time or 0, b.time or 0
+	if aTime ~= bTime then return aTime > bTime end
+	local aSequence, bSequence = a.sequence or 0, b.sequence or 0
+	if aSequence ~= bSequence then return aSequence > bSequence end
+	return (a.order or 0) > (b.order or 0)
+end
+
+local function NormalizeObjectives(record)
+	local grouped = {}
+	for key, objective in pairs(record.data.objectives) do
+		local name = ns.ObjectiveName(objective.name or key) or key
+		local group = grouped[name]
+		if not group then
+			grouped[name] = { objective = objective, order = objective.order or 0 }
+		else
+			group.order = math.min(group.order, objective.order or 0)
+			if IsNewer(objective, group.objective) then group.objective = objective end
+		end
+	end
+	local names = {}
+	for name in pairs(grouped) do names[#names + 1] = name end
+	table.sort(names, function(a, b)
+		if grouped[a].order ~= grouped[b].order then return grouped[a].order < grouped[b].order end
+		return a < b
+	end)
+	local objectives = {}
+	for index, name in ipairs(names) do
+		local objective = grouped[name].objective
+		objective.order, objective.name = index, name
+		objectives[name] = objective
+	end
+	record.data.objectives, record.data.objectiveCount = objectives, #names
+end
+
 function Store:Init()
 	db = ns.db
 	db.feed = db.feed or {}
@@ -105,6 +140,12 @@ function Store:Init()
 	db.members = db.members or {}
 	db.trackers = nil -- replaced by cards
 	DropOldCards()
+	for _, record in pairs(db.cards) do NormalizeObjectives(record) end
+	for _, entry in ipairs(db.feed) do
+		if entry.type == "quest_progress" then
+			entry.data.objective = ns.ObjectiveName(entry.data.objective) or entry.data.objective
+		end
+	end
 	self:Prune()
 	Resequence()
 	C_Timer.NewTicker(ns.Timing.pruneSeconds, function()
@@ -198,12 +239,24 @@ end
 function cardModes.objective(entry, def)
 	local record = TouchCard(entry, def.card)
 	local data = entry.data
-	local objective = record.data.objectives[data.objective]
+	local objective
+	local key = data.objective
+	if data.objectiveIndex then
+		for name, candidate in pairs(record.data.objectives) do
+			if candidate.index == data.objectiveIndex then
+				objective = candidate
+				if name ~= key then record.data.objectives[name] = nil end
+				break
+			end
+		end
+	end
+	objective = objective or record.data.objectives[key]
 	if not objective then
 		record.data.objectiveCount = record.data.objectiveCount + 1
 		objective = { order = record.data.objectiveCount }
-		record.data.objectives[data.objective] = objective
 	end
+	record.data.objectives[key] = objective
+	objective.name, objective.index = data.objective, data.objectiveIndex or objective.index
 	local wasDone = objective.have ~= nil and objective.have >= objective.need
 	objective.have = data.have
 	objective.need = data.need
@@ -295,6 +348,9 @@ function Store:Ingest(entry)
 				return
 			end
 		end
+	end
+	if entry.type == "quest_progress" then
+		entry.data.objective = ns.ObjectiveName(entry.data.objective) or entry.data.objective
 	end
 	entry.time = entry.time or GetServerTime()
 	TouchMember(entry, def)
