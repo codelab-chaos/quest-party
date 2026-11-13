@@ -16,9 +16,7 @@ end
 local function progress(world, have, player)
 	world:ingest("quest_progress", { quest = "A Quest", objective = "Kobolds", have = have, need = 3 }, player)
 end
-local function peer(world, name, channel)
-	world:receive("H", { v = "0.1.0", c = "MAGE", l = 20, z = "Elwynn" }, channel, name)
-end
+
 
 test("startup fills defaults and preserves saved choices", function()
 	local w = Harness.new({ switches = { chatEcho = false } }, { filter = "xp", shown = false })
@@ -221,19 +219,22 @@ test("quest removal without turn-in becomes abandonment", function()
 	equal(#w.ns.Store:GetCards("quest"), 0)
 end)
 
-test("hiding own progress still allows outgoing sharing", function()
+test("Include self controls local collection while outgoing events remain available", function()
 	local w = Harness.new()
+	local outgoing = 0
+	w.ns.Bus:On("ENTRY_OUTGOING", function() outgoing = outgoing + 1 end)
 	w.ns.SetEnabled("showSelf", false)
-	w.ns.Session.peers.Friend = { link = true }
 	w.ns.Collectors:Handle("PLAYER_LEVEL_UP", 21)
 	equal(#w.ns.Store:GetFeed(true), 0)
-	equal(#w.sent, 1)
-	equal(w.sent[1].target, "Friend")
+	equal(outgoing, 1)
+	w.ns.SetEnabled("showSelf", true)
+	w.ns.Collectors:Handle("PLAYER_LEVEL_UP", 22)
+	equal(#w.ns.Store:GetFeed(true), 1)
+	equal(#w.sent, 0)
 end)
 
 test("disabled event categories are neither stored nor shared", function()
 	local w = Harness.new()
-	w.ns.Session.peers.Friend = { link = true }
 	w.ns.SetEnabled("levels", false)
 	w.ns.Collectors:Handle("PLAYER_LEVEL_UP", 21)
 	equal(#w.sent, 0)
@@ -257,56 +258,79 @@ test("localized message patterns escape punctuation and reject reordered argumen
 	equal(ns.FromFormat("%2$s: %1$d"), nil)
 end)
 
-test("detail chat is local, opt-in, and obeys the master chat switch", function()
+test("retired settings and friend links cannot reactivate through saved data", function()
+	local w = Harness.new({ switches = { chatDetails = true, share = true, emulatorShare = true }, links = { Friend = true } })
+	for _, id in ipairs({ "chatDetails", "share", "emulatorShare" }) do
+		equal(w.ns.SettingById[id], nil)
+		equal(w.ns.IsEnabled(id), false)
+		equal(w.ns.SetEnabled(id, true), false)
+	end
+	equal(w.ns.db.links, nil)
+	w.ns.Bus:Fire("READY")
+	w:advance(3)
+	equal(#w.sent, 0)
+end)
+
+test("chat output prints feed events but never intermediate detail updates", function()
 	local w = Harness.new()
 	progress(w, 1)
-	equal(#w.chat, 0)
-	w.ns.SetEnabled("chatDetails", true)
 	progress(w, 2)
+	equal(#w.chat, 0)
+	progress(w, 3)
 	equal(#w.chat, 1)
-	assert(w.chat[1]:find("2/3", 1, true))
 	w.ns.SetEnabled("chatEcho", false)
-	progress(w, 1)
+	w:ingest("level", { level = 21 })
 	equal(#w.chat, 1)
 	equal(#w.sent, 0)
 end)
 
-test("unlinked strangers cannot connect by whisper or inject feed entries", function()
+test("no automatic party discovery, friend linking or sharing before a channel exists", function()
 	local w = Harness.new()
-	peer(w, "Stranger", "WHISPER")
-	w:receive("E", { t = "level", level = 99 }, "WHISPER", "Stranger")
+	w.party.Friend = true
+	w.ns.Bus:Fire("READY")
+	w:advance(3)
+	w:receive("H", { v = "0.1.0", c = "MAGE", l = 20, z = "Elwynn" })
+	w:receive("L", { v = "0.1.0", c = "MAGE", l = 20, z = "Elwynn" }, "WHISPER")
+	w:receive("E", { t = "level", level = 99 }, "WHISPER")
 	equal(w.ns.Session:Count(), 0)
+	equal(w.popup, nil)
 	equal(#w.ns.Store:GetFeed(true), 0)
-end)
-
-test("linked friends' messages reach the feed", function()
-	local w = Harness.new()
-	w.ns.db.links.Friend = true
-	peer(w, "Friend", "WHISPER")
-	w:receive("E", { t = "level", level = 21 }, "WHISPER", "Friend")
-	equal(w.ns.Session:Count(), 1)
-	equal(w.ns.Store:GetFeed(true)[1].player, "Friend")
-end)
-
-test("sharing broadcasts once to the group and once to an ungrouped friend", function()
-	local w = Harness.new()
-	w.party.Alice, w.party.Bob = true, true
-	w.ns.Session.peers = { Alice = { party = true, link = true }, Bob = { party = true }, Friend = { link = true } }
-	w.ns.Collectors:Handle("PLAYER_LEVEL_UP", 21)
-	equal(#w.sent, 2)
-	local channels = {}
-	for _, sent in ipairs(w.sent) do channels[sent.channel] = sent end
-	assert(channels.PARTY)
-	equal(channels.WHISPER.target, "Friend")
-end)
-
-test("sharing off keeps local progress but sends nothing", function()
-	local w = Harness.new()
-	w.ns.Session.peers.Friend = { link = true }
-	w.ns.SetEnabled("share", false)
 	w.ns.Collectors:Handle("PLAYER_LEVEL_UP", 21)
 	equal(#w.sent, 0)
 	equal(#w.ns.Store:GetFeed(true), 1)
+	w.env.SlashCmdList.QUESTPARTY("link Friend")
+	equal(w.ns.Session.Link, nil)
+	equal(w.popup, nil)
+	equal(#w.sent, 0)
+end)
+
+test("emulator and collector samples are disabled outside debug mode", function()
+	local w = Harness.new()
+	equal(w.ns.IsDebug(), false)
+	w.ns.Emulator:Start()
+	w.ns.Emulator:Step()
+	w.ns.Emulator:Burst(5)
+	w.ns.Collectors:RunTest()
+	w.env.SlashCmdList.QUESTPARTY("emu start")
+	w.env.SlashCmdList.QUESTPARTY("test")
+	equal(w.ns.Emulator.running, false)
+	equal(#w.ns.Store:GetFeed(true), 0)
+	equal(#w.sent, 0)
+end)
+
+test("debug command enables tools, persists, and stops the emulator when disabled", function()
+	local w = Harness.new()
+	w.env.SlashCmdList.QUESTPARTY("debug on")
+	equal(w.ns.IsDebug(), true)
+	w.ns.Emulator:Start()
+	equal(w.ns.Emulator.running, true)
+	local restored = Harness.new(w.ns.db, w.ns.charDb)
+	equal(restored.ns.IsDebug(), true)
+	w.env.SlashCmdList.QUESTPARTY("debug off")
+	equal(w.ns.IsDebug(), false)
+	equal(w.ns.Emulator.running, false)
+	w:advance(60)
+	equal(#w.ns.Store:GetFeed(true), 0)
 end)
 
 test("lockdown queues messages and resumes once restrictions clear", function()
@@ -343,8 +367,11 @@ test("lockdown queue is bounded to the latest 60 messages", function()
 	equal(w.ns.Transport.queue[1].text, "6")
 end)
 
-test("sample party replays into every filter without sending real messages", function()
+test("sample party replays into every filter without outgoing events", function()
 	local w = Harness.new()
+	w.ns.SetDebug(true)
+	local outgoing = 0
+	w.ns.Bus:On("ENTRY_OUTGOING", function() outgoing = outgoing + 1 end)
 	w.ns.SetEnabled("kills", true)
 	local count = #w.ns.Emulator:GetSteps()
 	assert(count > 0)
@@ -356,6 +383,7 @@ test("sample party replays into every filter without sending real messages", fun
 		end
 	end
 	assert(#w.ns.Store:GetFeed(true) > 0)
+	equal(outgoing, 0)
 	equal(#w.sent, 0)
 end)
 

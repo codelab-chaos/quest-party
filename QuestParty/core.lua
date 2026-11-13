@@ -17,6 +17,7 @@ ns.name = addonName
 --   PEERS_CHANGED(peer)       someone connected, updated or left. peer is nil on a leave.
 --   STORE_CHANGED             anything in the store changed, views should refresh
 --   EMULATOR_STATE(running)   the emulator started or stopped
+--   DEBUG_CHANGED(enabled)    developer tools were enabled or disabled
 local Bus = { handlers = {} }
 ns.Bus = Bus
 
@@ -89,6 +90,7 @@ end
 -- ========= Saved variables ==================================================
 local ACCOUNT_DEFAULTS = {
 	switches = {}, -- filled from data\settings.lua at startup
+	debug = false,
 }
 
 local CHARACTER_DEFAULTS = {
@@ -110,6 +112,15 @@ local function ApplyDefaults(target, defaults)
 end
 
 -- ========= Feature switches =================================================
+function ns.IsDebug()
+	return ns.db ~= nil and ns.db.debug == true
+end
+
+function ns.SetDebug(enabled)
+	ns.db.debug = enabled and true or false
+	Bus:Fire("DEBUG_CHANGED", ns.db.debug)
+end
+
 function ns.IsEnabled(id)
 	return ns.db.switches[id] == true
 end
@@ -136,6 +147,11 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 		end
 		ApplyDefaults(QuestPartyDB, ACCOUNT_DEFAULTS)
 		QuestPartyDB.settings = nil -- replaced by switches
+		-- Retired controls must not remain active through older saved preferences.
+		QuestPartyDB.switches.chatDetails = nil
+		QuestPartyDB.switches.share = nil
+		QuestPartyDB.switches.emulatorShare = nil
+		QuestPartyDB.links = nil
 		ApplyDefaults(QuestPartyCharDB, CHARACTER_DEFAULTS)
 		ns.db = QuestPartyDB
 		ns.charDb = QuestPartyCharDB

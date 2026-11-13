@@ -10,6 +10,7 @@ function Harness.new(saved, character)
 	env.QuestPartyCharDB = character
 	env.ACCEPT, env.DECLINE = "Accept", "Decline"
 	env.StaticPopupDialogs = {}
+	env.SlashCmdList = {}
 	env.StaticPopup_Show = function(_, sender, _, data) world.popup = { sender = sender, data = data } end
 	env.DEFAULT_CHAT_FRAME = { AddMessage = function(_, text) world.chat[#world.chat + 1] = text end }
 	env.GetTime = function() return world.now end
@@ -83,7 +84,7 @@ function Harness.new(saved, character)
 		"core.lua", "locales/en-us.lua", "data/feed-types.lua", "data/filters.lua", "data/settings.lua",
 		"store.lua", "comms/protocol.lua", "comms/transport.lua", "comms/session.lua",
 		"collectors/patterns.lua", "collectors/samples.lua", "collectors/collectors.lua",
-		"emulator/script.lua", "emulator/emulator.lua", "ui/view-model.lua", "ui/chat-echo.lua",
+		"emulator/script.lua", "emulator/emulator.lua", "ui/view-model.lua", "ui/chat-echo.lua", "commands.lua",
 	}
 	for _, path in ipairs(modules) do
 		local chunk

@@ -13,11 +13,8 @@ ns.Settings = {
 	{ id = "professions", label = L.SET_PROFESSIONS, tip = L.SET_PROFESSIONS_TIP, default = true },
 	{ id = "achievements", label = L.SET_ACHIEVEMENTS, tip = L.SET_ACHIEVEMENTS_TIP, default = true },
 	{ id = "chatEcho", label = L.SET_CHAT_ECHO, tip = L.SET_CHAT_ECHO_TIP, default = true },
-	{ id = "chatDetails", label = L.SET_CHAT_DETAILS, tip = L.SET_CHAT_DETAILS_TIP, default = false },
 	{ id = "chatOrder", label = L.SET_CHAT_ORDER, tip = L.SET_CHAT_ORDER_TIP, default = true },
 	{ id = "showSelf", label = L.SET_SHOW_SELF, tip = L.SET_SHOW_SELF_TIP, default = true },
-	{ id = "share", label = L.SET_SHARE, tip = L.SET_SHARE_TIP, default = true },
-	{ id = "emulatorShare", label = L.SET_EMULATOR_SHARE, tip = L.SET_EMULATOR_SHARE_TIP, default = false },
 }
 
 ns.SettingById = {}

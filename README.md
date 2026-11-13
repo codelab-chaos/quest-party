@@ -1,8 +1,9 @@
 # Quest Party
 
-A WoW Forever addon for sharing quest progress, levels and achievements with
-your party and linked friends. Install the `QuestParty` folder inside
-`World of Warcraft/_forever_/Interface/AddOns`, then use `/qp` in game.
+A WoW Forever addon for a party feed of quest progress, levels and achievements.
+Channel-based sharing is the next development step; automatic group discovery
+and character-name friend links have been retired. Install the `QuestParty`
+folder inside `World of Warcraft/_forever_/Interface/AddOns`, then use `/qp` in game.
 
 ## Builds and releases
 
@@ -51,12 +52,14 @@ python3 scripts/package.py
 
 The Lua tests exercise real addon modules with mocked game APIs: quest card
 lifecycle, saves, filters, timeline ordering, event collection, kill-credit
-pairing, chat output, sharing and transport throttling. They do not run the
-game's frame renderer or prove live server API behavior.
+pairing, local chat output, debug tools and transport throttling. They do not
+run the game's frame renderer or prove live server API behavior.
 
 Before tagging a public release, smoke-test in WoW: `/reload`, open and close
-Options, change each filter, resize the panel, switch row views, run `/qp emu
-start` and `/qp emu stop`, and verify progress sharing with another character.
+Options, change each filter, resize the panel, switch row views, enable
+`/qp debug on`, and use the emu-on/off button to preview a sample party.
+Then run `/qp debug off` and confirm the emulator stops and its
+button disappears. Live channel sharing needs an in-game test once implemented.
 Check for Lua errors with `/console scriptErrors 1` before reloading.
 
 For local installation, `scripts/deploy.sh` uses the AddOns path in

@@ -65,7 +65,7 @@ local ROW_STYLES = {
 	},
 }
 
--- The three square buttons in the title bar: view, options, close.
+-- Styling for the view and options buttons in the title bar.
 local HEADER_BUTTON = {
 	size = 20,
 	top = 6, -- from the top edge of the window, lines the row up with the title
@@ -92,6 +92,7 @@ local OFF_COLOR = { 0.52, 0.12, 0.10, 1 }
 local FOOTER_TOGGLES = {
 	{
 		on = L.EMULATOR_ON, off = L.EMULATOR_OFF, tip = L.EMULATOR_TIP,
+		isVisible = ns.IsDebug,
 		isOn = function()
 			return ns.Emulator.running
 		end,
@@ -405,6 +406,7 @@ function Panel:Refresh(jumpToEnd)
 	elseif jumpToEnd then
 		scrollBox:ScrollToBegin(true)
 	end
+	emptyText:SetText(ns.IsDebug() and L.EMPTY_DEBUG or L.EMPTY)
 	emptyText:SetShown(#rows == 0)
 end
 
@@ -430,6 +432,7 @@ end
 -- Repaints every footer toggle from its current state.
 local function UpdateFooterToggles()
 	for _, button in ipairs(footerToggles) do
+		button:SetShown(not button.definition.isVisible or button.definition.isVisible())
 		local on = button.definition.isOn()
 		button.fill:SetColorTexture(unpack(on and ON_COLOR or OFF_COLOR))
 		button.label:SetText(on and button.definition.on or button.definition.off)
@@ -509,7 +512,7 @@ function Panel:SetTitleIcon(icon)
 	end
 end
 
--- One square button for the title bar. All three share this look so they read as a set.
+-- Shared gold styling for the header buttons and filter dropdown.
 --   tooltip  a function returning the tooltip title and an optional second line
 -- The button stays lit while button.lit is true.
 local function CreateHeaderButton(tooltip, onClick, frameType)
@@ -567,13 +570,12 @@ local function BuildHeader()
 	title:SetText(L.TITLE)
 
 	-- Right to left: close, options, view.
-	local close = CreateHeaderButton(function()
-		return L.CLOSE
-	end, function()
+	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+	close:SetSize(24, 24)
+	close:SetPoint("TOPRIGHT", -(LAYOUT.inset - 2), -(HEADER_BUTTON.top - 2))
+	close:SetScript("OnClick", function()
 		frame:Hide()
 	end)
-	close:SetPoint("TOPRIGHT", -LAYOUT.inset, -HEADER_BUTTON.top)
-	AddGlyph(close, L.CLOSE_ICON)
 
 	-- Opens the options. It stays lit while they are open.
 	optionsButton = CreateHeaderButton(function()
@@ -732,39 +734,6 @@ local function BuildOptions()
 		end)
 		optionsView.checks[index] = check
 	end
-
-	-- Link a friend by name, below the switches.
-	local top = -(contentTop + #ns.Settings * LAYOUT.optionHeight + 8)
-	local label = optionsView:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-	label:SetPoint("TOPLEFT", 8, top)
-	label:SetText(L.LINK_LABEL)
-
-	local linkButton = CreateFrame("Button", nil, optionsView, "UIPanelButtonTemplate")
-	linkButton:SetSize(50, 20)
-	linkButton:SetPoint("TOPRIGHT", -4, top - 14)
-	linkButton:SetText(L.LINK_BUTTON)
-
-	local box = CreateFrame("EditBox", nil, optionsView, "InputBoxTemplate")
-	box:SetHeight(20)
-	box:SetPoint("TOPLEFT", 14, top - 14)
-	box:SetPoint("TOPRIGHT", linkButton, "TOPLEFT", -6, 0)
-	box:SetAutoFocus(false)
-	box:SetMaxLetters(48)
-
-	local function SendLink()
-		local name = box:GetText():match("^%s*(%S+)")
-		if name then
-			ns.Session:Link(name)
-			ns.Print(L.LINK_SENT:format(name))
-			box:SetText("")
-		end
-		box:ClearFocus()
-	end
-	linkButton:SetScript("OnClick", SendLink)
-	box:SetScript("OnEnterPressed", SendLink)
-	box:SetScript("OnEscapePressed", function(self)
-		self:ClearFocus()
-	end)
 end
 
 local function BuildFooter()
@@ -910,5 +879,12 @@ end)
 Bus:On("EMULATOR_STATE", function()
 	if frame then
 		UpdateFooterToggles()
+	end
+end)
+
+Bus:On("DEBUG_CHANGED", function()
+	if frame then
+		UpdateFooterToggles()
+		Panel:Refresh()
 	end
 end)

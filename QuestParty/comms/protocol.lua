@@ -16,9 +16,6 @@ Protocol.Kinds = {
 	HELLO = "H", -- "I run Quest Party", with who I am. Answered with ACK.
 	ACK = "A", -- the answer to HELLO, same fields
 	ENTRY = "E", -- one feed entry. t is the feed type, the rest is its data.
-	LINK = "L", -- "share feeds with me?", sent to a friend by name
-	LINK_OK = "K", -- yes to LINK
-	UNLINK = "U", -- stop sharing
 }
 
 local function Escape(value)

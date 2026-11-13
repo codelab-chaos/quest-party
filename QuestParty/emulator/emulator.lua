@@ -65,6 +65,9 @@ end
 
 -- Emits the current step and moves to the next, looping at the end.
 function Emulator:Step()
+	if not ns.IsDebug() then
+		return
+	end
 	local steps = self:GetSteps()
 	local step = steps[self.index]
 	if not step then
@@ -78,10 +81,6 @@ function Emulator:Step()
 		data = Copy(step.data),
 		emulated = true,
 	})
-	-- For testing the connection: also send the step out as if it were ours.
-	if ns.IsEnabled("emulatorShare") then
-		Bus:Fire("ENTRY_OUTGOING", { type = step.type, data = Copy(step.data) })
-	end
 end
 
 function Emulator:Burst(count)
@@ -107,7 +106,7 @@ local function ScheduleNext()
 end
 
 function Emulator:Start()
-	if self.running then
+	if not ns.IsDebug() or self.running then
 		return
 	end
 	self.running = true
@@ -138,3 +137,9 @@ end
 function Emulator:SetSpeed(speed)
 	self.speed = math.max(0.25, math.min(20, speed))
 end
+
+Bus:On("DEBUG_CHANGED", function(enabled)
+	if not enabled then
+		Emulator:Stop()
+	end
+end)

@@ -184,6 +184,9 @@ end
 -- Replays sample events as if this character had just played them, the way
 -- /qtweet test did. Nothing here touches the real quest log.
 function Collectors:RunTest()
+	if not ns.IsDebug() then
+		return
+	end
 	for _, sample in ipairs(ns.CollectorSamples) do
 		self:Handle(unpack(sample))
 	end

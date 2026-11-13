@@ -24,7 +24,6 @@
 --             "close": remove the card.
 --     count   tally only, the card field that counts entries
 --     sum     tally only, data keys to add up on the card
---     chat    optional chat echo line for each card update, shown with the chatDetails setting
 local _, ns = ...
 local L = ns.L
 
@@ -43,7 +42,7 @@ ns.FeedTypes = {
 		icon = "Interface\\GossipFrame\\ActiveQuestIcon",
 		text = L.FEED_QUEST_OBJECTIVE,
 		chat = L.CHAT_QUEST_OBJECTIVE,
-		card = { kind = "quest", keys = { "quest" }, mode = "objective", chat = L.CHAT_QUEST_PROGRESS },
+		card = { kind = "quest", keys = { "quest" }, mode = "objective" },
 	},
 	quest_complete = {
 		setting = "quests",
@@ -75,7 +74,6 @@ ns.FeedTypes = {
 			mode = "tally",
 			count = "kills",
 			sum = { xp = true },
-			chat = L.CHAT_KILL,
 		},
 	},
 	level = {

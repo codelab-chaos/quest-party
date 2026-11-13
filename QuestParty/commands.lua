@@ -26,38 +26,18 @@ local emulatorCommands = {
 local function PrintHelp()
 	ns.Print(L.CMD_HELP)
 	ns.Print(L.CMD_HELP_TOGGLE)
-	ns.Print(L.CMD_HELP_EMU)
+	ns.Print(L.CMD_HELP_DEBUG)
+	if ns.IsDebug() then
+		ns.Print(L.CMD_HELP_EMU)
+		ns.Print(L.CMD_HELP_TEST)
+	end
 	ns.Print(L.CMD_HELP_CLEAR)
 	ns.Print(L.CMD_HELP_SET)
-	ns.Print(L.CMD_HELP_LINK)
-	ns.Print(L.CMD_HELP_TEST)
 	ns.Print(L.CMD_HELP_ICON)
 end
 
 local function PrintSwitch(setting)
 	ns.Print(L.CMD_SET_LINE:format(setting.id:lower(), ns.IsEnabled(setting.id) and L.ON or L.OFF, setting.label))
-end
-
-local function PrintPeers()
-	local any = false
-	for name, peer in pairs(ns.Session.peers) do
-		local via = (peer.party and peer.link) and L.PEER_VIA_BOTH or (peer.party and L.PEER_VIA_PARTY or L.PEER_VIA_LINK)
-		ns.Print(L.PEERS_LINE:format(ns.ColorName(name, peer.class), tostring(peer.level), peer.zone or L.UNKNOWN, via))
-		any = true
-	end
-	if not any then
-		ns.Print(L.PEERS_NONE)
-	end
-	local offline = {}
-	for name in pairs(ns.db.links) do
-		if not ns.Session.peers[name] then
-			offline[#offline + 1] = name
-		end
-	end
-	if #offline > 0 then
-		table.sort(offline)
-		ns.Print(L.LINKS_OFFLINE:format(table.concat(offline, ", ")))
-	end
 end
 
 -- Switch ids are matched without case.
@@ -73,7 +53,16 @@ local commands = {
 	[""] = function()
 		ns.Panel:Toggle()
 	end,
+	debug = function(value)
+		value = value and value:lower()
+		ns.SetDebug(value == "on" or (value ~= "off" and not ns.IsDebug()))
+		ns.Print(ns.IsDebug() and L.CMD_DEBUG_ON or L.CMD_DEBUG_OFF)
+	end,
 	emu = function(sub, arg)
+		if not ns.IsDebug() then
+			ns.Print(L.CMD_DEBUG_REQUIRED)
+			return
+		end
 		local handler = emulatorCommands[(sub or ""):lower()]
 		if handler then
 			handler(arg)
@@ -110,20 +99,11 @@ local commands = {
 		ns.Panel:SetTitleIcon(name)
 		ns.Print(name and L.CMD_ICON_SET:format(name) or L.CMD_ICON_RESET)
 	end,
-	link = function(name)
-		if not name then
-			PrintHelp()
+	test = function()
+		if not ns.IsDebug() then
+			ns.Print(L.CMD_DEBUG_REQUIRED)
 			return
 		end
-		ns.Session:Link(name)
-		ns.Print(L.LINK_SENT:format(name))
-	end,
-	unlink = function(name)
-		local removed = name and ns.Session:Unlink(name)
-		ns.Print((removed and L.LINK_REMOVED or L.LINK_UNKNOWN):format(removed or name or "?"))
-	end,
-	peers = PrintPeers,
-	test = function()
 		ns.Collectors:RunTest()
 	end,
 	help = PrintHelp,
