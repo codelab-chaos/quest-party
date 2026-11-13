@@ -19,7 +19,6 @@ local LAYOUT = {
 	headerHeight = 30,
 	filterHeight = 22,
 	filterGap = 2,
-	footerHeight = 26,
 	inset = 8,
 	rowSpacing = 2,
 	pulseSeconds = 0.9,
@@ -44,6 +43,8 @@ local COLORS = {
 	bar = { 0.25, 0.75, 0.30, 1 },
 	barBack = { 0, 0, 0, 0.5 },
 	pulse = { 1, 0.85, 0.35, 0.55 },
+	emulatorOn = { 0.10, 0.48, 0.16, 1 },
+	emulatorOff = { 0.52, 0.12, 0.10, 1 },
 }
 
 -- The two row views, picked with the toggle in the title bar.
@@ -85,26 +86,6 @@ local HEADER_BUTTON = {
 	titleIcon = "Interface\\Icons\\spell_nature_astralrecalgroup", -- beside the title
 }
 
--- The small on/off toggles in the footer, left to right. Each is green with its
--- "on" label while its state is on, and red with its "off" label while it is off.
---   isOn    reads the current state
---   toggle  flips it
-local FOOTER_TOGGLE = { width = 58, height = 18, gap = 4 }
-local ON_COLOR = { 0.10, 0.48, 0.16, 1 }
-local OFF_COLOR = { 0.52, 0.12, 0.10, 1 }
-local FOOTER_TOGGLES = {
-	{
-		on = L.EMULATOR_ON, off = L.EMULATOR_OFF, tip = L.EMULATOR_TIP,
-		isVisible = ns.IsDebug,
-		isOn = function()
-			return ns.Emulator.running
-		end,
-		toggle = function()
-			ns.Emulator:Toggle()
-		end,
-	},
-}
-
 -- Room kept on the right of each line for the count or time.
 local RIGHT_TEXT_WIDTH = 58
 
@@ -139,7 +120,6 @@ local BACKDROP = {
 }
 
 local frame, scrollBox, scrollBar, listView, emptyText, optionsView, optionsButton, viewButton, titleIcon
-local footerToggles = {}
 local filterBar
 local filterTabs = {}
 
@@ -359,7 +339,7 @@ end
 
 local function ListHeight()
 	local height = frame:GetHeight() or LAYOUT.height
-	return height - ListTop() - (LAYOUT.inset + LAYOUT.footerHeight)
+	return height - ListTop() - LAYOUT.inset
 end
 
 -- Empty space to leave above the rows so that a list too short to fill the view sits
@@ -476,14 +456,12 @@ local function UpdateConnectionOptions(resetName)
 	end
 end
 
--- Repaints every footer toggle from its current state.
-local function UpdateFooterToggles()
-	for _, button in ipairs(footerToggles) do
-		button:SetShown(not button.definition.isVisible or button.definition.isVisible())
-		local on = button.definition.isOn()
-		button.fill:SetColorTexture(unpack(on and ON_COLOR or OFF_COLOR))
-		button.label:SetText(on and button.definition.on or button.definition.off)
-	end
+local function UpdateEmulatorButton()
+	if not optionsView or not optionsView.emulator then return end
+	local button = optionsView.emulator
+	button:SetShown(ns.IsDebug())
+	button.fill:SetColorTexture(unpack(ns.Emulator.running and COLORS.emulatorOn or COLORS.emulatorOff))
+	button.label:SetText(ns.Emulator.running and L.EMULATOR_ON or L.EMULATOR_OFF)
 end
 
 function Panel:SelectFilter(id)
@@ -519,6 +497,7 @@ function Panel:ShowOptions(show)
 	if show then
 		emptyText:Hide()
 		UpdateConnectionOptions(true)
+		UpdateEmulatorButton()
 		for _, check in ipairs(optionsView.checks) do
 			check:SetChecked(ns.IsEnabled(check.settingId))
 		end
@@ -704,7 +683,7 @@ end
 local function PlaceList()
 	scrollBox:ClearAllPoints()
 	scrollBox:SetPoint("TOPLEFT", LAYOUT.inset, -ListTop())
-	scrollBox:SetPoint("BOTTOMRIGHT", -(LAYOUT.inset + LAYOUT.scrollBarWidth + 4), LAYOUT.inset + LAYOUT.footerHeight)
+	scrollBox:SetPoint("BOTTOMRIGHT", -(LAYOUT.inset + LAYOUT.scrollBarWidth + 4), LAYOUT.inset)
 end
 
 local function BuildList()
@@ -713,7 +692,8 @@ local function BuildList()
 
 	scrollBar = CreateFrame("EventFrame", nil, frame, "MinimalScrollBar")
 	scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 6, -2)
-	scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 6, 2)
+	-- Leave the resize grip accessible while the rows use the full window height.
+	scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 6, LAYOUT.gripSize + 2)
 
 	listView = CreateScrollBoxListLinearView()
 	-- Rows size themselves: one line in the compact view, or as tall as their content.
@@ -730,11 +710,11 @@ local function BuildList()
 	emptyText:SetText(L.EMPTY)
 end
 
--- One check box per feature switch, built from data\settings.lua.
+-- Channel setup, feed controls and one check box per feature switch.
 local function BuildOptions()
 	optionsView = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 	optionsView:SetPoint("TOPLEFT", filterBar, "TOPLEFT")
-	optionsView:SetPoint("BOTTOMRIGHT", scrollBar, "BOTTOMRIGHT")
+	optionsView:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -LAYOUT.inset, LAYOUT.inset)
 	optionsView:SetBackdrop(BACKDROP)
 	optionsView:SetBackdropColor(unpack(COLORS.options))
 	optionsView:SetBackdropBorderColor(unpack(COLORS.optionsBorder))
@@ -771,7 +751,8 @@ local function BuildOptions()
 	optionsScroll.ScrollBar:SetPoint("TOPLEFT", optionsScroll, "TOPRIGHT", 6, -2)
 	optionsScroll.ScrollBar:SetPoint("BOTTOMLEFT", optionsScroll, "BOTTOMRIGHT", 6, 2)
 	local content = CreateFrame("Frame", nil, optionsScroll)
-	content:SetSize(1, 112 + #ns.Settings * LAYOUT.optionHeight)
+	local actionsHeight = LAYOUT.optionHeight + 8
+	content:SetSize(1, actionsHeight + 112 + #ns.Settings * LAYOUT.optionHeight)
 	optionsScroll:SetScrollChild(content)
 	local function ResizeOptions(self)
 		content:SetWidth(self:GetWidth())
@@ -780,26 +761,59 @@ local function BuildOptions()
 	optionsScroll:HookScript("OnShow", ResizeOptions)
 	ResizeOptions(optionsScroll)
 
+	local clear = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+	clear:SetSize(70, LAYOUT.optionHeight)
+	clear:SetPoint("TOPLEFT", 4, 0)
+	clear:SetText(L.CLEAR)
+	clear:SetScript("OnClick", function()
+		ns.Store:Clear()
+	end)
+
+	local emulator = CreateFrame("Button", nil, content)
+	emulator:SetSize(70, LAYOUT.optionHeight)
+	emulator:SetPoint("TOPRIGHT", -4, 0)
+	local edge = emulator:CreateTexture(nil, "BACKGROUND")
+	edge:SetAllPoints()
+	edge:SetColorTexture(unpack(HEADER_BUTTON.edge))
+	emulator.fill = emulator:CreateTexture(nil, "BORDER")
+	emulator.fill:SetPoint("TOPLEFT", 1, -1)
+	emulator.fill:SetPoint("BOTTOMRIGHT", -1, 1)
+	emulator.label = emulator:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	emulator.label:SetPoint("CENTER")
+	emulator:SetScript("OnClick", function()
+		ns.Emulator:Toggle()
+		UpdateEmulatorButton()
+	end)
+	emulator:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:SetText(ns.Emulator.running and L.EMULATOR_ON or L.EMULATOR_OFF)
+		GameTooltip:AddLine(L.EMULATOR_TIP, 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	emulator:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	optionsView.emulator = emulator
+	UpdateEmulatorButton()
+
 	local channelLabel = content:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-	channelLabel:SetPoint("TOPLEFT", 4, -2)
+	channelLabel:SetPoint("TOPLEFT", 4, -actionsHeight - 2)
 	channelLabel:SetText(L.CHANNEL_LABEL)
 	local name = CreateFrame("EditBox", nil, content, "InputBoxTemplate")
 	name:SetHeight(22)
-	name:SetPoint("TOPLEFT", 8, -20)
-	name:SetPoint("TOPRIGHT", -4, -20)
+	name:SetPoint("TOPLEFT", 8, -actionsHeight - 20)
+	name:SetPoint("TOPRIGHT", -4, -actionsHeight - 20)
 	name:SetAutoFocus(false)
 	name:SetMaxLetters(30)
 	local join = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
 	join:SetSize(88, 22)
-	join:SetPoint("TOPLEFT", 4, -47)
+	join:SetPoint("TOPLEFT", 4, -actionsHeight - 47)
 	join:SetText(L.CHANNEL_CONNECT)
 	local disconnect = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
 	disconnect:SetSize(76, 22)
-	disconnect:SetPoint("TOPRIGHT", -4, -47)
+	disconnect:SetPoint("TOPRIGHT", -4, -actionsHeight - 47)
 	disconnect:SetText(L.CHANNEL_DISCONNECT)
 	local status = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-	status:SetPoint("TOPLEFT", 4, -75)
-	status:SetPoint("TOPRIGHT", -4, -75)
+	status:SetPoint("TOPLEFT", 4, -actionsHeight - 75)
+	status:SetPoint("TOPRIGHT", -4, -actionsHeight - 75)
 	status:SetHeight(30)
 	status:SetJustifyH("LEFT")
 	status:SetJustifyV("TOP")
@@ -826,7 +840,7 @@ local function BuildOptions()
 	for index, setting in ipairs(ns.Settings) do
 		local check = CreateFrame("CheckButton", nil, content, "UICheckButtonTemplate")
 		check:SetSize(LAYOUT.optionHeight, LAYOUT.optionHeight)
-		check:SetPoint("TOPLEFT", 0, -112 - (index - 1) * LAYOUT.optionHeight)
+		check:SetPoint("TOPLEFT", 0, -actionsHeight - 112 - (index - 1) * LAYOUT.optionHeight)
 		check.settingId = setting.id
 		check.Text:SetFontObject("GameFontHighlight")
 		check.Text:SetText(setting.label)
@@ -844,49 +858,6 @@ local function BuildOptions()
 		end)
 		optionsView.checks[index] = check
 	end
-end
-
-local function BuildFooter()
-	for index, definition in ipairs(FOOTER_TOGGLES) do
-		local button = CreateFrame("Button", nil, frame)
-		button.definition = definition
-		button:SetSize(FOOTER_TOGGLE.width, FOOTER_TOGGLE.height)
-		button:SetPoint(
-			"BOTTOMLEFT",
-			LAYOUT.inset + (index - 1) * (FOOTER_TOGGLE.width + FOOTER_TOGGLE.gap),
-			LAYOUT.inset + 2
-		)
-		local edge = button:CreateTexture(nil, "BACKGROUND")
-		edge:SetAllPoints()
-		edge:SetColorTexture(unpack(HEADER_BUTTON.edge))
-		button.fill = button:CreateTexture(nil, "BORDER")
-		button.fill:SetPoint("TOPLEFT", 1, -1)
-		button.fill:SetPoint("BOTTOMRIGHT", -1, 1)
-		button.label = button:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-		button.label:SetPoint("CENTER")
-		button:SetScript("OnClick", function()
-			definition.toggle()
-			UpdateFooterToggles()
-		end)
-		button:SetScript("OnEnter", function(self)
-			GameTooltip:SetOwner(self, "ANCHOR_TOP")
-			GameTooltip:SetText(definition.isOn() and definition.on or definition.off)
-			GameTooltip:AddLine(definition.tip, 1, 1, 1, true)
-			GameTooltip:Show()
-		end)
-		button:SetScript("OnLeave", function()
-			GameTooltip:Hide()
-		end)
-		footerToggles[index] = button
-	end
-
-	local clear = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	clear:SetSize(70, 22)
-	clear:SetPoint("BOTTOMRIGHT", -(LAYOUT.inset + LAYOUT.gripSize), LAYOUT.inset)
-	clear:SetText(L.CLEAR)
-	clear:SetScript("OnClick", function()
-		ns.Store:Clear()
-	end)
 end
 
 local function SaveSize()
@@ -936,7 +907,6 @@ local function Build()
 	BuildFilter()
 	BuildList()
 	BuildOptions()
-	BuildFooter()
 	BuildResizeGrip()
 
 	-- Remember visibility, and keep the relative times fresh while visible.
@@ -956,7 +926,7 @@ local function Build()
 		ns.charDb.filter = ns.Filters[1].id
 	end
 	UpdateFilter()
-	UpdateFooterToggles()
+	UpdateEmulatorButton()
 	frame:SetShown(ns.charDb.shown)
 	Panel:Refresh(true)
 	-- Again on the next frame: the first pass runs before the list has its real size,
@@ -987,13 +957,13 @@ end)
 
 Bus:On("EMULATOR_STATE", function()
 	if frame then
-		UpdateFooterToggles()
+		UpdateEmulatorButton()
 	end
 end)
 
 Bus:On("DEBUG_CHANGED", function()
 	if frame then
-		UpdateFooterToggles()
+		UpdateEmulatorButton()
 		Panel:Refresh()
 	end
 end)

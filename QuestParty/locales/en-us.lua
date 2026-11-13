@@ -64,7 +64,7 @@ ns.L = {
 
 	-- Panel
 	EMPTY = "Nothing here yet.",
-	EMPTY_DEBUG = "Nothing here yet.\nClick emu-off to play a sample party.",
+	EMPTY_DEBUG = "Nothing here yet.\nOpen Options to play a sample party.",
 	EMULATOR_ON = "emu-on",
 	EMULATOR_OFF = "emu-off",
 	EMULATOR_TIP = "Plays a sample party so you can see the panel working.",
@@ -128,7 +128,7 @@ ns.L = {
 	CMD_EMU_STARTED = "Emulator started.",
 	CMD_EMU_STOPPED = "Emulator stopped.",
 	CMD_EMU_SPEED = "Emulator speed is now %sx.",
-	CMD_DEBUG_ON = "Debug mode on. The emulator button is now available.",
+	CMD_DEBUG_ON = "Debug mode on. The emulator button is available in Options.",
 	CMD_DEBUG_OFF = "Debug mode off.",
 	CMD_DEBUG_REQUIRED = "Enable debug mode first: /qp debug on",
 	CMD_CLEARED = "Feed and cards cleared.",

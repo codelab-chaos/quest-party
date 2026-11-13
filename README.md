@@ -54,7 +54,8 @@ if the app does not show the expected installation or addon.
 
 Use the tabs beneath the title to choose a feed. The view button switches between
 detailed quest cards and compact rows; **O** opens Options for event categories,
-chat output, **Include self**, and channel setup. Type `/qp` again to hide or
+chat output, **Include self**, channel setup, and **Clear**. The emulator toggle
+also appears in Options when debug mode is enabled. Type `/qp` again to hide or
 show the panel.
 
 ## Builds and releases
@@ -112,7 +113,7 @@ run the game's frame renderer or prove live server API behavior.
 
 Before tagging a public release, smoke-test in WoW: `/reload`, open and close
 Options, change each filter, resize the panel, switch row views, enable
-`/qp debug on`, and use the emu-on/off button to preview a sample party.
+`/qp debug on`, and use the emu-on/off button in Options to preview a sample party.
 Then run `/qp debug off` and confirm the emulator stops and its
 button disappears. Live channel sharing needs an in-game test once implemented.
 Check for Lua errors with `/console scriptErrors 1` before reloading.
