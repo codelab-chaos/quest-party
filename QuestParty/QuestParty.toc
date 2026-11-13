@@ -2,6 +2,7 @@
 ## Title: Quest Party
 ## Notes: Share quest progress, levels and achievements with your party in a live feed.
 ## Author: Wizwonk
+## X-License: MIT
 ## Version: 0.1.0
 ## AllowLoadGameType: forever
 ## ExcludeLoadGameType: standard, classic
