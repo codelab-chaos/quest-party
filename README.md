@@ -18,11 +18,13 @@ These builds do not publish a release.
 When a version is ready to mark for release, open **Actions → Release → Run
 workflow**, select `main`, and enter a version such as `0.1.0`. The workflow
 runs all checks, stamps the version into the packaged TOC, creates the `v0.1.0`
-tag at the tested commit, and publishes a **GitHub prerelease** with the
+tag at the tested commit, and publishes a **GitHub Release** with the
 installable ZIP, SHA-256 checksum and generated release notes. These downloads
 are visible on GitHub and can be shared for testing. This does not upload to
 CurseForge. The working source's version is not changed by packaging. Update
-its TOC version when starting a new version.
+its TOC version when starting a new version. Stable version tags become the
+**Latest** release, visible in the repository sidebar. Tags with a suffix such
+as `v0.2.0-rc.1` are marked as prereleases instead.
 
 Alternatively, push an explicit version tag:
 

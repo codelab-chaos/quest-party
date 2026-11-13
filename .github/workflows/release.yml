@@ -74,7 +74,7 @@ jobs:
       version: ${{ needs.prepare.outputs.version }}
 
   publish:
-    name: Publish GitHub prerelease
+    name: Publish GitHub release
     needs: [prepare, build]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -93,7 +93,10 @@ jobs:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
-          flags=(--prerelease --latest=false)
+          flags=(--latest)
+          if [[ "$RELEASE_VERSION" == *-* ]]; then
+            flags=(--prerelease --latest=false)
+          fi
           if [[ "$GITHUB_EVENT_NAME" == push ]]; then
             flags+=(--verify-tag)
           fi
