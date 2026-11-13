@@ -31,6 +31,14 @@ function ViewModel.Fields(player, class, data, def)
 			fields[key] = value
 		end
 	end
+	if def.experience then
+		fields.xpGain = data.xp and L.XP_GAIN:format(ns.Comma(data.xp)) or L.XP_UPDATED
+		fields.xpStatus = L.XP_LEVEL:format(data.level)
+		if data.maxXP and data.maxXP > 0 and data.currentXP then
+			local remaining = math.max(0, math.min(100, 100 * (data.maxXP - data.currentXP) / data.maxXP))
+			fields.xpStatus = L.XP_STATUS:format(data.level, remaining, data.level + 1)
+		end
+	end
 	return fields
 end
 
@@ -191,14 +199,19 @@ local function FeedRow(entry, now)
 		subtitle = subtitle .. ", " .. ns.Fill(def.detail, fields)
 	end
 	local title = ns.Fill(def.text, fields)
+	local progress
+	if def.experience and entry.data.maxXP and entry.data.maxXP > 0 then
+		progress = { have = entry.data.currentXP, need = entry.data.maxXP }
+	end
 	return {
 		kind = "feed",
 		sequence = entry.sequence or 0,
 		icon = def.icon,
 		title = title,
 		right = ns.Ago(now - entry.time),
-		lines = { { text = subtitle } },
+		lines = { { text = subtitle, progress = progress } },
 		summary = subtitle,
+		progress = progress,
 		quest = entry.data.quest,
 		highlight = def.highlight,
 		pulse = (now - entry.time <= PULSE_SECONDS) and (entry.player .. "/" .. entry.time .. "/" .. title),

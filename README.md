@@ -9,6 +9,9 @@ and profession gains without losing ongoing progress in a stream of chat.
   quest log; cached cards stay visible and turn gray after five minutes without
   an update.
 - **Filter tabs** let you focus on quests, XP, achievements, professions, or the party view.
+- **XP updates** show the amount gained, your current level, and the percentage
+  remaining to the next level, with a progress bar. Control these with **Leveling**
+  in Options.
 - **Detailed and compact views** fit the way you like to track your adventures.
 - **Customizable output** lets you choose event categories, include your own
   progress, and optionally show updates in your local chat window.
@@ -57,6 +60,10 @@ detailed quest cards and compact rows; **O** opens Options for event categories,
 chat output, **Include self**, channel setup, and **Clear**. The emulator toggle
 also appears in Options when debug mode is enabled. Type `/qp` again to hide or
 show the panel.
+
+Feed history and quest cards are saved across reloads. **Clear** removes that
+saved history, the quest cards, and the player list; settings and channel
+configuration are kept.
 
 ## Builds and releases
 

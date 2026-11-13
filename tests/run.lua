@@ -253,6 +253,129 @@ test("disabled event categories are neither stored nor shared", function()
 	equal(#w.ns.Store:GetFeed(true), 0)
 end)
 
+test("XP gains show current level and percentage remaining without duplicate updates", function()
+	local w = Harness.new()
+	w.xp = 400
+	w:event("PLAYER_LOGIN")
+	equal(#w.ns.Store:GetFeed(true), 0)
+	w.xp = 550
+	w:event("PLAYER_XP_UPDATE", "pet")
+	w:advance(0)
+	equal(#w.ns.Store:GetFeed(true), 0)
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(0)
+	local feed = w.ns.Store:GetFeed(true)
+	equal(#feed, 1)
+	equal(feed[1].type, "xp")
+	equal(feed[1].data.xp, 150)
+	equal(feed[1].data.level, 20)
+	local row = w.ns.ViewModel:Build("xp")[1]
+	equal(row.title, "+150 XP")
+	equal(row.summary, "Tester, Level 20, 45.00% to Level 21")
+	equal(row.progress.have, 550)
+	equal(row.progress.need, 1000)
+	equal(#w.chat, 1)
+	assert(w.chat[1]:find("Level 20, 45.00%% to Level 21"))
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(0)
+	equal(#w.ns.Store:GetFeed(true), 1)
+	equal(#w.sent, 0)
+end)
+
+test("XP rollover reads settled level data and includes XP earned before leveling", function()
+	local w = Harness.new()
+	w.xp = 900
+	w:event("PLAYER_LOGIN")
+	w:event("PLAYER_LEVEL_UP", 21)
+	w:event("PLAYER_XP_UPDATE", "player")
+	w.level, w.xp, w.xpMax = 21, 150, 1400
+	w:advance(0)
+	local feed = w.ns.Store:GetFeed(true)
+	equal(#feed, 2)
+	equal(feed[1].type, "xp")
+	equal(feed[1].data.xp, 250)
+	equal(feed[1].data.level, 21)
+	local rows = w.ns.ViewModel:Build("xp")
+	equal(rows[2].summary, "Tester, Level 21, 89.29% to Level 22")
+end)
+
+test("saved XP history survives reload without announcing old gains again", function()
+	local w = Harness.new()
+	w:event("PLAYER_LOGIN")
+	w.xp = 100
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(0)
+	local reloaded = Harness.new(w.ns.db, w.ns.charDb)
+	reloaded.xp = 100
+	reloaded:event("PLAYER_LOGIN")
+	reloaded:event("PLAYER_XP_UPDATE", "player")
+	reloaded:advance(0)
+	equal(#reloaded.ns.Store:GetFeed(true), 1)
+	equal(reloaded.ns.ViewModel:Build("xp")[1].title, "+100 XP")
+	equal(#reloaded.chat, 0)
+	reloaded.xp = 125
+	reloaded:event("PLAYER_XP_UPDATE", "player")
+	reloaded:advance(0)
+	equal(#reloaded.ns.Store:GetFeed(true), 2)
+	equal(reloaded.ns.Store:GetFeed(true)[1].data.xp, 25)
+end)
+
+test("XP collection respects Leveling and Include self without carrying disabled gains forward", function()
+	local w = Harness.new()
+	w:event("PLAYER_LOGIN")
+	w.ns.SetEnabled("levels", false)
+	w.xp = 100
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(0)
+	equal(#w.ns.Store:GetFeed(true), 0)
+	w.ns.SetEnabled("levels", true)
+	w.xp = 150
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(0)
+	equal(w.ns.Store:GetFeed(true)[1].data.xp, 50)
+	w.ns.SetEnabled("showSelf", false)
+	w.xp = 200
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(0)
+	equal(#w.ns.Store:GetFeed(true), 1)
+	equal(#w.sent, 0)
+end)
+
+test("unreadable or reduced XP cannot create a fake gain", function()
+	local w = Harness.new()
+	w.xp = 100
+	w:event("PLAYER_LOGIN")
+	for _, value in ipairs({ "<secret>", 2000, -1, 50 }) do
+		w.xp = value
+		w:event("PLAYER_XP_UPDATE", "player")
+		w:advance(0)
+	end
+	equal(#w.ns.Store:GetFeed(true), 0)
+	w.xp = 75
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(0)
+	equal(w.ns.Store:GetFeed(true)[1].data.xp, 25)
+end)
+
+test("multi-level XP updates avoid invented gain totals and capped levels avoid division by zero", function()
+	for _, capped in ipairs({ false, true }) do
+		local w = Harness.new()
+		w:event("PLAYER_LOGIN")
+		w.level, w.xp, w.xpMax = 22, capped and 0 or 250, capped and 0 or 2000
+		w:event("PLAYER_XP_UPDATE", "player")
+		w:advance(0)
+		local row = w.ns.ViewModel:Build("xp")[1]
+		equal(row.title, "XP progress updated")
+		if capped then
+			equal(row.summary, "Tester, Level 22")
+			equal(row.progress, nil)
+		else
+			equal(row.summary, "Tester, Level 22, 87.50% to Level 23")
+		end
+	end
+end)
+
 test("collectors ignore secret and non-text messages", function()
 	local w = Harness.new()
 	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 1, "<secret>")

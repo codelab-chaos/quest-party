@@ -85,6 +85,17 @@ ns.FeedTypes = {
 		highlight = true,
 		member = { level = "level" },
 	},
+	xp = {
+		setting = "levels",
+		requires = { "level", "currentXP", "maxXP" },
+		filters = { xp = true },
+		icon = "Interface\\Icons\\XP_Icon",
+		text = L.FEED_XP,
+		detail = L.FEED_XP_DETAIL,
+		chat = L.CHAT_XP,
+		experience = true,
+		member = { level = "level", currentXP = "currentXP", maxXP = "maxXP" },
+	},
 	discovery = {
 		setting = "discovery",
 		filters = { xp = true },

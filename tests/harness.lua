@@ -2,7 +2,7 @@
 local Harness = {}
 
 function Harness.new(saved, character, debugBuild, serverTime)
-	local world = { now = serverTime or 10000, frames = {}, timers = {}, sent = {}, chat = {}, party = {}, quests = {}, questData = {}, questWatches = {}, channels = {}, joins = {}, leaves = {} }
+	local world = { now = serverTime or 10000, level = 20, xp = 0, xpMax = 1000, frames = {}, timers = {}, sent = {}, chat = {}, party = {}, quests = {}, questData = {}, questWatches = {}, channels = {}, joins = {}, leaves = {} }
 	local env = setmetatable({}, { __index = _G })
 	env._G = env
 	env.unpack = unpack or table.unpack
@@ -35,7 +35,9 @@ function Harness.new(saved, character, debugBuild, serverTime)
 	env.GetServerTime = env.GetTime
 	env.UnitName = function() return "Tester" end
 	env.UnitClass = function() return "Mage", "MAGE" end
-	env.UnitLevel = function() return 20 end
+	env.UnitLevel = function() return world.level end
+	env.UnitXP = function() return world.xp end
+	env.UnitXPMax = function() return world.xpMax end
 	env.GetRealZoneText = function() return "Elwynn Forest" end
 	env.IsInGroup = function() return next(world.party) ~= nil end
 	env.IsInRaid = function() return world.raid == true end

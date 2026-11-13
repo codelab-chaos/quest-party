@@ -21,6 +21,7 @@ local lastKill, lastCredit
 local knownQuests, watchedQuests, progressSeen, pending = {}, {}, {}, {}
 local lastQuestUpdate
 local ready = false
+local experience, experienceQueued
 
 -- Text the game marks as secret (some combat states) cannot be read by addons.
 local function Readable(text)
@@ -63,6 +64,13 @@ local ObjectiveName = ns.ObjectiveName
 
 local function ReadableNumber(value)
 	return type(value) == "number" and not (issecretvalue and issecretvalue(value))
+end
+
+local function ReadExperience()
+	local level, currentXP, maxXP = UnitLevel("player"), UnitXP("player"), UnitXPMax("player")
+	if not ReadableNumber(level) or not ReadableNumber(currentXP) or not ReadableNumber(maxXP)
+		or level < 1 or currentXP < 0 or maxXP < 0 or currentXP > maxXP then return end
+	return { level = level, currentXP = currentXP, maxXP = maxXP }
 end
 
 -- The owner can provide a full mid-quest snapshot even if QP never saw acceptance.
@@ -329,6 +337,30 @@ function handlers.PLAYER_LEVEL_UP(level)
 	Emit("level", { level = level })
 end
 
+function handlers.PLAYER_XP_UPDATE(unit)
+	if unit ~= "player" or experienceQueued then return end
+	experienceQueued = true
+	-- Level-up and XP events can precede the API's new values. Read once on the
+	-- next frame, after the level, XP and next-level requirement have settled.
+	C_Timer.After(0, function()
+		experienceQueued = nil
+		local current = ReadExperience()
+		if not current then return end
+		local previous = experience
+		experience = current
+		if not previous or current.level < previous.level then return end
+		if current.level == previous.level then
+			if current.currentXP <= previous.currentXP then return end
+			current.xp = current.currentXP - previous.currentXP
+		elseif current.level == previous.level + 1 and current.maxXP > 0 then
+			current.xp = previous.maxXP - previous.currentXP + current.currentXP
+		end
+		-- Across multiple levels the intermediate requirements are unavailable.
+		-- Report the new level and percentage without inventing an XP amount.
+		Emit("xp", current)
+	end)
+end
+
 function handlers.ACHIEVEMENT_EARNED(achievementID)
 	local _, name, points = GetAchievementInfo(achievementID)
 	if name then
@@ -357,6 +389,7 @@ end
 
 Bus:On("READY", function()
 	ready = true
+	experience = ReadExperience() -- establish a baseline without replaying old gains
 	RepairSavedQuests()
 	HydrateOwnQuests()
 	local frame = CreateFrame("Frame")

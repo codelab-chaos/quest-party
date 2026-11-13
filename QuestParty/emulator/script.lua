@@ -76,6 +76,7 @@ ns.EmulatorScript = {
 
 		-- Jaina finishes first and turns in. The others are still on it.
 		{ after = 4, who = "jaina", type = "quest_complete", data = { quest = CALL_TO_ARMS, xp = 3000 } },
+		{ after = 1, who = "jaina", type = "xp", data = { xp = 3000, level = 23, currentXP = 22000, maxXP = 25000 } },
 		{ after = 1, who = "jaina", type = "level", data = { level = 24 } },
 		GnollKills("uther", 8, 10, 2),
 		{ after = 3, who = "uther", type = "quest_complete", data = { quest = CALL_TO_ARMS, xp = 3000 } },
