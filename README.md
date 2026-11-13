@@ -21,19 +21,12 @@ Quest Party targets **WoW Forever**, using the `_forever_` game installation.
 
 ### Manual installation
 
-1. Close WoW Forever.
-2. Open the [latest GitHub release](https://github.com/codelab-chaos/quest-party/releases/latest)
-   and download the `QuestParty-<version>.zip` asset.
-3. Extract the `QuestParty` folder into your game's `Interface/AddOns` folder.
-   The resulting path should be:
+Download `QuestParty-<version>.zip` from the
+[latest GitHub release](https://github.com/codelab-chaos/quest-party/releases/latest)
+and extract it into `World of Warcraft/_forever_/Interface/AddOns/`.
+The ZIP already contains the `QuestParty` folder.
 
-   ```text
-   World of Warcraft/_forever_/Interface/AddOns/QuestParty/QuestParty.toc
-   ```
-
-4. Launch WoW Forever and enable **Quest Party** in the character selection
-   screen's **AddOns** list.
-5. Enter the game and type `/qp` to open the panel.
+Launch WoW Forever, enable **Quest Party** in **AddOns**, and type `/qp` in game.
 
 To update manually, replace the installed `QuestParty` folder with the folder
 from the newer release ZIP.
