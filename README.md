@@ -1,20 +1,65 @@
 # Quest Party
 
-A WoW Forever addon for a party feed of quest progress, levels and achievements.
-Options includes a channel name with **Create / Join**, connection status and
-**Disconnect**. It remembers the name and reconnects on login until disconnected.
-Channel progress broadcasting is the next development step; automatic group
-discovery and character-name friend links have been retired. Install the `QuestParty`
-folder inside `World of Warcraft/_forever_/Interface/AddOns`, then use `/qp` in game.
+Quest Party brings your adventures in **World of Warcraft: Forever** into one
+compact, live feed. Follow quest objectives, level-ups, achievements, discoveries,
+and profession gains without losing ongoing progress in a stream of chat.
 
-Own quest updates retain the game's quest ID, title and objective counts, including
-quests accepted before QP started tracking. ID-bearing quest events resolve
-ambiguous progress messages; uniquely matched saved "Unknown quest" objectives
-are repaired from their owner's log. The collector can also read a mid-quest
-snapshot for a future channel relay. Snapshots and progress are not broadcast yet.
-Item counts update the existing objective line in either direction. Counts in
-the game's objective text are stripped from labels, and saved duplicate lines
-are merged on reload using the most recent recorded count.
+- **Persistent quest cards** keep objectives and item counts visible as you play.
+- **Filter tabs** let you focus on quests, XP, achievements, professions, or the party view.
+- **Detailed and compact views** fit the way you like to track your adventures.
+- **Customizable output** lets you choose event categories, include your own
+  progress, and optionally show updates in your local chat window.
+
+Quest Party is being built for social questing, so friends can follow each
+other's adventures even when they are in different places. Channel creation,
+joining, and reconnecting are available now; **sharing quest progress through
+the channel is still in development**.
+
+## Installation
+
+Quest Party targets **WoW Forever**, using the `_forever_` game installation.
+
+### Manual installation
+
+1. Close WoW Forever.
+2. Open the [latest GitHub release](https://github.com/codelab-chaos/quest-party/releases/latest)
+   and download the `QuestParty-<version>.zip` asset.
+3. Extract the `QuestParty` folder into your game's `Interface/AddOns` folder.
+   The resulting path should be:
+
+   ```text
+   World of Warcraft/_forever_/Interface/AddOns/QuestParty/QuestParty.toc
+   ```
+
+4. Launch WoW Forever and enable **Quest Party** in the character selection
+   screen's **AddOns** list.
+5. Enter the game and type `/qp` to open the panel.
+
+To update manually, replace the installed `QuestParty` folder with the folder
+from the newer release ZIP.
+
+### CurseForge installation (coming soon)
+
+Quest Party is not yet available on CurseForge. Use the manual installation above
+for now. The planned listing is [Quest Party on CurseForge](https://www.curseforge.com/wow/addons/quest-party/).
+
+Once the listing and its Forever release are available:
+
+1. Install and open the [CurseForge app](https://www.curseforge.com/download/app).
+2. Select **World of Warcraft**, then choose your **Forever** installation from
+   the game instance dropdown. If needed, add the game's `_forever_` folder.
+3. Browse or search for **Quest Party**, then click **Install**.
+4. Launch WoW Forever, enable **Quest Party** in **AddOns**, and type `/qp` in game.
+
+See [CurseForge's WoW installation and game instance guide](https://support.curseforge.com/support/solutions/articles/9000198422-faq-and-troubleshooting)
+if the app does not show the expected installation or addon.
+
+## Getting started
+
+Use the tabs beneath the title to choose a feed. The view button switches between
+detailed quest cards and compact rows; **O** opens Options for event categories,
+chat output, **Include self**, and channel setup. Type `/qp` again to hide or
+show the panel.
 
 ## Builds and releases
 
