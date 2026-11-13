@@ -4,14 +4,17 @@ local _, ns = ...
 ns.L = {
 	TITLE = "Quest Party",
 
-	-- Filter dropdown
-	FILTER_TIP = "%s — click to change the filter.",
+	-- Filter tabs
 	FILTER_ALL = "All",
 	FILTER_XP = "XP",
 	FILTER_QUESTS = "Quests",
-	FILTER_ACHIEVEMENTS = "Achv",
-	FILTER_PROFESSIONS = "Prof",
+	FILTER_ACHIEVEMENTS = "Achievements",
+	FILTER_PROFESSIONS = "Professions",
 	FILTER_PARTY = "Party",
+	FILTER_QUESTS_SHORT = "Qst",
+	FILTER_ACHIEVEMENTS_SHORT = "Achv",
+	FILTER_PROFESSIONS_SHORT = "Prof",
+	FILTER_PARTY_SHORT = "Pty",
 
 	-- Feed rows. Tokens in {braces} come from the entry's data.
 	FEED_QUEST_ACCEPTED = "Accepted: |cffffd100{quest}|r",

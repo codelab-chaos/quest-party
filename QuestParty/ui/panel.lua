@@ -18,6 +18,7 @@ local LAYOUT = {
 	gripSize = 16,
 	headerHeight = 30,
 	filterHeight = 22,
+	filterGap = 2,
 	footerHeight = 26,
 	inset = 8,
 	rowSpacing = 2,
@@ -38,6 +39,8 @@ local COLORS = {
 	row = { 1, 1, 1, 0.05 },
 	rowHighlight = { 0.45, 0.20, 0.75, 0.45 },
 	rowCard = { 0.20, 0.45, 0.75, 0.18 },
+	tab = { 1, 1, 1, 0.08 },
+	tabSelected = { 0.80, 0.65, 0.20, 0.45 },
 	bar = { 0.25, 0.75, 0.30, 1 },
 	barBack = { 0, 0, 0, 0.5 },
 	pulse = { 1, 0.85, 0.35, 0.55 },
@@ -137,7 +140,8 @@ local BACKDROP = {
 
 local frame, scrollBox, scrollBar, listView, emptyText, optionsView, optionsButton, viewButton, titleIcon
 local footerToggles = {}
-local filterDropdown
+local filterBar
+local filterTabs = {}
 
 -- Pulses already shown, so a row flashes once per change and not on every redraw.
 local pulsesPlayed = {}
@@ -416,17 +420,38 @@ function Panel:FocusQuest(quest)
 	self:SelectFilter(ns.QuestTab)
 end
 
-local function FilterLabel(filter)
+local function FilterLabel(filter, compact)
+	local label = compact and filter.shortLabel or filter.label
 	if filter.id == "party" then
 		local count = ns.Session:Count()
-		return count > 0 and (filter.label .. " " .. count) or filter.label
+		return count > 0 and (label .. " " .. count) or label
 	end
-	return filter.label
+	return label
 end
 
 local function UpdateFilter()
-	local filter = ns.FilterById[ns.charDb.filter] or ns.Filters[1]
-	filterDropdown.label:SetText(FilterLabel(filter))
+	for _, filter in ipairs(ns.Filters) do
+		local tab = filterTabs[filter.id]
+		local selected = filter.id == ns.charDb.filter
+		tab.background:SetColorTexture(unpack(selected and COLORS.tabSelected or COLORS.tab))
+		tab.label:SetFontObject(selected and "GameFontNormalSmall" or "GameFontHighlightSmall")
+		tab.label:SetText(FilterLabel(filter))
+		if tab.label:GetStringWidth() > tab:GetWidth() - 8 then
+			tab.label:SetText(FilterLabel(filter, true))
+		end
+	end
+end
+
+local function LayoutFilter()
+	local count = #ns.Filters
+	local width = math.max(1, (filterBar:GetWidth() - (count - 1) * LAYOUT.filterGap) / count)
+	for index, filter in ipairs(ns.Filters) do
+		local tab = filterTabs[filter.id]
+		tab:SetSize(width, LAYOUT.filterHeight)
+		tab:ClearAllPoints()
+		tab:SetPoint("TOPLEFT", (index - 1) * (width + LAYOUT.filterGap), 0)
+	end
+	UpdateFilter()
 end
 
 local function UpdateConnectionOptions(resetName)
@@ -485,8 +510,7 @@ end
 
 -- Swaps the list for the feature switches and back.
 function Panel:ShowOptions(show)
-	filterDropdown:CloseMenu()
-	filterDropdown:SetShown(not show)
+	filterBar:SetShown(not show)
 	optionsView:SetShown(show)
 	scrollBox:SetShown(not show)
 	scrollBar:SetShown(not show)
@@ -535,11 +559,11 @@ function Panel:SetTitleIcon(icon)
 	end
 end
 
--- Shared gold styling for the header buttons and filter dropdown.
+-- Shared gold styling for the header buttons.
 --   tooltip  a function returning the tooltip title and an optional second line
 -- The button stays lit while button.lit is true.
-local function CreateHeaderButton(tooltip, onClick, frameType)
-	local button = CreateFrame(frameType or "Button", nil, frame)
+local function CreateHeaderButton(tooltip, onClick)
+	local button = CreateFrame("Button", nil, frame)
 	button:SetSize(HEADER_BUTTON.size, HEADER_BUTTON.size)
 
 	local edge = button:CreateTexture(nil, "BACKGROUND")
@@ -645,32 +669,36 @@ local function BuildHeader()
 	end)
 end
 
--- One dropdown replaces the tab rows, directly below the title bar.
+-- All filters stay visible on one row, directly below the title bar.
 local function BuildFilter()
-	filterDropdown = CreateHeaderButton(function()
-		local filter = ns.FilterById[ns.charDb.filter] or ns.Filters[1]
-		return L.TITLE, L.FILTER_TIP:format(FilterLabel(filter))
-	end, nil, "DropdownButton")
-	filterDropdown:SetHeight(LAYOUT.filterHeight)
-	filterDropdown:SetPoint("TOPLEFT", LAYOUT.inset, -LAYOUT.headerHeight)
-	filterDropdown:SetPoint("TOPRIGHT", -LAYOUT.inset, -LAYOUT.headerHeight)
-	filterDropdown.label = filterDropdown:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-	filterDropdown.label:SetPoint("LEFT", 5, 0)
-	filterDropdown.label:SetPoint("RIGHT", -21, 0)
-	filterDropdown.label:SetJustifyH("LEFT")
-	filterDropdown.label:SetWordWrap(false)
-	local arrow = filterDropdown:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-	arrow:SetPoint("RIGHT", -5, 0)
-	arrow:SetText("v")
-	filterDropdown:SetupMenu(function(_, root)
-		for _, filter in ipairs(ns.Filters) do
-			root:CreateRadio(FilterLabel(filter), function()
-				return ns.charDb.filter == filter.id
-			end, function()
-				Panel:SelectFilter(filter.id)
-			end)
-		end
-	end)
+	filterBar = CreateFrame("Frame", nil, frame)
+	filterBar:SetHeight(LAYOUT.filterHeight)
+	filterBar:SetPoint("TOPLEFT", LAYOUT.inset, -LAYOUT.headerHeight)
+	filterBar:SetPoint("TOPRIGHT", -LAYOUT.inset, -LAYOUT.headerHeight)
+	for _, filter in ipairs(ns.Filters) do
+		local tab = CreateFrame("Button", nil, filterBar)
+		tab.background = tab:CreateTexture(nil, "BACKGROUND")
+		tab.background:SetAllPoints()
+		tab.label = tab:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+		tab.label:SetPoint("LEFT", 4, 0)
+		tab.label:SetPoint("RIGHT", -4, 0)
+		tab.label:SetWordWrap(false)
+		tab.label:SetJustifyH("CENTER")
+		tab:SetHighlightTexture("Interface\\Buttons\\WHITE8x8")
+		tab:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.12)
+		tab:SetScript("OnClick", function()
+			Panel:SelectFilter(filter.id)
+		end)
+		tab:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_TOP")
+			GameTooltip:SetText(FilterLabel(filter))
+			GameTooltip:Show()
+		end)
+		tab:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		filterTabs[filter.id] = tab
+	end
+	filterBar:SetScript("OnSizeChanged", LayoutFilter)
+	LayoutFilter()
 end
 
 local function PlaceList()
@@ -705,7 +733,7 @@ end
 -- One check box per feature switch, built from data\settings.lua.
 local function BuildOptions()
 	optionsView = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-	optionsView:SetPoint("TOPLEFT", filterDropdown, "TOPLEFT")
+	optionsView:SetPoint("TOPLEFT", filterBar, "TOPLEFT")
 	optionsView:SetPoint("BOTTOMRIGHT", scrollBar, "BOTTOMRIGHT")
 	optionsView:SetBackdrop(BACKDROP)
 	optionsView:SetBackdropColor(unpack(COLORS.options))
@@ -917,7 +945,6 @@ local function Build()
 		Panel:Refresh(true)
 	end)
 	frame:SetScript("OnHide", function()
-		filterDropdown:CloseMenu()
 		ns.charDb.shown = false
 	end)
 	C_Timer.NewTicker(LAYOUT.refreshSeconds, function()
@@ -935,6 +962,7 @@ local function Build()
 	-- Again on the next frame: the first pass runs before the list has its real size,
 	-- and the scroll position it sets does not survive the first layout.
 	C_Timer.After(0, function()
+		LayoutFilter()
 		Panel:Refresh(true)
 	end)
 end
@@ -953,7 +981,6 @@ end)
 
 Bus:On("PEERS_CHANGED", function()
 	if frame then
-		filterDropdown:GenerateMenu()
 		UpdateFilter()
 	end
 end)
