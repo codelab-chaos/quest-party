@@ -18,12 +18,11 @@ These builds do not publish a release.
 When a version is ready to mark for release, open **Actions → Release → Run
 workflow**, select `main`, and enter a version such as `0.1.0`. The workflow
 runs all checks, stamps the version into the packaged TOC, creates the `v0.1.0`
-tag at the tested commit, and creates a **draft GitHub Release** with the
-installable ZIP, SHA-256 checksum and generated release notes. Draft downloads
-are not published for distribution. Publish the draft manually on GitHub only
-when it is ready. The working source's version
-is not changed by packaging. Update its TOC version when starting a new version.
-Versions such as `0.2.0-alpha.1` or `0.2.0-rc.1` are also marked as prereleases.
+tag at the tested commit, and publishes a **GitHub prerelease** with the
+installable ZIP, SHA-256 checksum and generated release notes. These downloads
+are visible on GitHub and can be shared for testing. This does not upload to
+CurseForge. The working source's version is not changed by packaging. Update
+its TOC version when starting a new version.
 
 Alternatively, push an explicit version tag:
 
@@ -32,8 +31,8 @@ git tag -a v0.1.0 -m 'Quest Party 0.1.0'
 git push origin v0.1.0
 ```
 
-A failed check prevents draft creation. If a tag-triggered release fails before
-creating the draft, fix the issue in a new commit and use a new version, or re-run the
+A failed check prevents publication. If a tag-triggered release fails before
+publication, fix the issue in a new commit and use a new version, or re-run the
 failed workflow if it was a temporary infrastructure failure. Existing release
 assets are not overwritten. Pushing ordinary commits never deploys a release.
 

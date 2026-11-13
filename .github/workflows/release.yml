@@ -74,7 +74,7 @@ jobs:
       version: ${{ needs.prepare.outputs.version }}
 
   publish:
-    name: Create draft release
+    name: Publish GitHub prerelease
     needs: [prepare, build]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -85,7 +85,7 @@ jobs:
         with:
           name: QuestParty-build
           path: dist
-      - name: Attach ZIP and checksum to draft release
+      - name: Publish ZIP and checksum
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -93,15 +93,11 @@ jobs:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
-          flags=()
-          if [[ "$RELEASE_VERSION" == *-* ]]; then
-            flags+=(--prerelease --latest=false)
-          fi
+          flags=(--prerelease --latest=false)
           if [[ "$GITHUB_EVENT_NAME" == push ]]; then
             flags+=(--verify-tag)
           fi
           gh release create "$RELEASE_TAG" dist/* \
-            --draft \
             --target "$RELEASE_COMMIT" \
             --title "Quest Party $RELEASE_VERSION" \
             --generate-notes "${flags[@]}"
