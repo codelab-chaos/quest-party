@@ -9,9 +9,16 @@ function Harness.new(saved, character, debugBuild, serverTime)
 	env.QuestPartyDB = saved
 	env.QuestPartyCharDB = character
 	env.ACCEPT, env.DECLINE = "Accept", "Decline"
+	env.CANCEL = "Cancel"
 	env.StaticPopupDialogs = {}
 	env.SlashCmdList = {}
-	env.StaticPopup_Show = function(_, sender, _, data) world.popup = { sender = sender, data = data } end
+	env.StaticPopup_Show = function(which, sender, _, data) world.popup = { which = which, sender = sender, data = data } end
+	function world:dismissPopup(accept)
+		local definition = env.StaticPopupDialogs[self.popup.which]
+		local callback = accept and definition.OnAccept or definition.OnCancel
+		self.popup = nil
+		if callback then callback() end
+	end
 	env.DEFAULT_CHAT_FRAME = {
 		channelList = {},
 		GetID = function() return 1 end,

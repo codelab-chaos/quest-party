@@ -63,7 +63,9 @@ show the panel.
 
 Feed history and quest cards are saved across reloads. **Clear** removes that
 saved history, the quest cards, and the player list; settings and channel
-configuration are kept.
+configuration are kept. Both the Options button and `/qp clear` explain this in
+a confirmation dialog before deleting anything. Choose **Cancel** or press Escape
+to keep the saved state.
 
 ## Builds and releases
 

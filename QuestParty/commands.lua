@@ -2,6 +2,24 @@
 local _, ns = ...
 local L = ns.L
 
+-- The Options button and slash command share the same destructive-action prompt.
+StaticPopupDialogs["QUESTPARTY_CONFIRM_CLEAR"] = {
+	text = L.CLEAR_CONFIRM,
+	button1 = L.CLEAR,
+	button2 = CANCEL,
+	OnAccept = function()
+		ns.Store:Clear()
+		ns.Print(L.CMD_CLEARED)
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
+function ns.ConfirmClear()
+	StaticPopup_Show("QUESTPARTY_CONFIRM_CLEAR")
+end
+
 local emulatorCommands = {
 	start = function()
 		ns.Emulator:Start()
@@ -71,8 +89,7 @@ local commands = {
 		end
 	end,
 	clear = function()
-		ns.Store:Clear()
-		ns.Print(L.CMD_CLEARED)
+		ns.ConfirmClear()
 	end,
 	set = function(name, value)
 		if not name then
