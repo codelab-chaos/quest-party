@@ -29,7 +29,8 @@ progress: your quests, levels, discoveries and the rest are posted to the
 channel as you make them, and theirs show in your feed and as their quest cards.
 When someone joins, everyone already there tells them where their quests stand,
 so a newcomer's panel fills in at once without waiting for anyone to do
-something. They travel as addon messages, the game's own way for addons to talk
+something. Only quests that are underway are shown and told: ones with some
+progress and something still left to do. They travel as addon messages, the game's own way for addons to talk
 to each other, so nothing is posted in the channel's chat. `/qp share`
 says how much has been sent and received.
 

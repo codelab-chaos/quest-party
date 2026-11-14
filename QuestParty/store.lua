@@ -386,15 +386,26 @@ function Store:GetFeed(feedFilter)
 	return result
 end
 
+-- True for a card worth showing. A quest card is shown while the quest is
+-- underway (see ns.QuestUnderway). With quest details off no objective counts
+-- are kept, so there is nothing to judge by and every quest card is shown.
+local function WorthShowing(record)
+	if record.kind ~= "quest" or not ns.IsEnabled("questDetails") then
+		return true
+	end
+	return ns.QuestUnderway(record.data.objectives)
+end
+
 -- All cards of one kind. Unordered: the view sorts.
-function Store:GetCards(kindName)
+-- shownOnly leaves out the cards that are kept but not worth showing.
+function Store:GetCards(kindName, shownOnly)
 	local result = {}
 	local kind = ns.CardKinds[kindName]
 	if not kind or not ns.IsEnabled(kind.setting) then
 		return result
 	end
 	for key, record in pairs(db.cards) do
-		if record.kind == kindName then
+		if record.kind == kindName and (not shownOnly or WorthShowing(record)) then
 			record.key = key
 			result[#result + 1] = record
 		end

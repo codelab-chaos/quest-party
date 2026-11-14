@@ -210,6 +210,7 @@ end)
 test("category filters select their own events", function()
 	local w = Harness.new()
 	w:ingest("quest_accepted", { quest = "A Quest" })
+	progress(w, 1) -- a quest shows once it is underway
 	w:ingest("level", { level = 20 })
 	w:ingest("achievement", { name = "Explorer", points = 10 })
 	w:ingest("skill", { skill = "Herbalism", level = 62 })
@@ -1346,6 +1347,45 @@ test("with no channel the emulator's players are shown directly and nothing is s
 	w.ns.Emulator:Step()
 	equal(#w.sent, 0)
 	equal(#w.ns.Store:GetFeed(true), 1)
+end)
+
+-- ========= Which quests are shown and told ==================================
+test("a quest is underway when something is started and something is left", function()
+	local underway = Harness.new().ns.QuestUnderway
+	equal(underway({ { have = 1, need = 3 } }), true)
+	equal(underway({ { have = 8, need = 8 }, { have = 6, need = 6 }, { have = 1, need = 3 } }), true)
+	equal(underway({ { have = 2, need = 2 }, { have = 0, need = 1 } }), true)
+	equal(underway({ { have = 0, need = 8 }, { have = 0, need = 8 } }), false) -- not started
+	equal(underway({ { have = 1, need = 1 } }), false) -- only needs handing in
+	equal(underway({}), false) -- nothing to count
+	equal(underway(nil), false)
+end)
+
+test("the panel shows a quest only while it is underway", function()
+	local w = Harness.new()
+	local function shown() return #w.ns.ViewModel:Build("quests") end
+	w:ingest("quest_accepted", { quest = "A Quest" })
+	equal(shown(), 0) -- accepted, nothing done yet
+	equal(#w.ns.Store:GetCards("quest"), 1) -- the card is kept all the same
+	progress(w, 1)
+	equal(shown(), 1)
+	progress(w, 3)
+	equal(shown(), 0) -- every objective complete: it only needs handing in
+	w.ns.SetEnabled("questDetails", false)
+	equal(shown(), 1) -- with no counts kept there is nothing to judge by
+end)
+
+test("only quests that are underway are told to the channel", function()
+	local w = Harness.new()
+	local function objective(have, need) return { text = "Things: " .. have .. "/" .. need, numFulfilled = have, numRequired = need } end
+	w.quests[1] = { questID = 1, title = "Not started", objectives = { objective(0, 8) } }
+	w.quests[2] = { questID = 2, title = "Underway", objectives = { objective(3, 8), objective(2, 2) } }
+	w.quests[3] = { questID = 3, title = "Ready to hand in", objectives = { objective(5, 5) } }
+	w:share()
+	w:advance(5)
+	local states = sentOfKind(w, "Q")
+	equal(#states, 1)
+	equal(states[1].fields.quest, "Underway")
 end)
 
 -- ========= How quests stand =================================================

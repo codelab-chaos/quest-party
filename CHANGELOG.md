@@ -14,6 +14,10 @@ CurseForge's changelog field using Markdown formatting.
 - `/qp share` reports what has been sent, how much of it came back from the server, what was received, and whether the game refused anything.
 - In debug mode, the sample party emulator sends its players over the channel and shows them only when the server sends them back, and `/qp listen` opens a window listing the messages on the channel as they pass.
 
+### Changed
+
+- Quest cards are shown only while a quest is underway: at least one objective has progress and not all are complete. Quests not yet started, and quests that only need handing in, are left out of the panel and of what is told to others.
+
 ### Fixed
 
 - A character with a surname is recognized as itself, so its own messages are not mistaken for another player's.

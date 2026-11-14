@@ -106,7 +106,7 @@ end
 
 local function ProgressRows(kindName, now)
 	local rows = {}
-	for _, record in ipairs(ns.Store:GetCards(kindName)) do
+	for _, record in ipairs(ns.Store:GetCards(kindName, true)) do
 		for _, objective in ipairs(SortedObjectives(record)) do
 			if objective.have < objective.need then
 				rows[#rows + 1] = ProgressRow(record, objective, now)
@@ -175,7 +175,7 @@ end
 -- Groups one kind of card by quest, for the party tracker.
 local function TrackerRows(kindName, now)
 	local byQuest, order = {}, {}
-	for _, record in ipairs(ns.Store:GetCards(kindName)) do
+	for _, record in ipairs(ns.Store:GetCards(kindName, true)) do
 		local key = record.data.questID or record.data.quest
 		if not byQuest[key] then
 			byQuest[key] = {}

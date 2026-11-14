@@ -131,6 +131,25 @@ ns.CardKinds = {
 	},
 }
 
+-- Which quests are worth showing and telling others about: the ones being
+-- worked on. A quest is underway when at least one of its objectives has some
+-- progress and not all of them are complete. One nobody has started, or one
+-- that only needs handing in, is left out. With eight players on a channel,
+-- every quest in every log would be far too much to say and to read.
+-- objectives is a list or a map of { have, need }.
+function ns.QuestUnderway(objectives)
+	local started, unfinished = false, false
+	for _, objective in pairs(objectives or {}) do
+		if (objective.have or 0) > 0 then
+			started = true
+		end
+		if (objective.have or 0) < (objective.need or 0) then
+			unfinished = true
+		end
+	end
+	return started and unfinished
+end
+
 -- Icons for rows that are not tied to a feed type or card kind.
 ns.CardIcons = {
 	member = "Interface\\Icons\\achievement_guildperk_everybodysfriend",

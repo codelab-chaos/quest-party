@@ -258,7 +258,7 @@ end
 
 local stating = false -- a statement of our quests is already on its way
 
--- Says how every one of our quests stands, a moment from now.
+-- Says how each quest we are working on stands, a moment from now.
 local function StateQuests()
 	if stating then
 		return
@@ -271,7 +271,8 @@ local function StateQuests()
 		end
 		local _, class = UnitClass("player")
 		for _, quest in ipairs(ns.Collectors:GetQuestSnapshot()) do
-			if quest.objectivesReady then
+			-- Only the quests being worked on: the rest is not worth a message each.
+			if quest.objectivesReady and ns.QuestUnderway(quest.objectives) then
 				SendQuest(quest, class)
 			end
 		end
