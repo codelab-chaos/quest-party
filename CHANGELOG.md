@@ -20,7 +20,6 @@ CurseForge's changelog field using Markdown formatting.
 ### Changed
 
 - Quest cards are shown only while a quest is underway: at least one objective has progress and not all are complete. Quests not yet started, and quests that only need handing in, are left out of the panel and of what is told to others.
-
 - Clear and the debug emulator button moved into Options.
 
 ### Fixed
