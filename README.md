@@ -16,6 +16,12 @@ and profession gains without losing ongoing progress in a stream of chat.
 - **Customizable output** lets you choose event categories, include your own
   progress, and optionally show updates in your local chat window.
 
+<p>
+  <img src="docs/imgbarn/all-tab-1-1.png" alt="The All tab, with quest cards, XP and other progress in one feed" height="451">
+  <img src="docs/imgbarn/quest-tab-1-1.png" alt="The Quests tab, with quest cards and objective progress bars" height="447">
+  <img src="docs/imgbarn/options.png" alt="The Options panel" height="378">
+</p>
+
 Quest Party is being built for social questing, so friends can follow each
 other's adventures even when they are in different places. Channel creation,
 joining, and reconnecting are available now; **sharing quest progress through
