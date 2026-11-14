@@ -14,6 +14,7 @@ ns.name = addonName
 --   SETTING_CHANGED(id, value) a feature switch was flipped
 --   ENTRY_OUTGOING(entry)     one of our own entries, to send to everyone we share with
 --   COMMS_RECEIVED(text, chatType, sender, channelId)  a raw addon message arrived
+--   COMMS_SENT(message)       the game took one of ours to send
 --   COMMS_SEND_FAILED(reason, message)  the game refused one of ours outright
 --   COMMS_ECHOED(text, chatType, sender, channelId)  one of ours came back from the server
 --   COMMS_LOGGED(record)      a message passed on the channel: out, back or in

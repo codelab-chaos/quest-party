@@ -68,7 +68,9 @@ local function Pump()
 		end
 		table.remove(queue, 1)
 		Transport.tokens = Transport.tokens - 1
-		if not Accepted(result) then
+		if Accepted(result) then
+			Bus:Fire("COMMS_SENT", message)
+		else
 			Bus:Fire("COMMS_SEND_FAILED", ResultName(result), message)
 		end
 	end
@@ -80,9 +82,21 @@ end
 
 -- chatType is "PARTY", "RAID", "WHISPER" or "CHANNEL". target is the character
 -- for a whisper, and the channel's number for a channel.
-function Transport:Send(text, chatType, target)
+-- key, when given, says what the message is the latest word on. A message
+-- still waiting under the same key is out of date, so it is replaced where it
+-- stands instead of both being sent.
+function Transport:Send(text, chatType, target, key)
 	local queue = self.queue
-	queue[#queue + 1] = { text = text, chatType = chatType, target = target }
+	if key then
+		for _, waiting in ipairs(queue) do
+			if waiting.key == key and waiting.chatType == chatType and waiting.target == target then
+				waiting.text = text
+				Pump()
+				return
+			end
+		end
+	end
+	queue[#queue + 1] = { text = text, chatType = chatType, target = target, key = key }
 	while #queue > LIMITS.queue do
 		table.remove(queue, 1)
 	end

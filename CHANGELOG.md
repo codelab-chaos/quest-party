@@ -8,7 +8,9 @@ CurseForge's changelog field using Markdown formatting.
 ### Added
 
 - Progress is now shared over the channel you choose, as addon messages that never show in chat: your quests, objectives, levels, discoveries, professions and achievements reach everyone on the same channel who runs Quest Party, and theirs show in your feed and as their quest cards.
+- When someone joins the channel, everyone already there sends where each of their quests stands, so the newcomer sees their quest cards at once.
 - The player list shows who is sharing on the channel, and says when someone joins or leaves.
+- Rapid progress on one objective sends only the latest count, to stay under the game's message limit.
 - `/qp share` reports what has been sent, how much of it came back from the server, what was received, and whether the game refused anything.
 - In debug mode, the sample party emulator sends its players over the channel and shows them only when the server sends them back, and `/qp listen` opens a window listing the messages on the channel as they pass.
 

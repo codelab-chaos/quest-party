@@ -27,8 +27,10 @@ other's adventures even when they are in different places. Create or join a
 channel in Options, and everyone on it who runs Quest Party sees each other's
 progress: your quests, levels, discoveries and the rest are posted to the
 channel as you make them, and theirs show in your feed and as their quest cards.
-They travel as addon messages, the game's own way for addons to talk to each
-other, so nothing is posted in the channel's chat. `/qp share`
+When someone joins, everyone already there tells them where their quests stand,
+so a newcomer's panel fills in at once without waiting for anyone to do
+something. They travel as addon messages, the game's own way for addons to talk
+to each other, so nothing is posted in the channel's chat. `/qp share`
 says how much has been sent and received.
 
 ## Installation

@@ -16,6 +16,15 @@
 --   ENTRY  one feed entry: t is its type, c the sender's class, the rest is
 --          the entry's data. From the emulator it also carries as, the name
 --          of the pretend player it stands for.
+--   QUEST  where one of the sender's quests stands now: id, quest (its name),
+--          c class, and for each objective o1 its name, h1 how many, n1 of
+--          how many (then o2, h2, n2 and so on).
+--
+-- Two kinds of thing are shared. Things that happened (ENTRY) are said once,
+-- as they happen. How things stand (QUEST) is said in full: by everyone when
+-- someone new says hello, so the newcomer's panel fills in at once. A QUEST
+-- message replaces whatever was known about that quest, so a lost or repeated
+-- one does no harm.
 local addonName, ns = ...
 local Bus = ns.Bus
 local L = ns.L
@@ -24,6 +33,10 @@ local Kinds = Protocol.Kinds
 
 local CHAT_TYPE = "CHANNEL"
 local HELLO_DELAY = 2 -- seconds after connecting, so the channel has settled
+-- How long to wait before saying how our quests stand, in seconds: somewhere
+-- between these, picked at random, so that everyone answering one hello does
+-- not speak at the same moment.
+local STATE_DELAY = { min = 1, max = 4 }
 -- Keys of an ENTRY that are about the message, not the entry's data.
 local TYPE_KEY, CLASS_KEY = "t", "c"
 -- On an ENTRY from the emulator: the pretend player it stands for.
@@ -75,7 +88,8 @@ end
 
 -- Sends one message to the channel. Returns false when there is no channel to
 -- send to, or the message is too long for the game to carry.
-local function Send(kind, fields)
+-- key says what the message is the latest word on (see Transport:Send).
+local function Send(kind, fields, key)
 	local session = Session()
 	if session.state ~= "connected" or not session.channelId then
 		return false
@@ -84,11 +98,17 @@ local function Send(kind, fields)
 	if not text then
 		return false
 	end
-	Sharing.sent = Sharing.sent + 1
-	Log("out", text)
-	ns.Transport:Send(text, CHAT_TYPE, session.channelId)
+	ns.Transport:Send(text, CHAT_TYPE, session.channelId, key)
 	return true
 end
+
+-- Counted and listed when the game takes it, not when it is queued.
+Bus:On("COMMS_SENT", function(message)
+	if message.chatType == CHAT_TYPE then
+		Sharing.sent = Sharing.sent + 1
+		Log("out", message.text)
+	end
+end)
 
 -- Text from another player is shown in the panel, so the game's escape codes
 -- (colors, textures, links) are made harmless first.
@@ -194,10 +214,69 @@ local function OnOurChannel(chatType, channelId)
 end
 
 -- ========= Outgoing =========================================================
+-- Entry types that only say where a count stands, and the data that names
+-- what is being counted. Of several waiting to go out for the same thing, only
+-- the newest is worth sending.
+local LATEST_ONLY = {
+	quest_progress = { "questID", "quest", "objectiveIndex", "objective" },
+}
+
+local function LatestKey(entry)
+	local names = LATEST_ONLY[entry.type]
+	if not names then
+		return nil
+	end
+	local parts = { entry.type }
+	for _, name in ipairs(names) do
+		parts[#parts + 1] = tostring(entry.data[name])
+	end
+	return table.concat(parts, ":")
+end
+
 Bus:On("ENTRY_OUTGOING", function(entry)
 	local _, class = UnitClass("player")
-	Send(Kinds.ENTRY, EntryFields(entry.type, class, entry.data))
+	Send(Kinds.ENTRY, EntryFields(entry.type, class, entry.data), LatestKey(entry))
 end)
+
+-- ========= How our quests stand =============================================
+-- One QUEST message for a quest from the quest log (see
+-- Collectors:GetQuestSnapshot). If it is too long to send, objectives are left
+-- off the end until it fits.
+local function SendQuest(quest, class)
+	local objectives = quest.objectives
+	for count = #objectives, 0, -1 do
+		local fields = { id = quest.questID, quest = quest.quest, c = class or "" }
+		for index = 1, count do
+			local objective = objectives[index]
+			fields["o" .. index], fields["h" .. index], fields["n" .. index] = objective.objective, objective.have, objective.need
+		end
+		if Send(Kinds.QUEST, fields, "quest:" .. tostring(quest.questID)) then
+			return
+		end
+	end
+end
+
+local stating = false -- a statement of our quests is already on its way
+
+-- Says how every one of our quests stands, a moment from now.
+local function StateQuests()
+	if stating then
+		return
+	end
+	stating = true
+	C_Timer.After(STATE_DELAY.min + math.random() * (STATE_DELAY.max - STATE_DELAY.min), function()
+		stating = false
+		if Session().state ~= "connected" or not ns.IsEnabled("quests") then
+			return
+		end
+		local _, class = UnitClass("player")
+		for _, quest in ipairs(ns.Collectors:GetQuestSnapshot()) do
+			if quest.objectivesReady then
+				SendQuest(quest, class)
+			end
+		end
+	end)
+end
 
 -- The emulator's pretend players (emulator\emulator.lua) use the same
 -- protocol as real ones. Each of their entries is sent over the channel as an
@@ -215,6 +294,7 @@ local handlers = {}
 handlers[Kinds.HELLO] = function(sender, fields)
 	AddPeer(sender, fields)
 	Send(Kinds.ACK, MyFields())
+	StateQuests() -- so the newcomer sees where we are
 end
 
 handlers[Kinds.ACK] = function(sender, fields)
@@ -231,6 +311,27 @@ handlers[Kinds.ENTRY] = function(sender, fields)
 		AddPeer(sender, { c = class })
 	end
 	Bus:Fire("ENTRY_RECEIVED", { type = typeName, player = sender, class = class or Session().peers[sender].class, data = data })
+end
+
+-- Where one of a friend's quests stands. It replaces what was known of it.
+handlers[Kinds.QUEST] = function(sender, fields)
+	local id, title = fields.id, fields.quest
+	if type(id) ~= "number" or type(title) ~= "string" or title == "" or not ns.IsEnabled("quests") then
+		return
+	end
+	local objectives = {}
+	for index = 1, math.huge do
+		local name, have, need = fields["o" .. index], fields["h" .. index], fields["n" .. index]
+		if type(name) ~= "string" or type(have) ~= "number" or type(need) ~= "number" then
+			break
+		end
+		objectives[index] = { index = index, objective = Clean(name), have = have, need = need }
+	end
+	local class = type(fields.c) == "string" and fields.c ~= "" and fields.c or nil
+	if not Session().peers[sender] then
+		AddPeer(sender, { c = class })
+	end
+	ns.Store:HydrateQuest(sender, class or Session().peers[sender].class, { questID = id, quest = Clean(title), objectives = objectives }, ns.IsEnabled("questDetails"))
 end
 
 Bus:On("COMMS_RECEIVED", function(text, chatType, sender, channelId)
@@ -286,6 +387,7 @@ Bus:On("CONNECTION_CHANGED", function()
 	C_Timer.After(HELLO_DELAY, function()
 		if announced then
 			Send(Kinds.HELLO, MyFields())
+			StateQuests() -- so those already here see where we are
 		end
 	end)
 end)

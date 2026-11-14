@@ -1276,7 +1276,7 @@ test("every message on the channel is logged for the listener: out, back and in"
 	equal(log[#log].text, "something Quest Party cannot read") -- another channel is not ours to list
 	equal(#heard, #log)
 	equal(#w.chat, chat + 1) -- only "Veteran is sharing with you": messages are not printed to chat
-	for _ = 1, 250 do w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "level", data = { level = 22 } }) end
+	for level = 1, 250 do w:hear("E", { t = "level", c = "ROGUE", level = level }, "Veteran") end
 	equal(#log, 200) -- the newest are kept
 end)
 
@@ -1346,6 +1346,111 @@ test("with no channel the emulator's players are shown directly and nothing is s
 	w.ns.Emulator:Step()
 	equal(#w.sent, 0)
 	equal(#w.ns.Store:GetFeed(true), 1)
+end)
+
+-- ========= How quests stand =================================================
+local function questStates(w)
+	return sentOfKind(w, "Q")
+end
+
+test("connecting says how every quest in your log stands", function()
+	local w = Harness.new()
+	w:quest(2, 3)
+	w:share()
+	equal(#questStates(w), 0) -- a moment after the hello, not with it
+	w:advance(5)
+	local states = questStates(w)
+	equal(#states, 1)
+	equal(states[1].fields.id, 1)
+	equal(states[1].fields.quest, "A Quest")
+	equal(states[1].fields.c, "MAGE")
+	equal(states[1].fields.o1, "Kobolds slain")
+	equal(states[1].fields.h1, 2)
+	equal(states[1].fields.n1, 3)
+end)
+
+test("hearing a hello answers with how your quests stand, once for several hellos", function()
+	local w = Harness.new()
+	w:quest(1, 3)
+	w:share()
+	w:advance(5)
+	local before = #questStates(w)
+	w:hear("H", { v = "0.2.0", c = "PRIEST", l = 14, z = "Westfall" }, "Newcomer")
+	w:hear("H", { v = "0.2.0", c = "ROGUE", l = 14, z = "Westfall" }, "Another")
+	equal(#questStates(w), before) -- not at the same moment as everyone else
+	w:advance(5)
+	equal(#questStates(w), before + 1)
+end)
+
+test("a friend's quest state fills in their card without a feed row, and a later one replaces it", function()
+	local w = Harness.new()
+	w:share()
+	w:hear("Q", { id = 9, quest = "Wolves", c = "PRIEST", o1 = "Wolves slain", h1 = 3, n1 = 8, o2 = "Pelts", h2 = 1, n2 = 4 }, "Friend")
+	local cards = w.ns.Store:GetCards("quest")
+	equal(#cards, 1)
+	equal(cards[1].player, "Friend")
+	equal(cards[1].class, "PRIEST")
+	equal(cards[1].data.quest, "Wolves")
+	equal(cards[1].data.objectives["Wolves slain"].have, 3)
+	equal(cards[1].data.objectives["Pelts"].need, 4)
+	equal(#w.ns.Store:GetFeed(true), 0)
+	equal(w.ns.Session:IsConnected("Friend"), true)
+	w:hear("Q", { id = 9, quest = "Wolves", c = "PRIEST", o1 = "Wolves slain", h1 = 5, n1 = 8, o2 = "Pelts", h2 = 1, n2 = 4 }, "Friend")
+	w:hear("Q", { id = 9, quest = "Wolves", c = "PRIEST", o1 = "Wolves slain", h1 = 5, n1 = 8, o2 = "Pelts", h2 = 1, n2 = 4 }, "Friend") -- repeated: no harm
+	cards = w.ns.Store:GetCards("quest")
+	equal(#cards, 1)
+	equal(cards[1].data.objectives["Wolves slain"].have, 5)
+	w:hear("Q", { quest = "No id" }, "Friend")
+	w:hear("Q", { id = 10 }, "Friend")
+	equal(#w.ns.Store:GetCards("quest"), 1)
+end)
+
+test("a quest with too much to say in one message leaves objectives off the end", function()
+	local w = Harness.new()
+	local objectives = {}
+	for index = 1, 12 do
+		objectives[index] = { text = ("A long objective name number %d: 1/9"):format(index), numFulfilled = 1, numRequired = 9 }
+	end
+	w.quests[1] = { questID = 1, title = "A Quest With A Great Deal To Do", objectives = objectives }
+	w:share()
+	w:advance(5)
+	local states = questStates(w)
+	equal(#states, 1)
+	assert(#states[1].message.text <= 255)
+	equal(states[1].fields.o1, "A long objective name number 1")
+	assert(states[1].fields.o12 == nil)
+end)
+
+test("of several counts waiting for the same objective, only the newest is sent", function()
+	local w = Harness.new()
+	w:share()
+	w:advance(5)
+	local before = #w.sent
+	w.lockdown = true -- nothing can leave for now
+	local function progress(objective, have)
+		w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "quest_progress", data = { questID = 7, quest = "A Quest", objectiveIndex = objective, objective = "Thing " .. objective, have = have, need = 9 } })
+	end
+	progress(1, 1)
+	progress(1, 2)
+	progress(2, 1)
+	progress(1, 3)
+	w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "level", data = { level = 21 } })
+	w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "level", data = { level = 22 } }) -- things that happened are all sent
+	equal(#w.sent, before)
+	w.lockdown = false
+	w:advance(2)
+	local entries = {}
+	for index = before + 1, #w.sent do
+		local _, fields = w.ns.Protocol.Decode(w.sent[index].text)
+		entries[#entries + 1] = fields
+	end
+	equal(#entries, 4)
+	equal(entries[1].objectiveIndex, 1)
+	equal(entries[1].have, 3) -- the newest count, in the first one's place
+	equal(entries[2].objectiveIndex, 2)
+	equal(entries[3].level, 21)
+	equal(entries[4].level, 22)
+	equal(w.ns.Sharing.sent, #w.sent) -- counted when sent, not when queued
 end)
 
 test("nothing is ever posted as chat", function()

@@ -16,6 +16,7 @@ Protocol.Kinds = {
 	HELLO = "H", -- "I run Quest Party", with who I am. Answered with ACK.
 	ACK = "A", -- the answer to HELLO, same fields
 	ENTRY = "E", -- one feed entry. t is the feed type, the rest is its data.
+	QUEST = "Q", -- where one of the sender's quests stands now: its id, name and every objective's count.
 }
 
 local function Escape(value)
