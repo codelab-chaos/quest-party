@@ -3,7 +3,7 @@
 Features and fixes shipped in each release. Copy a version's section into
 CurseForge's changelog field using Markdown formatting.
 
-## Unreleased
+## 0.1.2 - 2026-11-13
 
 ### Added
 
