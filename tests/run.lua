@@ -959,7 +959,7 @@ test("create or join saves the name and waits for confirmed membership", functio
 	equal(w.ns.Session.channelId, 5)
 	w:advance(20)
 	equal(w.ns.Session.state, "connected")
-	equal(#w.sent, 0)
+	equal(#w.sent, 1) -- the hello to the channel, and nothing else
 end)
 
 test("invalid channel names do not change the saved connection or join anything", function()
@@ -1118,6 +1118,259 @@ test("sample party replays into every filter without outgoing events", function(
 	assert(#w.ns.Store:GetFeed(true) > 0)
 	equal(outgoing, 0)
 	equal(#w.sent, 0)
+end)
+
+
+-- ========= Sharing over the channel =========================================
+local function sentOfKind(w, kind)
+	local found = {}
+	for _, message in ipairs(w.sent) do
+		local messageKind, fields = w.ns.Protocol.Decode(message.text)
+		if messageKind == kind then found[#found + 1] = { message = message, fields = fields } end
+	end
+	return found
+end
+
+test("nothing is sent while there is no channel", function()
+	local w = Harness.new()
+	w.ns.Bus:Fire("READY")
+	w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "level", data = { level = 21 } })
+	equal(#w.sent, 0)
+	equal(w.ns.Sharing:Status(), w.ns.L.SHARE_STATUS_OFF)
+end)
+
+test("connecting says hello to the channel once, even when its number changes", function()
+	local w = Harness.new()
+	w:share()
+	local hellos = sentOfKind(w, "H")
+	equal(#hellos, 1)
+	equal(hellos[1].message.channel, "CHANNEL")
+	equal(hellos[1].message.target, 5)
+	equal(hellos[1].fields.c, "MAGE")
+	equal(hellos[1].fields.l, 20)
+	w.channels.questfriends.id = 7
+	w:event("CHANNEL_UI_UPDATE")
+	w:advance(3)
+	equal(#sentOfKind(w, "H"), 1)
+end)
+
+test("your own progress goes to the channel you chose, as an addon message", function()
+	local w = Harness.new()
+	w:share()
+	w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "quest_progress", data = { questID = 7, quest = "A Quest", objective = "Kobolds", have = 2, need = 3 } })
+	local entries = sentOfKind(w, "E")
+	equal(#entries, 1)
+	equal(entries[1].message.prefix, "QuestParty")
+	equal(entries[1].message.channel, "CHANNEL")
+	equal(entries[1].message.target, 5)
+	equal(entries[1].fields.t, "quest_progress")
+	equal(entries[1].fields.c, "MAGE")
+	equal(entries[1].fields.quest, "A Quest")
+	equal(entries[1].fields.have, 2)
+	equal(entries[1].fields.questID, 7)
+end)
+
+test("a level-up in game reaches the channel", function()
+	local w = Harness.new()
+	w:share()
+	w.ns.Collectors:Handle("PLAYER_LEVEL_UP", 21)
+	local entries = sentOfKind(w, "E")
+	equal(#entries, 1)
+	equal(entries[1].fields.t, "level")
+	equal(entries[1].fields.level, 21)
+end)
+
+test("what a friend sends on the channel shows in the feed under their name", function()
+	local w = Harness.new()
+	w:share()
+	w:hear("E", { t = "level", c = "PRIEST", level = 12 }, "Friend")
+	local feed = w.ns.Store:GetFeed(true)
+	equal(#feed, 1)
+	equal(feed[1].player, "Friend") -- the realm is dropped
+	equal(feed[1].class, "PRIEST")
+	equal(feed[1].type, "level")
+	equal(feed[1].data.level, 12)
+	equal(w.ns.Session:IsConnected("Friend"), true)
+end)
+
+test("a friend's quest progress becomes their quest card", function()
+	local w = Harness.new()
+	w:share()
+	w:hear("E", { t = "quest_progress", c = "PRIEST", questID = 9, quest = "Wolves", objective = "Wolves slain", have = 1, need = 8 }, "Friend")
+	local cards = w.ns.Store:GetCards("quest")
+	equal(#cards, 1)
+	equal(cards[1].player, "Friend")
+	equal(cards[1].data.quest, "Wolves")
+end)
+
+test("messages that are not for us are ignored", function()
+	local w = Harness.new()
+	w:share()
+	w:hear("E", { t = "level", c = "PRIEST", level = 12 }, "Friend", 9) -- another channel
+	w:hear("E", { t = "level", c = "MAGE", level = 12 }, "Tester") -- our own, echoed back
+	w:hear("E", { t = "no_such_type", level = 12 }, "Friend")
+	w:event("CHAT_MSG_ADDON", "QuestParty", "<secret>", "CHANNEL", "Friend-TestRealm", "", 0, 5, "QuestFriends")
+	w:event("CHAT_MSG_ADDON", "OtherAddon", w.ns.Protocol.Encode("E", { t = "level", level = 12 }), "CHANNEL", "Friend-TestRealm", "", 0, 5, "QuestFriends")
+	w:event("CHAT_MSG_ADDON", "QuestParty", "not a quest party message", "CHANNEL", "Friend-TestRealm", "", 0, 5, "QuestFriends")
+	w:event("CHAT_MSG_ADDON", "QuestParty", w.ns.Protocol.Encode("E", { t = "level", level = 12 }), "PARTY", "Friend-TestRealm", "", 0, 0, "")
+	equal(#w.ns.Store:GetFeed(true), 0)
+end)
+
+test("escape codes in what others send are made harmless", function()
+	local w = Harness.new()
+	w:share()
+	w:hear("E", { t = "discovery", c = "PRIEST", zone = "|TInterface\\Icons\\x:64|t|cffff0000Fake|r" }, "Friend")
+	local feed = w.ns.Store:GetFeed(true)
+	equal(#feed, 1)
+	equal(feed[1].data.zone, "||TInterface\\Icons\\x:64||t||cffff0000Fake||r")
+end)
+
+test("a hello is answered and adds the newcomer, an answer adds who was already there", function()
+	local w = Harness.new()
+	w:share()
+	local before = #sentOfKind(w, "A")
+	w:hear("H", { v = "0.2.0", c = "PRIEST", l = 14, z = "Westfall" }, "Newcomer")
+	equal(#sentOfKind(w, "A"), before + 1)
+	equal(w.ns.Session.peers.Newcomer.class, "PRIEST")
+	equal(w.ns.Session.peers.Newcomer.level, 14)
+	equal(w.ns.Session.peers.Newcomer.version, "0.2.0")
+	w:hear("A", { v = "0.1.1", c = "ROGUE", l = 30, z = "Duskwood" }, "Veteran")
+	equal(#sentOfKind(w, "A"), before + 1) -- an answer is not answered
+	equal(w.ns.Session:Count(), 2)
+end)
+
+test("leaving the channel, or disconnecting, ends the sharing", function()
+	local w = Harness.new()
+	w:share()
+	w:hear("H", { v = "0.2.0", c = "PRIEST", l = 14, z = "Westfall" }, "Friend")
+	w:hear("H", { v = "0.2.0", c = "ROGUE", l = 14, z = "Westfall" }, "Other")
+	equal(w.ns.Session:Count(), 2)
+	w:event("CHAT_MSG_CHANNEL_LEAVE", "", "Friend-TestRealm", "", "5. QuestFriends", "", "", 0, 5, "QuestFriends")
+	equal(w.ns.Session:Count(), 1)
+	w.ns.Session:Disconnect()
+	equal(w.ns.Session:Count(), 0)
+	local sent = #w.sent
+	w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "level", data = { level = 21 } })
+	equal(#w.sent, sent)
+end)
+
+test("every message on the channel is logged for the listener: out, back and in", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	local heard = {}
+	w.ns.Bus:On("COMMS_LOGGED", function(record) heard[#heard + 1] = record end)
+	w:share()
+	local chat = #w.chat
+	local log = w.ns.Sharing.log
+	equal(log[#log].direction, "out") -- the hello
+	w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "level", data = { level = 22 } })
+	equal(log[#log].direction, "out")
+	equal(log[#log].text, w.sent[#w.sent].text)
+	w:event("CHAT_MSG_ADDON", "QuestParty", w.sent[#w.sent].text, "CHANNEL", "Tester-TestRealm", "", 0, 5, "QuestFriends")
+	equal(log[#log].direction, "back")
+	w:hear("A", { v = "0.2.0", c = "ROGUE", l = 30, z = "Duskwood" }, "Veteran")
+	equal(log[#log].direction, "in")
+	equal(log[#log].sender, "Veteran")
+	w:event("CHAT_MSG_ADDON", "QuestParty", "something Quest Party cannot read", "CHANNEL", "Veteran-TestRealm", "", 0, 5, "QuestFriends")
+	equal(log[#log].text, "something Quest Party cannot read") -- still listed
+	w:hear("E", { t = "level", c = "MAGE", level = 12 }, "Elsewhere", 9)
+	equal(log[#log].text, "something Quest Party cannot read") -- another channel is not ours to list
+	equal(#heard, #log)
+	equal(#w.chat, chat + 1) -- only "Veteran is sharing with you": messages are not printed to chat
+	for _ = 1, 250 do w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "level", data = { level = 22 } }) end
+	equal(#log, 200) -- the newest are kept
+end)
+
+test("our own messages coming back from the server are counted and never shown as someone else's", function()
+	local w = Harness.new()
+	w:share()
+	w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "level", data = { level = 21 } })
+	w:event("CHAT_MSG_ADDON", "QuestParty", w.sent[#w.sent].text, "CHANNEL", "Tester-TestRealm", "", 0, 5, "QuestFriends")
+	equal(w.ns.Sharing.echoed, 1)
+	equal(w.ns.Sharing.received, 0)
+	equal(w.ns.Session:Count(), 0)
+	equal(#w.ns.Store:GetFeed(true), 0)
+	assert(w.ns.Sharing:Status():find("1 of them came back", 1, true), w.ns.Sharing:Status())
+end)
+
+test("a character with a surname still knows its own messages", function()
+	local w = Harness.new()
+	w.env.UnitName = function() return "Bagoe", "Bones" end -- Forever: first name, surname
+	w:share()
+	equal(w.ns.IsMe("Bagoe Bones"), true)
+	equal(w.ns.IsMe("Bagoe-Bones"), true)
+	equal(w.ns.IsMe("Bagoe Smith"), false)
+	equal(w.ns.IsMe("Tombert Roams"), false)
+	w:hear("H", { v = "0.1.1", c = "PALADIN", l = 10, z = "Undercity" }, "Bagoe Bones")
+	equal(w.ns.Session:Count(), 0) -- not "Bagoe Bones is sharing with you"
+	equal(#sentOfKind(w, "A"), 0) -- and no answer to ourselves
+	w:hear("H", { v = "0.1.1", c = "MAGE", l = 12, z = "Undercity" }, "Tombert Roams")
+	equal(w.ns.Session:Count(), 1)
+end)
+
+test("the emulator's players go over the channel and show only when the server sends them back", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w.ns.SetDebug(true)
+	w:share()
+	equal(w.ns.Emulator:Channel(), "QuestFriends")
+	local before = #w.sent
+	w.ns.Emulator:Step()
+	equal(#w.sent, before + 1)
+	local kind, fields = w.ns.Protocol.Decode(w.sent[#w.sent].text)
+	equal(kind, "E")
+	equal(fields.as, "Jaina")
+	equal(fields.c, "MAGE")
+	equal(fields.t, "level")
+	equal(w.sent[#w.sent].channel, "CHANNEL")
+	equal(#w.ns.Store:GetFeed(true), 0) -- sent, but not back yet
+	w:event("CHAT_MSG_ADDON", "QuestParty", w.sent[#w.sent].text, "CHANNEL", "Tester-TestRealm", "", 0, 5, "QuestFriends")
+	local feed = w.ns.Store:GetFeed(true)
+	equal(#feed, 1)
+	equal(feed[1].player, "Jaina")
+	equal(feed[1].class, "MAGE")
+	equal(feed[1].data.level, 23)
+	equal(feed[1].data.as, nil)
+	equal(w.ns.Session:Count(), 0) -- a pretend player is not someone sharing
+end)
+
+test("someone else's emulator does not put pretend players in your panel", function()
+	local w = Harness.new()
+	w:share()
+	w:hear("E", { t = "level", c = "MAGE", as = "Jaina", level = 23 }, "Friend")
+	equal(#w.ns.Store:GetFeed(true), 0)
+end)
+
+test("with no channel the emulator's players are shown directly and nothing is sent", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w.ns.SetDebug(true)
+	equal(w.ns.Emulator:Channel(), nil)
+	w.ns.Emulator:Step()
+	equal(#w.sent, 0)
+	equal(#w.ns.Store:GetFeed(true), 1)
+end)
+
+test("nothing is ever posted as chat", function()
+	local w = Harness.new()
+	w.env.C_ChatInfo.SendChatMessage = function() error("Quest Party posted a chat line") end
+	w.env.SendChatMessage = w.env.C_ChatInfo.SendChatMessage
+	w:share()
+	w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "level", data = { level = 21 } })
+	w:hear("H", { v = "0.2.0", c = "PRIEST", l = 14, z = "Westfall" }, "Newcomer")
+	for _, message in ipairs(w.sent) do
+		equal(message.prefix, "QuestParty")
+	end
+end)
+
+test("a send the game refuses is reported once and counted", function()
+	local w = Harness.new()
+	w:share()
+	local lines = #w.chat
+	w.sendResult = w.env.Enum.SendAddonMessageResult.InvalidChatType
+	w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "level", data = { level = 21 } })
+	w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "level", data = { level = 22 } })
+	equal(#w.chat, lines + 1)
+	assert(w.chat[#w.chat]:find("InvalidChatType", 1, true), w.chat[#w.chat])
+	equal(w.ns.Sharing.refused, 2)
+	assert(w.ns.Sharing:Status():find("refused 2", 1, true), w.ns.Sharing:Status())
 end)
 
 print(string.format("\n%d passed, %d failed", passed, failed))

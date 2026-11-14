@@ -94,7 +94,7 @@ function Harness.new(saved, character, debugBuild, serverTime)
 		if key == "X-Debug" then return debugBuild and "true" or "false" end
 		return "0.1.0"
 	end }
-	env.Enum = { SendAddonMessageResult = { Success = 0, AddonMessageThrottle = 1, ChannelThrottle = 2, AddOnMessageLockdown = 3, TargetOffline = 4 } }
+	env.Enum = { SendAddonMessageResult = { Success = 0, AddonMessageThrottle = 1, ChannelThrottle = 2, AddOnMessageLockdown = 3, TargetOffline = 4, InvalidChatType = 5 } }
 	env.C_ChatInfo = {
 		RegisterAddonMessagePrefix = function(prefix) world.prefix = prefix end,
 		InChatMessagingLockdown = function() return world.lockdown == true end,
@@ -124,7 +124,7 @@ function Harness.new(saved, character, debugBuild, serverTime)
 	local ns = {}
 	local modules = {
 		"core.lua", "locales/en-us.lua", "data/feed-types.lua", "data/filters.lua", "data/settings.lua",
-		"store.lua", "comms/protocol.lua", "comms/transport.lua", "comms/session.lua",
+		"store.lua", "comms/protocol.lua", "comms/transport.lua", "comms/session.lua", "comms/sharing.lua",
 		"collectors/patterns.lua", "collectors/samples.lua", "collectors/collectors.lua",
 		"emulator/script.lua", "emulator/emulator.lua", "ui/view-model.lua", "ui/chat-echo.lua", "commands.lua",
 	}
@@ -157,6 +157,17 @@ function Harness.new(saved, character, debugBuild, serverTime)
 	end
 	function world:receive(kind, data, channel, player)
 		ns.Bus:Fire("COMMS_RECEIVED", ns.Protocol.Encode(kind, data), channel or "PARTY", player or "Friend")
+	end
+	-- An addon message as the game delivers it from the channel.
+	function world:hear(kind, data, player, channelId)
+		self:event("CHAT_MSG_ADDON", "QuestParty", ns.Protocol.Encode(kind, data), "CHANNEL", (player or "Friend") .. "-TestRealm", "", 0, channelId or 5, "QuestFriends")
+	end
+	-- Connects to a channel and lets the hello go out.
+	function world:share(name)
+		ns.Bus:Fire("READY")
+		ns.Session:Connect(name or "QuestFriends")
+		self:join(name or "QuestFriends")
+		self:advance(3)
 	end
 	function world:quest(have, need)
 		self.quests[1] = { questID = 1, title = "A Quest", objectives = {

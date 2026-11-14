@@ -23,9 +23,13 @@ and profession gains without losing ongoing progress in a stream of chat.
 </p>
 
 Quest Party is being built for social questing, so friends can follow each
-other's adventures even when they are in different places. Channel creation,
-joining, and reconnecting are available now; **sharing quest progress through
-the channel is still in development**.
+other's adventures even when they are in different places. Create or join a
+channel in Options, and everyone on it who runs Quest Party sees each other's
+progress: your quests, levels, discoveries and the rest are posted to the
+channel as you make them, and theirs show in your feed and as their quest cards.
+They travel as addon messages, the game's own way for addons to talk to each
+other, so nothing is posted in the channel's chat. `/qp share`
+says how much has been sent and received.
 
 ## Installation
 
@@ -84,6 +88,7 @@ Arguments in square brackets are optional.
 | `/qp help` | Print command help in your chat window. |
 | `/qp set` | List the feature switches and their current values. |
 | `/qp set <switch> [on/off]` | Turn a switch on or off; omit the last argument to toggle it. |
+| `/qp share` | Say what has been sent on the channel, how much of it came back from the server (which shows it made the trip), what arrived from others, who is sharing, and whether the game refused anything. |
 | `/qp clear` | Ask for confirmation before deleting saved feed history, quest cards, and the player list. Settings and channel configuration are kept. |
 | `/qp icon [name-or-id]` | Set the title icon using an icon name, texture path, or numeric file ID. Omit the argument to restore the default icon. |
 | `/qp debug [on/off]` | Enable or disable debug mode; omit the argument to toggle it. |
@@ -102,7 +107,8 @@ is also available in Options while debug mode is enabled.
 
 | Command | What it does |
 | --- | --- |
-| `/qp emu` | Start or stop the sample party emulator. |
+| `/qp emu` | Start or stop the sample party emulator. While you are connected to a channel, its pretend players are sent over it with the real protocol and shown only when the server sends them back, so it tests how your client picks up another client's messages. With no channel they are shown directly. |
+| `/qp listen` | Show or hide the listener: a small window that lists the hidden messages on the channel as they pass, marked sent, came back, or from a player. It shows only Quest Party's own messages, since the game gives an addon nobody else's. |
 | `/qp emu start` | Start the emulator. |
 | `/qp emu stop` | Stop the emulator. |
 | `/qp emu step` | Play the next sample entry once. |
@@ -167,7 +173,9 @@ Before tagging a public release, smoke-test in WoW: `/reload`, open and close
 Options, change each filter, resize the panel, switch row views, enable
 `/qp debug on`, and use the emu-on/off button in Options to preview a sample party.
 Then run `/qp debug off` and confirm the emulator stops and its
-button disappears. Live channel sharing needs an in-game test once implemented.
+button disappears. Channel sharing needs two characters on the same channel:
+make progress on one, check it shows on the other, and check `/qp share` on both.
+The tests cannot prove the server carries addon messages on a custom channel.
 Check for Lua errors with `/console scriptErrors 1` before reloading.
 
 For local installation, `scripts/deploy.sh` uses the AddOns path in

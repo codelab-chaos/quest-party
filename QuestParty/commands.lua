@@ -23,7 +23,8 @@ end
 local emulatorCommands = {
 	start = function()
 		ns.Emulator:Start()
-		ns.Print(L.CMD_EMU_STARTED)
+		local channel = ns.Emulator:Channel()
+		ns.Print(channel and L.CMD_EMU_STARTED_CHANNEL:format(channel) or L.CMD_EMU_STARTED)
 	end,
 	stop = function()
 		ns.Emulator:Stop()
@@ -47,10 +48,12 @@ local function PrintHelp()
 	ns.Print(L.CMD_HELP_DEBUG)
 	if ns.IsDebug() then
 		ns.Print(L.CMD_HELP_EMU)
+		ns.Print(L.CMD_HELP_LISTEN)
 		ns.Print(L.CMD_HELP_TEST)
 	end
 	ns.Print(L.CMD_HELP_CLEAR)
 	ns.Print(L.CMD_HELP_SET)
+	ns.Print(L.CMD_HELP_SHARE)
 	ns.Print(L.CMD_HELP_ICON)
 end
 
@@ -110,6 +113,16 @@ local commands = {
 			ns.SetEnabled(setting.id, not ns.IsEnabled(setting.id))
 		end
 		PrintSwitch(setting)
+	end,
+	share = function()
+		ns.Print(ns.Sharing:Status())
+	end,
+	listen = function()
+		if not ns.IsDebug() then
+			ns.Print(L.CMD_DEBUG_REQUIRED)
+			return
+		end
+		ns.Listener:Toggle()
 	end,
 	-- Tries an icon beside the panel title: /qp icon inv_misc_note_02, or no name to reset.
 	icon = function(name)

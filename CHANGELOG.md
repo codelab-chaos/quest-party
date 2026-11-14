@@ -3,6 +3,19 @@
 Features and fixes shipped in each release. Copy a version's section into
 CurseForge's changelog field using Markdown formatting.
 
+## Unreleased
+
+### Added
+
+- Progress is now shared over the channel you choose, as addon messages that never show in chat: your quests, objectives, levels, discoveries, professions and achievements reach everyone on the same channel who runs Quest Party, and theirs show in your feed and as their quest cards.
+- The player list shows who is sharing on the channel, and says when someone joins or leaves.
+- `/qp share` reports what has been sent, how much of it came back from the server, what was received, and whether the game refused anything.
+- In debug mode, the sample party emulator sends its players over the channel and shows them only when the server sends them back, and `/qp listen` opens a window listing the messages on the channel as they pass.
+
+### Fixed
+
+- A character with a surname is recognized as itself, so its own messages are not mistaken for another player's.
+
 ## 0.1.1 - 2026-11-13
 
 ### Fixed

@@ -8,12 +8,15 @@ ns.name = addonName
 -- Messages used across the addon:
 --   INIT                      saved variables are loaded
 --   READY                     the player is in the world, safe to build UI
---   ENTRY_RECEIVED(entry)     a feed entry arrived from any transport (emulator, later comms)
+--   ENTRY_RECEIVED(entry)     a feed entry arrived: our own, the channel's, or the emulator's
 --   FEED_ADDED(entry, def)    the store accepted an entry as a new feed row
 --   CARD_UPDATED(record, def, entry)  a persistent card was created or moved forward
 --   SETTING_CHANGED(id, value) a feature switch was flipped
 --   ENTRY_OUTGOING(entry)     one of our own entries, to send to everyone we share with
---   COMMS_RECEIVED(text, channel, sender)  a raw addon message arrived
+--   COMMS_RECEIVED(text, chatType, sender, channelId)  a raw addon message arrived
+--   COMMS_SEND_FAILED(reason, message)  the game refused one of ours outright
+--   COMMS_ECHOED(text, chatType, sender, channelId)  one of ours came back from the server
+--   COMMS_LOGGED(record)      a message passed on the channel: out, back or in
 --   PEERS_CHANGED(peer)       someone connected, updated or left. peer is nil on a leave.
 --   STORE_CHANGED             anything in the store changed, views should refresh
 --   EMULATOR_STATE(running)   the emulator started or stopped
@@ -82,6 +85,30 @@ function ns.ColorName(name, class)
 		return "|c" .. color.colorStr .. name .. "|r"
 	end
 	return name
+end
+
+-- A name with its spaces, hyphens and case taken out, so two spellings of the
+-- same character's name compare equal.
+local function PlainName(name)
+	return (name:gsub("[%s%-]", ""):lower())
+end
+
+-- True when a sender's name is this player's own. On Forever a character has
+-- a first name and a surname, and messages carry both ("Bagoe Bones"), while
+-- UnitName gives them as two values.
+function ns.IsMe(name)
+	if type(name) ~= "string" then
+		return false
+	end
+	local first, second = (UnitNameUnmodified or UnitName)("player")
+	local full = NameUtil and NameUtil.GetUnmodifiedUnitFullName and NameUtil.GetUnmodifiedUnitFullName("player")
+	local wanted = PlainName(name)
+	for _, mine in ipairs({ first or "", (first or "") .. (second or ""), full or "" }) do
+		if mine ~= "" and PlainName(mine) == wanted then
+			return true
+		end
+	end
+	return false
 end
 
 function ns.Print(text)

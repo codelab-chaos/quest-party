@@ -22,6 +22,7 @@ store.lua
 comms\protocol.lua
 comms\transport.lua
 comms\session.lua
+comms\sharing.lua
 collectors\patterns.lua
 collectors\samples.lua
 collectors\collectors.lua
@@ -29,5 +30,6 @@ emulator\script.lua
 emulator\emulator.lua
 ui\view-model.lua
 ui\panel.lua
+ui\listener.lua
 ui\chat-echo.lua
 commands.lua

@@ -1,6 +1,10 @@
--- Emulator: a stand-in transport that plays emulator\script.lua as if party members
--- were sending us entries. It fires the same ENTRY_RECEIVED message real comms will,
--- so everything downstream (store, panel, chat echo) is exercised for real.
+-- Emulator: plays emulator\script.lua as if other players were sharing with us.
+-- Its pretend players use the real protocol: while connected to a channel,
+-- each of their entries is sent over it, and is read and shown only when the
+-- server sends it back (comms\sharing.lua). So it tests how this client picks
+-- up messages from another client, with real traffic.
+-- With no channel there is nothing to send over, so the entries are handed
+-- straight to the panel, which still shows how the panel looks with a party.
 local _, ns = ...
 local Bus = ns.Bus
 
@@ -74,6 +78,9 @@ function Emulator:Step()
 		return
 	end
 	self.index = (self.index % #steps) + 1
+	if ns.Sharing:SendVirtual(step.persona, step.type, step.data) then
+		return -- it shows when the server sends it back
+	end
 	Bus:Fire("ENTRY_RECEIVED", {
 		type = step.type,
 		player = step.persona.name,
@@ -81,6 +88,13 @@ function Emulator:Step()
 		data = Copy(step.data),
 		emulated = true,
 	})
+end
+
+-- The channel the pretend players are sent over, or nil when there is none
+-- and they are handed straight to the panel.
+function Emulator:Channel()
+	local session = ns.Session
+	return session.state == "connected" and session.channelId and ns.db.connection.name or nil
 end
 
 function Emulator:Burst(count)
