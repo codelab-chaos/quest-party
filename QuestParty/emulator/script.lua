@@ -67,6 +67,7 @@ ns.EmulatorScript = {
 		{ after = 3, who = "thrall", type = "kill", data = { mob = "Greater Plainstrider", xp = 48, quest = "Plainstrider Menace" } },
 
 		{ after = 2, who = "uther", type = "skill", data = { skill = "Blacksmithing", level = 150 } },
+		{ after = 2, who = "jaina", type = "death", data = { zone = "Redridge Mountains", level = 23 } },
 		GnollKills("jaina", 6, 8, 3),
 		GnollKills("thrall", 3, 5, 3),
 		GnollKills("uther", 5, 7, 2),

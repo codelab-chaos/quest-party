@@ -49,7 +49,10 @@ local function PrintHelp()
 	if ns.IsDebug() then
 		ns.Print(L.CMD_HELP_EMU)
 		ns.Print(L.CMD_HELP_LISTEN)
+		ns.Print(L.CMD_HELP_STATS)
+		ns.Print(L.CMD_HELP_REPLAY)
 		ns.Print(L.CMD_HELP_TEST)
+		ns.Print(L.CMD_HELP_TESTLOC)
 	end
 	ns.Print(L.CMD_HELP_CLEAR)
 	ns.Print(L.CMD_HELP_SET)
@@ -117,6 +120,34 @@ local commands = {
 	share = function()
 		ns.Print(ns.Sharing:Status())
 	end,
+	stats = function()
+		if not ns.IsDebug() then
+			ns.Print(L.CMD_DEBUG_REQUIRED)
+			return
+		end
+		local players = ns.Stats:Players()
+		if #players == 0 then
+			ns.Print(L.CMD_STATS_NONE:format(ns.StatDays))
+			return
+		end
+		ns.Print(L.CMD_STATS_TITLE:format(ns.StatDays))
+		for _, player in ipairs(players) do
+			local totals, parts = ns.Stats:Week(player), {}
+			for _, kind in ipairs(ns.StatKinds) do
+				if totals[kind.id] then
+					parts[#parts + 1] = kind.label:format(ns.Comma(totals[kind.id]))
+				end
+			end
+			ns.Print(player .. ": " .. table.concat(parts, ", "))
+		end
+	end,
+	replay = function()
+		if not ns.IsDebug() then
+			ns.Print(L.CMD_DEBUG_REQUIRED)
+			return
+		end
+		ns.Print(L.CMD_REPLAYED:format(ns.Sharing:Replay()))
+	end,
 	listen = function()
 		if not ns.IsDebug() then
 			ns.Print(L.CMD_DEBUG_REQUIRED)
@@ -135,6 +166,36 @@ local commands = {
 			return
 		end
 		ns.Collectors:RunTest()
+	end,
+	-- Shows one thing in your own panel only: /qp testloc confetti, /qp testloc all.
+	testloc = function(target)
+		if not ns.IsDebug() then
+			ns.Print(L.CMD_DEBUG_REQUIRED)
+			return
+		end
+		target = (target or ""):lower()
+		local chosen = {}
+		if target == "all" then
+			chosen = ns.LocalTests
+		elseif ns.LocalTestById[target] then
+			chosen = { ns.LocalTestById[target] }
+		end
+		if #chosen == 0 then
+			local ids = {}
+			for _, localTest in ipairs(ns.LocalTests) do
+				ids[#ids + 1] = localTest.id
+			end
+			ns.Print(L.CMD_TESTLOC_LIST:format(table.concat(ids, ", ")))
+			return
+		end
+		for _, localTest in ipairs(chosen) do
+			for _, entry in ipairs(localTest.entries and localTest.entries() or {}) do
+				ns.Bus:Fire("ENTRY_RECEIVED", entry)
+			end
+			if localTest.effect == "confetti" then
+				ns.Confetti:Burst()
+			end
+		end
 	end,
 	help = PrintHelp,
 }

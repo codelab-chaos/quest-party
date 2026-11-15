@@ -10,8 +10,16 @@ and profession gains without losing ongoing progress in a stream of chat.
   an update.
 - **Filter tabs** let you focus on quests, XP, achievements, professions, or the party view.
 - **XP updates** show the amount gained, your current level, and the percentage
-  remaining to the next level, with a progress bar. Control these with **Leveling**
-  in Options.
+  remaining to the next level, with a progress bar. Control these with
+  **Leveling** in Options. XP from kills gets its own row only with **Kills** on,
+  naming what was killed: "Kills Riverpaw Gnoll for 65 XP".
+- **Party XP bars** above the tabs: one bar per other player sharing on your
+  channel, stacked, each in its own color, with their name, level and how far
+  they have to go. Bars move as they gain XP, and a player at the level cap shows
+  as max level. Hover a bar for their XP and last gain.
+- **Level-ups** lead with "DING!!" and drop confetti over the panel, for anyone on
+  your channel. Turn the confetti off with **Level-up confetti** in Options.
+- **Deaths** show where someone died and at what level.
 - **Detailed and compact views** fit the way you like to track your adventures.
 - **Customizable output** lets you choose event categories, include your own
   progress, and optionally show updates in your local chat window.
@@ -97,7 +105,7 @@ Arguments in square brackets are optional.
 | `/qp debug [on/off]` | Enable or disable debug mode; omit the argument to toggle it. |
 
 Available switches: `quests`, `questDetails`, `kills`, `levels`, `discovery`,
-`professions`, `achievements`, `chatEcho`, `chatOrder`, and `showSelf`.
+`professions`, `achievements`, `deaths`, `confetti`, `chatEcho`, `chatOrder`, and `showSelf`.
 
 For example, `/qp set showSelf off` turns off **Include self**,
 `/qp set levels off` disables XP and level-up updates, and
@@ -112,12 +120,15 @@ is also available in Options while debug mode is enabled.
 | --- | --- |
 | `/qp emu` | Start or stop the sample party emulator. While you are connected to a channel, its pretend players are sent over it with the real protocol and shown only when the server sends them back, so it tests how your client picks up another client's messages. With no channel they are shown directly. |
 | `/qp listen` | Show or hide the listener: a small window that lists the hidden messages on the channel as they pass, marked sent, came back, or from a player. It shows only Quest Party's own messages, since the game gives an addon nobody else's. |
+| `/qp stats` | Show what you and your friends have done over the last 7 days: XP, kills, quests, levels, skill-ups, achievements and deaths. An advanced feature for now: the daily tallies are only kept while debug mode is on. |
+| `/qp replay` | Read the saved messages from other players again, as if they had just arrived, to rebuild the panel from real traffic. Nothing is sent. The last 200 messages are kept across reloads. |
 | `/qp emu start` | Start the emulator. |
 | `/qp emu stop` | Stop the emulator. |
 | `/qp emu step` | Play the next sample entry once. |
 | `/qp emu burst [n]` | Play sample entries immediately; defaults to 10. |
 | `/qp emu speed [n]` | Set playback speed from 0.25× to 20×; defaults to 1×. |
-| `/qp test` | Replay sample game events as your own character. |
+| `/qp test` | Replay sample game events as your own character. They are shared with your channel like real progress, so leave the channel first if friends are on it. |
+| `/qp testloc <target>` | Show one test in your own panel only; nothing is sent. Targets: `confetti`, `level`, `death`, `quest`, `kill`, or `all`. With no target it lists them. |
 
 ## Builds and releases
 

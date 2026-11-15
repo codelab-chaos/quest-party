@@ -12,6 +12,8 @@ ns.Settings = {
 	{ id = "discovery", label = L.SET_DISCOVERY, tip = L.SET_DISCOVERY_TIP, default = true },
 	{ id = "professions", label = L.SET_PROFESSIONS, tip = L.SET_PROFESSIONS_TIP, default = true },
 	{ id = "achievements", label = L.SET_ACHIEVEMENTS, tip = L.SET_ACHIEVEMENTS_TIP, default = true },
+	{ id = "deaths", label = L.SET_DEATHS, tip = L.SET_DEATHS_TIP, default = true },
+	{ id = "confetti", label = L.SET_CONFETTI, tip = L.SET_CONFETTI_TIP, default = true },
 	{ id = "chatEcho", label = L.SET_CHAT_ECHO, tip = L.SET_CHAT_ECHO_TIP, default = true },
 	{ id = "chatOrder", label = L.SET_CHAT_ORDER, tip = L.SET_CHAT_ORDER_TIP, default = true },
 	{ id = "showSelf", label = L.SET_SHOW_SELF, tip = L.SET_SHOW_SELF_TIP, default = true },
@@ -21,6 +23,15 @@ ns.SettingById = {}
 for _, setting in ipairs(ns.Settings) do
 	ns.SettingById[setting.id] = setting
 end
+
+-- The game's skill line categories that count as professions. A skill-up in
+-- any other (weapon skills, Defense, languages) is not reported: they rise all
+-- the time while fighting and would bury everything else. The numbers are the
+-- game's own (C_SkillInfo skillLineCategoryID).
+ns.ProfessionCategories = {
+	[9] = true, -- Secondary Skills: Cooking, First Aid, Fishing
+	[11] = true, -- Professions: Blacksmithing, Herbalism and the rest
+}
 
 -- Cached cards remain available until cleared or closed by a quest update.
 ns.Timing = {

@@ -164,6 +164,7 @@ local function TouchMember(entry, def)
 	end
 	member.class = entry.class or member.class
 	member.time = entry.time
+	member.emulated = entry.emulated == true or nil -- one of the emulator's players
 	if def.member then
 		for memberField, dataKey in pairs(def.member) do
 			if entry.data[dataKey] ~= nil then
@@ -339,6 +340,78 @@ function Store:IdentifyQuest(player, questID, title, objectiveName)
 	if changed then Bus:Fire("STORE_CHANGED") end
 end
 
+-- True when an entry is shown as a feed row (see feedOnlyIf in data\feed-types.lua).
+local function ShownInFeed(entry, def)
+	local data = entry.data or {}
+	local told = def.toldBy and data[def.toldBy]
+	if told ~= nil and told ~= "" then
+		return false
+	end
+	local rule = def.feedOnlyIf
+	if not rule then
+		return true
+	end
+	local value = data[rule.field]
+	return value == nil or value == "" or ns.IsEnabled(rule.setting)
+end
+
+-- The newest row the entry continues (see merge in data\feed-types.lua), or nil.
+local function RowToMerge(entry, def)
+	local rule = def.merge
+	if not rule then
+		return nil
+	end
+	for index, row in ipairs(db.feed) do -- newest first
+		if entry.time - (row.time or 0) > rule.seconds then
+			return nil
+		end
+		if row.type == entry.type and row.player == entry.player then
+			local same = true
+			for _, key in ipairs(rule.keys) do
+				if row.data[key] ~= entry.data[key] then
+					same = false
+				end
+			end
+			if same then
+				return row, index
+			end
+		end
+	end
+end
+
+-- Folds the entry into the row it continues, which moves to the newest end.
+-- Returns true when it did. It is not a new row, so nothing is announced.
+local function Merge(entry, def)
+	local row, index = RowToMerge(entry, def)
+	if not row then
+		return false
+	end
+	local rule = def.merge
+	local previous, data = row.data, entry.data
+	if rule.first then
+		local first = previous[rule.first]
+		if first == nil then
+			first = previous[rule.field]
+		end
+		data[rule.first] = first
+	end
+	for _, field in ipairs(rule.sum or {}) do
+		if type(previous[field]) == "number" and type(data[field]) == "number" then
+			data[field] = previous[field] + data[field]
+		end
+	end
+	if rule.count then
+		data[rule.count] = (previous[rule.count] or 1) + 1
+	end
+	row.data = data
+	row.class = entry.class or row.class
+	row.time = entry.time
+	row.sequence = NextSequence()
+	table.remove(db.feed, index)
+	table.insert(db.feed, 1, row)
+	return true
+end
+
 function Store:Ingest(entry)
 	local def = ns.FeedTypes[entry.type]
 	if not def or not entry.player or type(entry.data) ~= "table" then
@@ -360,11 +433,11 @@ function Store:Ingest(entry)
 	entry.time = entry.time or GetServerTime()
 	TouchMember(entry, def)
 
-	local toFeed = true
+	local toFeed = ShownInFeed(entry, def)
 	if def.card then
 		toFeed = cardModes[def.card.mode](entry, def)
 	end
-	if toFeed then
+	if toFeed and not Merge(entry, def) then
 		AddFeed(entry, def)
 	end
 	Bus:Fire("STORE_CHANGED")
@@ -379,7 +452,7 @@ function Store:GetFeed(feedFilter)
 	local result = {}
 	for _, entry in ipairs(db.feed) do
 		local def = ns.FeedTypes[entry.type]
-		if def and ns.IsEnabled(def.setting) and (feedFilter == true or def.filters[feedFilter]) then
+		if def and ns.IsEnabled(def.setting) and ShownInFeed(entry, def) and (feedFilter == true or def.filters[feedFilter]) then
 			result[#result + 1] = entry
 		end
 	end
@@ -447,6 +520,8 @@ Bus:On("PEERS_CHANGED", function(peer)
 		member.class = peer.class or member.class
 		member.level = peer.level or member.level
 		member.zone = peer.zone or member.zone
+		member.currentXP = peer.currentXP or member.currentXP
+		member.maxXP = peer.maxXP or member.maxXP
 		member.time = GetServerTime()
 	end
 	Bus:Fire("STORE_CHANGED")

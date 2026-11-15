@@ -48,3 +48,33 @@ Each player shares what they can make and what they have to spare, so friends kn
 ### The look
 
 The concept art is much fancier than the panel today: player portraits, art behind each row, a big level badge, a search box. See `concept-art.png` here and the newer renders in `../auction-hero/docs/concept-art/`. Portraits and row art are a separate job from any of the ideas above, and none of them depend on it.
+
+### A more realistic emulator
+
+The emulator's players travel over the channel with the real protocol, so it proves the wire and the panel. It is not yet a believable party. Gaps seen on 14 November 2026:
+
+- Its players never say hello, so they are not peers: they appear in the party bars only through a debug-mode exception, and never carry XP until their first gain.
+- Only one of them gains XP, and none name a kill, so the XP bars and "Kills X for N XP" rows are barely exercised.
+- No deaths, no quest state on join, no level-ups mid-quest, and nobody joins or leaves part way through.
+- Everything happens on a fixed script at a fixed pace.
+
+What would make it realistic: each pretend player says hello with level and XP, then plays a loop (kill, gain XP, quest progress, the odd death or level-up) at a believable pace, with players joining and leaving. Recorded sessions can feed it too: the saved message log from a real session (see `/qp replay`) is real traffic to play back.
+
+### Creature headshots on kill rows
+
+Stashed on 14 November 2026. The wish: a kill row ("Kills Scarlet Missionary for 46 XP") shows a headshot of the creature as its badge, and hovering it shows the creature's details.
+
+What the Forever client allows, checked in its API documentation:
+
+- **No name lookup.** Nothing turns a creature's name into an ID or a model. The kill message ("Scarlet Missionary dies, you gain 46 experience") carries only the name, and the combat log that used to carry IDs is restricted.
+- **Ways to draw one:** `model:SetCreature(creatureID)`, `model:SetDisplayInfo(displayID)`, `model:SetModel(file)`, and `model:SetUnit(unit)` or `SetPortraitTexture(texture, unit)` for a unit you can see right now. `SetPortraitZoom` makes any model a head-and-shoulders shot.
+- **Where an ID can come from:** your target, as it dies (`UnitCreatureID("target")`, along with `UnitCreatureType`, `UnitCreatureFamily` and `UnitClassification`). The game hides these "when unit identity is restricted", which looks like dungeons and similar.
+
+Two routes, which stack:
+
+1. **Your target's ID at the moment it dies.** Exact, nothing to ship. Only your own targeted kills, not in dungeons. The ID is a number, so it can be saved with the row and sent to friends.
+2. **A shipped name-to-ID table**, built from the game's creature data, as Questie ships its creature database. Works for every named kill, anywhere, for everyone, at the cost of building and refreshing the data when Forever adds content. Names are not quite unique ("Rat"); pick one, the model is nearly always the same.
+
+For the hover: level, creature type, family and elite or rare can be read from the target at the same moment as its ID, and travel with it. With only a name table, the details would come from the table.
+
+Cost to watch: a 3D model per visible kill row is heavier than an icon. Try it on a screenful of rows before settling on it. Fallbacks: the creature type icon when there is a type but no model, then the XP icon.

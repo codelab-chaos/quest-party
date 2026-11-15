@@ -27,6 +27,15 @@ local LAYOUT = {
 	optionHeight = 22,
 	scrollBarWidth = 12,
 	refreshSeconds = 30,
+	-- The party's XP bars, stacked above the tabs. Past xpBarMax players the
+	-- rest are left out, so the bars never crowd out the list.
+	xpBarHeight = 14,
+	xpBarEdge = 7, -- the rounded border's size: half the height makes round ends
+	xpBarInset = 2, -- the fill sits this far inside the border
+	xpBarGap = 2,
+	xpBarMax = 8,
+	xpStripGap = 4, -- between the last bar and the tabs
+	xpBarNotches = 3, -- marks splitting each bar into equal parts (3 makes quarters)
 }
 
 local COLORS = {
@@ -36,7 +45,8 @@ local COLORS = {
 	optionsBorder = { 0.35, 0.65, 0.95, 1 },
 	optionsHeader = { 0.12, 0.24, 0.40, 1 },
 	row = { 1, 1, 1, 0.05 },
-	rowHighlight = { 0.45, 0.20, 0.75, 0.45 },
+	rowHighlight = { 0.45, 0.20, 0.75, 0.45 }, -- a level-up
+	rowHighlightQuest = { 0.70, 0.52, 0.12, 0.42 }, -- a quest handed in
 	rowCard = { 0.20, 0.45, 0.75, 0.18 },
 	tab = { 1, 1, 1, 0.08 },
 	tabSelected = { 0.80, 0.65, 0.20, 0.45 },
@@ -45,6 +55,24 @@ local COLORS = {
 	pulse = { 1, 0.85, 0.35, 0.55 },
 	emulatorOn = { 0.10, 0.48, 0.16, 1 },
 	emulatorOff = { 0.52, 0.12, 0.10, 1 },
+	-- The party's XP bars. Each player keeps the same color from this list,
+	-- picked from their name, so a bar is easy to follow as others come and go.
+	xpBars = {
+		{ 0.58, 0.36, 0.86 }, -- violet
+		{ 0.27, 0.56, 0.90 }, -- blue
+		{ 0.20, 0.70, 0.66 }, -- teal
+		{ 0.38, 0.72, 0.32 }, -- green
+		{ 0.86, 0.66, 0.22 }, -- gold
+		{ 0.88, 0.45, 0.25 }, -- orange
+		{ 0.86, 0.36, 0.56 }, -- rose
+		{ 0.30, 0.74, 0.88 }, -- sky
+	},
+	xpBarAlpha = 0.95,
+	xpBarBack = { 0.02, 0.02, 0.04, 0.85 },
+	xpBarBorder = { 0.80, 0.65, 0.20, 0.70 }, -- the panel's gold, a little softer
+	xpBarNotch = { 0, 0, 0, 0.45 },
+	-- The game's own glossy status bar: a light top fading to a darker bottom.
+	xpBarTexture = "Interface\\TargetingFrame\\UI-StatusBar",
 }
 
 -- The two row views, picked with the toggle in the title bar.
@@ -86,6 +114,38 @@ local HEADER_BUTTON = {
 	titleIcon = "Interface\\Icons\\spell_nature_astralrecalgroup", -- beside the title
 }
 
+-- Badges drawn in place of a row's icon, by style (see badge in
+-- data\feed-types.lua). Each layer is one of the game's own pieces of art,
+-- by its atlas name; a layer the game does not have is left out.
+--   size        the badge's size against the icon's
+--   glow, ring  a soft glow behind, and a ring around the text
+--   burst       rays behind the ring, turning slowly, spinSeconds a turn
+--   text        the font and color of what is shown on it, such as the level
+local BADGES = {
+	level = {
+		size = 1.35,
+		glow = "ChallengeMode-SoftYellowGlow",
+		glowColor = { 1, 0.85, 0.35, 0.9 },
+		burst = "AftLevelup-WhiteStarBurst",
+		burstColor = { 1, 0.80, 0.30, 0.85 },
+		spinSeconds = 14,
+		ring = "Azerite-GoldRing-Rank3",
+		fill = { 0.20, 0.08, 0.32, 1 }, -- behind the number, the level-up purple
+		font = { detailed = "GameFontNormalLarge", oneLine = "GameFontNormalSmall" },
+		textColor = { 1, 0.88, 0.35 },
+	},
+}
+
+-- Sets a texture to one of the game's atlases. False when the game has none
+-- by that name, so the caller can leave the layer out.
+local function UseAtlas(texture, atlas)
+	if not atlas or not (C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas)) then
+		return false
+	end
+	texture:SetAtlas(atlas)
+	return true
+end
+
 -- Room kept on the right of each line for the count or time.
 local RIGHT_TEXT_WIDTH = 58
 
@@ -120,7 +180,10 @@ local BACKDROP = {
 }
 
 local frame, scrollBox, scrollBar, listView, emptyText, optionsView, optionsButton, viewButton, titleIcon
-local filterBar
+local filterBar, xpStrip
+local PlaceList
+local xpBars = {} -- the bar frames, reused
+local xpBarsShown = 0
 local filterTabs = {}
 
 -- Pulses already shown, so a row flashes once per change and not on every redraw.
@@ -148,6 +211,24 @@ local function BuildRow(row)
 	row.hover:Hide()
 
 	row.icon = row:CreateTexture(nil, "ARTWORK")
+
+	-- A badge, drawn in place of the icon for some rows (a level-up). Built
+	-- here once and dressed per row in ShowBadge.
+	local badge = CreateFrame("Frame", nil, row)
+	badge.glow = badge:CreateTexture(nil, "BACKGROUND")
+	badge.burst = badge:CreateTexture(nil, "BORDER")
+	badge.fill = badge:CreateTexture(nil, "ARTWORK", nil, 1)
+	badge.fill:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+	badge.ring = badge:CreateTexture(nil, "ARTWORK", nil, 2)
+	badge.text = badge:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+	badge.text:SetPoint("CENTER", 0, 0)
+	badge.text:SetShadowOffset(1, -1)
+	badge.spin = badge.burst:CreateAnimationGroup()
+	badge.spin:SetLooping("REPEAT")
+	badge.turn = badge.spin:CreateAnimation("Rotation")
+	badge.turn:SetDegrees(-360)
+	badge:Hide()
+	row.badge = badge
 
 	row.right = row:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
 	row.right:SetJustifyH("RIGHT")
@@ -300,13 +381,59 @@ local function LayoutDetailed(row, data, style)
 	HideLines(row, #data.lines + 1)
 end
 
+-- Dresses the row's badge for data.badge and puts it over the icon's place,
+-- or hides it.
+local function ShowBadge(row, data, style)
+	local badge = row.badge
+	local look = data.badge and BADGES[data.badge.style]
+	if not look then
+		badge.spin:Stop()
+		badge:Hide()
+		row.icon:Show()
+		return
+	end
+	local size = math.floor(style.iconSize * look.size + 0.5)
+	badge:ClearAllPoints()
+	badge:SetPoint("CENTER", row.icon, "CENTER")
+	badge:SetSize(size, size)
+	badge:SetFrameLevel(row:GetFrameLevel() + 2)
+	for _, layer in ipairs({ "glow", "burst", "ring" }) do
+		badge[layer]:ClearAllPoints()
+		badge[layer]:SetPoint("CENTER")
+	end
+	badge.glow:SetSize(size * 1.6, size * 1.6)
+	badge.glow:SetShown(UseAtlas(badge.glow, look.glow))
+	badge.glow:SetVertexColor(unpack(look.glowColor))
+	badge.burst:SetSize(size * 1.5, size * 1.5)
+	badge.burst:SetShown(UseAtlas(badge.burst, look.burst))
+	badge.burst:SetVertexColor(unpack(look.burstColor))
+	badge.fill:ClearAllPoints()
+	badge.fill:SetPoint("CENTER")
+	badge.fill:SetSize(size * 0.78, size * 0.78)
+	badge.fill:SetVertexColor(unpack(look.fill))
+	badge.ring:SetSize(size, size)
+	badge.ring:SetShown(UseAtlas(badge.ring, look.ring))
+	badge.text:SetFontObject(look.font[StyleName()] or look.font.detailed)
+	badge.text:SetTextColor(unpack(look.textColor))
+	badge.text:SetText(data.badge.text)
+	badge:SetAlpha(data.stale and LAYOUT.staleAlpha or 1)
+	row.icon:Hide()
+	badge:Show()
+	badge.turn:SetDuration(look.spinSeconds)
+	if badge.burst:IsShown() and not badge.spin:IsPlaying() then
+		badge.spin:Play()
+	end
+end
+
 local function InitRow(row, data)
 	if not row.built then
 		BuildRow(row)
 	end
 	local style = ROW_STYLES[StyleName()]
 
-	local background = data.highlight and COLORS.rowHighlight or ROW_BACKGROUND[data.kind] or COLORS.row
+	local background = (data.highlight == "quest" and COLORS.rowHighlightQuest)
+		or (data.highlight and COLORS.rowHighlight)
+		or ROW_BACKGROUND[data.kind] or COLORS.row
 	row.background:SetColorTexture(unpack(background))
 	row.icon:SetTexture(data.icon)
 	row.icon:SetSize(style.iconSize, style.iconSize)
@@ -327,14 +454,23 @@ local function InitRow(row, data)
 	row.hover:Hide()
 	row:EnableMouse(data.quest ~= nil)
 	row:SetAlpha(data.stale and LAYOUT.staleAlpha or 1)
+	ShowBadge(row, data, style)
 	PlayPulse(row, data.pulse)
 end
 
 -- ========= Refresh ==========================================================
 -- Height of the visible list area, from the layout data.
 -- Distance from the top of the window to the top of the list.
+-- How tall the XP bars above the tabs are, with the gap under them.
+local function StripHeight()
+	if xpBarsShown == 0 then
+		return 0
+	end
+	return xpBarsShown * (LAYOUT.xpBarHeight + LAYOUT.xpBarGap) - LAYOUT.xpBarGap + LAYOUT.xpStripGap
+end
+
 local function ListTop()
-	return LAYOUT.headerHeight + LAYOUT.filterHeight + 6
+	return LAYOUT.headerHeight + StripHeight() + LAYOUT.filterHeight + 6
 end
 
 local function ListHeight()
@@ -680,7 +816,165 @@ local function BuildFilter()
 	LayoutFilter()
 end
 
-local function PlaceList()
+-- ========= The party's XP bars ==============================================
+local function BarColor(name)
+	local sum = 0
+	for index = 1, #name do
+		sum = (sum * 31 + name:byte(index)) % 65521
+	end
+	return COLORS.xpBars[sum % #COLORS.xpBars + 1]
+end
+
+local function ShowBarTip(bar)
+	local data = bar.data
+	if not data then
+		return
+	end
+	GameTooltip:SetOwner(bar, "ANCHOR_BOTTOM")
+	GameTooltip:SetText(ns.ColorName(data.name, data.class))
+	GameTooltip:AddLine(data.text, 1, 1, 1)
+	if data.have then
+		GameTooltip:AddLine(L.XPBAR_TIP_XP:format(ns.Comma(data.have), ns.Comma(data.need)), 0.8, 0.8, 0.8)
+	end
+	if data.lastXP then
+		local gain = L.XP_GAIN:format(ns.Comma(data.lastXP))
+		local line = (data.lastMob and data.lastMob ~= "") and L.XPBAR_TIP_GAIN_FROM:format(gain, data.lastMob) or L.XPBAR_TIP_GAIN:format(gain)
+		GameTooltip:AddLine(line, 0.8, 0.8, 0.8)
+	end
+	GameTooltip:Show()
+end
+
+-- A rounded, glossy bar: a frame with a rounded gold border and a dark
+-- inside, and the colored fill set just within it. Name, text and notches sit
+-- on the fill.
+local XP_BAR_BACKDROP = {
+	bgFile = "Interface\\Buttons\\WHITE8x8",
+	edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+	edgeSize = LAYOUT.xpBarEdge,
+	insets = { left = LAYOUT.xpBarInset, right = LAYOUT.xpBarInset, top = LAYOUT.xpBarInset, bottom = LAYOUT.xpBarInset },
+}
+
+-- Puts a bar's notches at equal parts of its width.
+local function PlaceNotches(fill, width)
+	if not width or width <= 0 then
+		return
+	end
+	local parts = #fill.notches + 1
+	for index, notch in ipairs(fill.notches) do
+		local x = math.floor(width * index / parts + 0.5)
+		notch:ClearAllPoints()
+		notch:SetPoint("TOPLEFT", x, 0)
+		notch:SetPoint("BOTTOMLEFT", x, 0)
+	end
+end
+
+local function CreateXpBar()
+	local bar = CreateFrame("Frame", nil, xpStrip, "BackdropTemplate")
+	bar:SetHeight(LAYOUT.xpBarHeight)
+	bar:SetBackdrop(XP_BAR_BACKDROP)
+	bar:SetBackdropColor(unpack(COLORS.xpBarBack))
+	bar:SetBackdropBorderColor(unpack(COLORS.xpBarBorder))
+
+	local fill = CreateFrame("StatusBar", nil, bar)
+	fill:SetPoint("TOPLEFT", LAYOUT.xpBarInset, -LAYOUT.xpBarInset)
+	fill:SetPoint("BOTTOMRIGHT", -LAYOUT.xpBarInset, LAYOUT.xpBarInset)
+	fill:SetStatusBarTexture(COLORS.xpBarTexture)
+	fill:SetMinMaxValues(0, 1)
+	bar.fill = fill
+
+	-- Notches split the bar into equal parts, so a gain is easy to see.
+	fill.notches = {}
+	for index = 1, LAYOUT.xpBarNotches do
+		local notch = fill:CreateTexture(nil, "OVERLAY")
+		notch:SetWidth(1)
+		notch:SetColorTexture(unpack(COLORS.xpBarNotch))
+		fill.notches[index] = notch
+	end
+	fill:SetScript("OnSizeChanged", PlaceNotches)
+
+	bar.text = fill:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	bar.text:SetPoint("RIGHT", -3, 0)
+	bar.text:SetShadowOffset(1, -1)
+	bar.name = fill:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	bar.name:SetPoint("LEFT", 3, 0)
+	bar.name:SetPoint("RIGHT", bar.text, "LEFT", -6, 0)
+	bar.name:SetJustifyH("LEFT")
+	bar.name:SetWordWrap(false)
+	bar.name:SetShadowOffset(1, -1)
+
+	bar:EnableMouse(true)
+	bar:SetScript("OnEnter", ShowBarTip)
+	bar:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	return bar
+end
+
+-- Puts the tabs and the list under however many bars there are.
+local function PlaceUnderStrip()
+	local top = LAYOUT.headerHeight + StripHeight()
+	filterBar:ClearAllPoints()
+	filterBar:SetPoint("TOPLEFT", LAYOUT.inset, -top)
+	filterBar:SetPoint("TOPRIGHT", -LAYOUT.inset, -top)
+	if scrollBox then
+		PlaceList()
+	end
+end
+
+-- Draws one bar per other player in the party, and moves everything under
+-- them when how many there are changes.
+function Panel:UpdateXpBars()
+	if not xpStrip then
+		return
+	end
+	local data = ns.ViewModel:PartyBars()
+	local shown = math.min(#data, LAYOUT.xpBarMax)
+	for index = 1, shown do
+		local bar = xpBars[index] or CreateXpBar()
+		xpBars[index] = bar
+		local entry = data[index]
+		bar.data = entry
+		local r, g, b = unpack(BarColor(entry.name))
+		local fill = bar.fill
+		fill:SetStatusBarColor(r, g, b, COLORS.xpBarAlpha)
+		if entry.maxLevel then
+			fill:SetMinMaxValues(0, 1)
+			fill:SetValue(1)
+		elseif entry.have then
+			fill:SetMinMaxValues(0, entry.need)
+			fill:SetValue(entry.have)
+		else
+			fill:SetMinMaxValues(0, 1)
+			fill:SetValue(0)
+		end
+		bar.name:SetText(entry.name)
+		bar.text:SetText(entry.text)
+		bar:ClearAllPoints()
+		local top = (index - 1) * (LAYOUT.xpBarHeight + LAYOUT.xpBarGap)
+		bar:SetPoint("TOPLEFT", 0, -top)
+		bar:SetPoint("TOPRIGHT", 0, -top)
+		bar:Show()
+		-- Also placed here, in case the width settled before the bar was shown.
+		PlaceNotches(bar.fill, xpStrip:GetWidth() - 2 * LAYOUT.xpBarInset)
+	end
+	for index = shown + 1, #xpBars do
+		xpBars[index]:Hide()
+		xpBars[index].data = nil
+	end
+	if shown ~= xpBarsShown then
+		xpBarsShown = shown
+		xpStrip:SetHeight(math.max(1, StripHeight()))
+		PlaceUnderStrip()
+		Panel:Refresh()
+	end
+end
+
+local function BuildXpStrip()
+	xpStrip = CreateFrame("Frame", nil, frame)
+	xpStrip:SetPoint("TOPLEFT", LAYOUT.inset, -LAYOUT.headerHeight)
+	xpStrip:SetPoint("TOPRIGHT", -LAYOUT.inset, -LAYOUT.headerHeight)
+	xpStrip:SetHeight(1)
+end
+
+function PlaceList()
 	scrollBox:ClearAllPoints()
 	scrollBox:SetPoint("TOPLEFT", LAYOUT.inset, -ListTop())
 	scrollBox:SetPoint("BOTTOMRIGHT", -(LAYOUT.inset + LAYOUT.scrollBarWidth + 4), LAYOUT.inset)
@@ -911,9 +1205,12 @@ local function Build()
 	RestorePosition()
 
 	BuildHeader()
+	BuildXpStrip()
 	BuildFilter()
 	BuildList()
 	BuildOptions()
+	Panel:UpdateXpBars()
+	ns.Confetti:SetHost(frame)
 	BuildResizeGrip()
 
 	-- Remember visibility, and keep the relative times fresh while visible.
@@ -953,12 +1250,16 @@ end
 Bus:On("READY", Build)
 
 Bus:On("STORE_CHANGED", function()
+	Panel:UpdateXpBars()
+	ns.Confetti:SetHost(frame)
 	Panel:Refresh()
 end)
 
 Bus:On("PEERS_CHANGED", function()
 	if frame then
 		UpdateFilter()
+		Panel:UpdateXpBars()
+	ns.Confetti:SetHost(frame)
 	end
 end)
 
@@ -971,6 +1272,8 @@ end)
 Bus:On("DEBUG_CHANGED", function()
 	if frame then
 		UpdateEmulatorButton()
+		Panel:UpdateXpBars()
+	ns.Confetti:SetHost(frame)
 		Panel:Refresh()
 	end
 end)

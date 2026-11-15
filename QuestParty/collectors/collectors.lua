@@ -18,6 +18,8 @@ local ABANDON_WAIT_SECONDS = 1
 local questTitles = {} -- [questID] = title, kept so a turn-in can still name the quest
 local turnedIn = {} -- [questID] = true, briefly, to tell a turn-in from an abandon
 local lastKill, lastCredit
+local recentKill -- the last kill the game named, for naming an XP gain
+local recentTurnIn -- the last quest handed in, whose XP is told on its own row
 local knownQuests, watchedQuests, progressSeen, pending = {}, {}, {}, {}
 local lastQuestUpdate
 local ready = false
@@ -251,6 +253,7 @@ end
 
 function handlers.QUEST_TURNED_IN(questID, xpReward)
 	turnedIn[questID] = true
+	recentTurnIn = { quest = QuestTitle(questID), time = GetTime() }
 	Emit("quest_complete", { questID = questID, quest = QuestTitle(questID), xp = xpReward or 0 })
 	progressSeen[questID], watchedQuests[questID] = nil, nil
 end
@@ -319,7 +322,23 @@ function handlers.CHAT_MSG_COMBAT_XP_GAIN(text)
 	end
 	local mob, xp = text:match(Patterns.kill)
 	if mob then
+		recentKill = { mob = mob, time = GetTime() }
 		OnKill(mob, tonumber(xp) or 0)
+	end
+end
+
+-- The game's skill line category for a skill, by its name, or nil when the
+-- skill list cannot say.
+local function SkillCategory(name)
+	local skills = C_SkillInfo
+	if not (skills and skills.GetNumSkillLines and skills.GetSkillLineInfo) then
+		return nil
+	end
+	for index = 1, skills.GetNumSkillLines() do
+		local info = skills.GetSkillLineInfo(index)
+		if info and not info.isHeader and info.name == name then
+			return info.skillLineCategoryID
+		end
 	end
 end
 
@@ -328,6 +347,11 @@ function handlers.CHAT_MSG_SKILL(text)
 		return
 	end
 	local skill, level = text:match(Patterns.skill)
+	-- Only professions. A skill the list cannot place is reported, as before.
+	local category = skill and SkillCategory(skill)
+	if category and not ns.ProfessionCategories[category] then
+		return
+	end
 	if skill then
 		Emit("skill", { skill = skill, level = tonumber(level) or 0 })
 	end
@@ -357,8 +381,28 @@ function handlers.PLAYER_XP_UPDATE(unit)
 		end
 		-- Across multiple levels the intermediate requirements are unavailable.
 		-- Report the new level and percentage without inventing an XP amount.
+		-- A kill the game named a moment ago is what gave the XP.
+		current.mob = ""
+		if recentKill and GetTime() - recentKill.time <= KILL_LINK_SECONDS then
+			current.mob = recentKill.mob
+		end
+		recentKill = nil
+		-- XP from a quest just handed in: the quest's row already says it.
+		if recentTurnIn and GetTime() - recentTurnIn.time <= KILL_LINK_SECONDS then
+			current.quest = recentTurnIn.quest
+		end
+		recentTurnIn = nil
 		Emit("xp", current)
 	end)
+end
+
+function handlers.PLAYER_DEAD()
+	local zone = GetRealZoneText()
+	local level = UnitLevel("player")
+	Emit("death", {
+		zone = Readable(zone) and zone ~= "" and zone or L.UNKNOWN_ZONE,
+		level = ReadableNumber(level) and level or 0,
+	})
 end
 
 function handlers.ACHIEVEMENT_EARNED(achievementID)

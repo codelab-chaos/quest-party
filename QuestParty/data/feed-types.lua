@@ -11,8 +11,28 @@
 --   text      main feed row line, a template filled from entry.data
 --   detail    optional second-line detail, a template filled from entry.data
 --   chat      optional chat echo line, also gets {player}
---   highlight draw the row with the celebration background
+--   celebrate set off confetti over the panel when the row arrives (ui\confetti.lua)
+--   badge     draw a badge in place of the icon: { style, field }, where style
+--             is a key of the panel's badge styles and field the data to show
+--             on it (ui\panel.lua)
+--   merge     fold a run of the same thing into one row: a new entry for the
+--             same player and the same keys, within seconds of the last,
+--             updates that row and moves it to the newest end. first keeps the
+--             first value of field, so the row can say how far it went:
+--             { keys, seconds, field, first, text, detail, detailOne, sum, count }
+--             text, detail  the row's title and detail once it has climbed,
+--             which may use {first} and {gained}. detailOne is for a gain of 1
+--             sum     data fields added up across the run (XP gained)
+--             count   a data field that counts the entries in the run
+--   highlight draw the row with a celebration background: "level" or "quest"
+--             (see ui\panel.lua for their colors)
 --   member    maps roster fields to entry.data keys, so the entry updates the roster
+--   feedOnlyIf  { field, setting }: an entry with that data field filled only
+--             becomes a feed row while that switch is on. It still updates the
+--             roster (member) either way
+--   toldBy    a data field: an entry with it filled is already told by another
+--             row (XP from a quest is on the quest's own row), so it is not a
+--             feed row of its own. It still updates the roster
 --   format    data keys to pass through ns.Comma before filling templates
 --   card      makes the type feed a persistent card (see ns.CardKinds below):
 --     kind    which kind of card
@@ -39,7 +59,9 @@ ns.FeedTypes = {
 	quest_progress = {
 		setting = "questDetails",
 		filters = { quests = true },
-		icon = "Interface\\GossipFrame\\ActiveQuestIcon",
+		-- A finished objective. A check mark, so it is not mistaken for the quest
+		-- being handed in.
+		icon = "Interface\\RaidFrame\\ReadyCheck-Ready",
 		text = L.FEED_QUEST_OBJECTIVE,
 		chat = L.CHAT_QUEST_OBJECTIVE,
 		card = { kind = "quest", keys = { "quest" }, mode = "objective" },
@@ -51,6 +73,7 @@ ns.FeedTypes = {
 		text = L.FEED_QUEST_COMPLETE,
 		detail = L.FEED_QUEST_COMPLETE_DETAIL,
 		chat = L.CHAT_QUEST_COMPLETE,
+		highlight = "quest",
 		format = { xp = true },
 		card = { kind = "quest", keys = { "quest" }, mode = "close" },
 	},
@@ -82,9 +105,14 @@ ns.FeedTypes = {
 		icon = "Interface\\Icons\\XP_Icon",
 		text = L.FEED_LEVEL,
 		chat = L.CHAT_LEVEL,
-		highlight = true,
+		highlight = "level",
+		celebrate = true,
+		badge = { style = "level", field = "level" }, -- the new level, on a gold ring
 		member = { level = "level" },
 	},
+	-- An XP gain. A feed row, and it also moves the player's XP bar (member).
+	-- mob names the kill the XP came from, "" when it was not a kill or the
+	-- game did not name one.
 	xp = {
 		setting = "levels",
 		requires = { "level", "currentXP", "maxXP" },
@@ -94,7 +122,16 @@ ns.FeedTypes = {
 		detail = L.FEED_XP_DETAIL,
 		chat = L.CHAT_XP,
 		experience = true,
-		member = { level = "level", currentXP = "currentXP", maxXP = "maxXP" },
+		member = { level = "level", currentXP = "currentXP", maxXP = "maxXP", lastXP = "xp", lastMob = "mob" },
+		-- XP from a kill is a row only with Kills on, as Quest Tweet kept kill XP
+		-- behind its own switch. The XP bar moves either way.
+		feedOnlyIf = { field = "mob", setting = "kills" },
+		-- XP from handing in a quest is on the quest's own row.
+		toldBy = "quest",
+		-- A run of gains is one row that adds up: kills of the same creature
+		-- ("Kills Wandering Spirit x3 for 243 XP"), or other XP ("+237 XP in 3
+		-- gains"). A new run starts after five minutes without one.
+		merge = { keys = { "mob" }, seconds = 5 * 60, sum = { "xp" }, count = "gains" },
 	},
 	discovery = {
 		setting = "discovery",
@@ -110,6 +147,21 @@ ns.FeedTypes = {
 		icon = "Interface\\Icons\\INV_SideTab_Professions_c60",
 		text = L.FEED_SKILL,
 		chat = L.CHAT_SKILL,
+		-- Skill-ups come one point at a time (Cooking 19, 20, 21...). A run of
+		-- them is one row that climbs, not a row per point: "Mining 10 > 19".
+		merge = {
+			keys = { "skill" }, seconds = 10 * 60, field = "level", first = "from",
+			text = L.FEED_SKILL_RUN, detail = L.FEED_SKILL_RUN_DETAIL, detailOne = L.FEED_SKILL_RUN_DETAIL_ONE,
+		},
+	},
+	death = {
+		setting = "deaths",
+		filters = {},
+		icon = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01",
+		text = L.FEED_DEATH,
+		detail = L.FEED_DEATH_DETAIL,
+		chat = L.CHAT_DEATH,
+		member = { level = "level", zone = "zone" },
 	},
 	achievement = {
 		setting = "achievements",

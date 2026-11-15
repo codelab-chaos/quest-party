@@ -2,7 +2,8 @@
 -- The panel only draws rows, it never reads the store or the feed type data.
 --
 -- A row is:
---   { kind, icon, title, right, lines, summary, progress, quest, highlight, stale, pulse, sequence }
+--   { kind, icon, badge, title, right, lines, summary, progress, quest, highlight, stale, pulse, sequence }
+--   badge     drawn in place of the icon: { style, text }
 --   kind      "feed", "progress" (one objective), "tracker" (a whole quest) or "member"
 --   lines     the detail lines under the title: { text, right, progress = { have, need } }
 --   summary   what to show after the title when the row is drawn on one line
@@ -21,6 +22,11 @@ local PULSE_SECONDS = 3
 local ViewModel = {}
 ns.ViewModel = ViewModel
 
+-- True for an XP gain that came from a kill the game named.
+local function KillXP(data)
+	return type(data.mob) == "string" and data.mob ~= "" and type(data.xp) == "number" and data.xp > 0
+end
+
 -- Template fields: the data with number formatting applied, plus {player}.
 function ViewModel.Fields(player, class, data, def)
 	local fields = { player = ns.ColorName(player, class) }
@@ -32,11 +38,25 @@ function ViewModel.Fields(player, class, data, def)
 		end
 	end
 	if def.experience then
+		-- A merged run of gains adds up its XP and counts them (data.gains).
+		local gains = type(data.gains) == "number" and data.gains or 1
 		fields.xpGain = data.xp and L.XP_GAIN:format(ns.Comma(data.xp)) or L.XP_UPDATED
+		if data.xp and gains > 1 then
+			fields.xpGain = L.XP_GAINS:format(ns.Comma(data.xp), gains)
+		end
+		if KillXP(data) then
+			fields.xpGain = gains > 1 and L.XP_KILLS:format(data.mob, gains, ns.Comma(data.xp)) or L.XP_KILL:format(data.mob, ns.Comma(data.xp))
+		end
 		fields.xpStatus = L.XP_LEVEL:format(data.level)
 		if data.maxXP and data.maxXP > 0 and data.currentXP then
-			local remaining = math.max(0, math.min(100, 100 * (data.maxXP - data.currentXP) / data.maxXP))
-			fields.xpStatus = L.XP_STATUS:format(data.level, remaining, data.level + 1)
+			if KillXP(data) then
+				-- A kill says how many more like it to the next level, not a percentage.
+				local left = math.ceil(math.max(0, data.maxXP - data.currentXP) / (data.xp / gains))
+				fields.xpStatus = L.XP_KILLS_LEFT:format(data.level, ns.Comma(left), data.level + 1)
+			else
+				local remaining = math.max(0, math.min(100, 100 * (data.maxXP - data.currentXP) / data.maxXP))
+				fields.xpStatus = L.XP_STATUS:format(data.level, remaining, data.level + 1)
+			end
 		end
 	end
 	return fields
@@ -195,12 +215,22 @@ local function FeedRow(entry, now)
 	local def = ns.FeedTypes[entry.type]
 	local fields = ViewModel.Fields(entry.player, entry.class, entry.data, def)
 	local subtitle = fields.player
-	if def.detail then
-		subtitle = subtitle .. ", " .. ns.Fill(def.detail, fields)
+	local titleTemplate, detailTemplate = def.text, def.detail
+	-- A merged run that has climbed says from where, and by how much.
+	local merge = def.merge
+	local first, last = merge and entry.data[merge.first], merge and entry.data[merge.field]
+	if type(first) == "number" and type(last) == "number" and last > first then
+		fields.first, fields.gained = first, last - first
+		titleTemplate = merge.text
+		detailTemplate = fields.gained == 1 and merge.detailOne or merge.detail
 	end
-	local title = ns.Fill(def.text, fields)
+	if detailTemplate then
+		subtitle = subtitle .. ", " .. ns.Fill(detailTemplate, fields)
+	end
+	local title = ns.Fill(titleTemplate, fields)
 	local progress
-	if def.experience and entry.data.maxXP and entry.data.maxXP > 0 then
+	-- A kill's row has no bar: it would read as quest progress.
+	if def.experience and entry.data.maxXP and entry.data.maxXP > 0 and not KillXP(entry.data) then
 		progress = { have = entry.data.currentXP, need = entry.data.maxXP }
 	end
 	return {
@@ -214,8 +244,47 @@ local function FeedRow(entry, now)
 		progress = progress,
 		quest = entry.data.quest,
 		highlight = def.highlight,
+		badge = def.badge and entry.data[def.badge.field] ~= nil and { style = def.badge.style, text = tostring(entry.data[def.badge.field]) } or nil,
 		pulse = (now - entry.time <= PULSE_SECONDS) and (entry.player .. "/" .. entry.time .. "/" .. title),
 	}
+end
+
+-- ========= The party's XP bars ==============================================
+-- One bar for each other player in the party: everyone sharing on the
+-- channel, and in debug mode the emulator's players. Not this player, who has
+-- the game's own XP bar. Sorted by name. Each bar is:
+--   { name, class, level, have, need, maxLevel, text, lastXP, lastMob }
+--   have, need  the XP bar's fill, nil when that player's XP is not known yet
+--   text        the level and how far there is to go, for the bar's right side
+function ViewModel:PartyBars()
+	local bars = {}
+	if not ns.IsEnabled("levels") then
+		return bars
+	end
+	for _, member in ipairs(ns.Store:GetMembers()) do
+		local inParty = ns.Session.peers[member.name] ~= nil or (member.emulated and ns.IsDebug())
+		if inParty and not ns.IsMe(member.name) then
+			local bar = {
+				name = member.name,
+				class = member.class,
+				level = member.level,
+				lastXP = member.lastXP,
+				lastMob = member.lastMob,
+			}
+			local level = member.level or "?"
+			if member.maxXP == 0 then
+				bar.maxLevel = true
+				bar.text = L.XPBAR_MAX:format(level)
+			elseif member.maxXP and member.currentXP then
+				bar.have, bar.need = member.currentXP, member.maxXP
+				bar.text = L.XPBAR_TO_GO:format(level, 100 * (member.maxXP - member.currentXP) / member.maxXP)
+			else
+				bar.text = L.XPBAR_LEVEL:format(level)
+			end
+			bars[#bars + 1] = bar
+		end
+	end
+	return bars
 end
 
 function ViewModel:Build(filterId)

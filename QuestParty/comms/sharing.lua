@@ -11,7 +11,7 @@
 --
 -- On the wire (see comms\protocol.lua):
 --   HELLO  "I am here", sent a moment after connecting: v version, c class,
---          l level, z zone. Everyone who hears it answers with ACK.
+--          l level, z zone, x XP so far this level, m XP the level needs. Everyone who hears it answers with ACK.
 --   ACK    the same fields, so the newcomer learns who is already there.
 --   ENTRY  one feed entry: t is its type, c the sender's class, the rest is
 --          the entry's data. From the emulator it also carries as, the name
@@ -52,6 +52,7 @@ local Sharing = { sent = 0, echoed = 0, received = 0, refused = 0, log = {} }
 ns.Sharing = Sharing
 
 local announced = false -- HELLO was sent for this connection
+local replaying = false -- reading the log again: nothing may be sent
 local complained = false -- a refused send was already reported for it
 
 local function Session()
@@ -59,7 +60,8 @@ local function Session()
 end
 
 -- Every message on the channel is written down as it passes, for the debug
--- listener (ui\listener.lua): the newest LOG_LIMIT of them, oldest first.
+-- listener (ui\listener.lua) and for replay: the newest LOG_LIMIT of them,
+-- oldest first. The log is saved, so a real session outlives a reload.
 --   direction  "out" as it is sent, "back" when the server sends ours back to
 --              us, "in" when it arrives from another player
 --   sender     for "in", who sent it
@@ -78,11 +80,15 @@ end
 
 local function MyFields()
 	local _, class = UnitClass("player")
+	-- Where XP stands, so a newcomer sees everyone's bar at once. At the level
+	-- cap the game reports nothing more to gain (m is 0).
 	return {
 		v = C_AddOns.GetAddOnMetadata(addonName, "Version") or "?",
 		c = class or "",
 		l = UnitLevel("player") or 0,
 		z = GetRealZoneText() or "",
+		x = UnitXP("player") or 0,
+		m = UnitXPMax("player") or 0,
 	}
 end
 
@@ -91,7 +97,7 @@ end
 -- key says what the message is the latest word on (see Transport:Send).
 local function Send(kind, fields, key)
 	local session = Session()
-	if session.state ~= "connected" or not session.channelId then
+	if replaying or session.state ~= "connected" or not session.channelId then
 		return false
 	end
 	local text = Protocol.Encode(kind, fields)
@@ -132,6 +138,9 @@ local function AddPeer(name, fields)
 	end
 	if type(fields.l) == "number" then
 		peer.level = fields.l
+	end
+	if type(fields.x) == "number" and type(fields.m) == "number" then
+		peer.currentXP, peer.maxXP = fields.x, fields.m
 	end
 	if type(fields.z) == "string" and fields.z ~= "" then
 		peer.zone = Clean(fields.z)
@@ -219,6 +228,7 @@ end
 -- the newest is worth sending.
 local LATEST_ONLY = {
 	quest_progress = { "questID", "quest", "objectiveIndex", "objective" },
+	skill = { "skill" }, -- a friend's panel merges a run of them into one row anyway
 }
 
 local function LatestKey(entry)
@@ -335,6 +345,17 @@ handlers[Kinds.QUEST] = function(sender, fields)
 	ns.Store:HydrateQuest(sender, class or Session().peers[sender].class, { questID = id, quest = Clean(title), objectives = objectives }, ns.IsEnabled("questDetails"))
 end
 
+-- Reads one message from another player. Returns true when it was one of ours.
+local function Read(text, sender)
+	local kind, fields = Protocol.Decode(text)
+	local handler = kind and handlers[kind]
+	if handler then
+		handler(sender, fields)
+		return true
+	end
+	return false
+end
+
 Bus:On("COMMS_RECEIVED", function(text, chatType, sender, channelId)
 	if not OnOurChannel(chatType, channelId) then
 		return
@@ -342,11 +363,40 @@ Bus:On("COMMS_RECEIVED", function(text, chatType, sender, channelId)
 	-- Logged whether or not it can be read, so the listener shows everything
 	-- that arrives on the channel under Quest Party's name.
 	Log("in", Clean(text), sender)
-	local kind, fields = Protocol.Decode(text)
-	local handler = kind and handlers[kind]
-	if handler then
+	if Read(text, sender) then
 		Sharing.received = Sharing.received + 1
-		handler(sender, fields)
+	end
+end)
+
+-- Reads every logged message from other players again, oldest first, as if
+-- it had just arrived: the panel is rebuilt from real traffic. Nothing is sent
+-- while it runs, so a replayed hello is not answered. Returns how many were read.
+function Sharing:Replay()
+	local count = 0
+	replaying = true
+	local ok, problem = pcall(function()
+		for _, record in ipairs(self.log) do
+			if record.direction == "in" and record.sender and Read(record.text, record.sender) then
+				count = count + 1
+			end
+		end
+	end)
+	replaying = false
+	if not ok then
+		error(problem, 0)
+	end
+	return count
+end
+
+Bus:On("INIT", function()
+	ns.db.commsLog = ns.db.commsLog or {}
+	-- Anything logged before the saved log was loaded joins it.
+	for _, record in ipairs(Sharing.log) do
+		ns.db.commsLog[#ns.db.commsLog + 1] = record
+	end
+	Sharing.log = ns.db.commsLog
+	while #Sharing.log > LOG_LIMIT do
+		table.remove(Sharing.log, 1)
 	end
 end)
 

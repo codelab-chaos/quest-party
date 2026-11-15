@@ -249,6 +249,307 @@ test("collectors do not attach an old unrelated kill to a quest", function()
 	equal(w.ns.Store:GetCards("quest")[1].data.kills, 0)
 end)
 
+test("a quest handed in is one gold row with its XP, and its XP is not a second row", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	local sent = {}
+	w.ns.Bus:On("ENTRY_OUTGOING", function(entry) sent[#sent + 1] = entry end)
+	w:quest(3, 3)
+	w.xp = 100
+	w:event("PLAYER_LOGIN")
+	w.ns.Collectors:Handle("QUEST_TURNED_IN", 1, 90)
+	w.xp = 190
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(2)
+	local feed = w.ns.Store:GetFeed(true)
+	equal(#feed, 1)
+	equal(feed[1].type, "quest_complete")
+	local row = w.ns.ViewModel:Build("all")[1]
+	equal(row.title, "Quest complete: |cffffd100A Quest|r")
+	equal(row.highlight, "quest")
+	equal(w.ns.Store:GetMembers()[1].currentXP, 190) -- the XP is still counted
+	equal(#sent, 2) -- and still shared, for friends' bars
+	equal(sent[2].data.quest, "A Quest")
+	-- XP a while later is a row of its own again.
+	w:advance(5)
+	w.xp = 250
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(0)
+	equal(#w.ns.Store:GetFeed(true), 2)
+end)
+
+test("a finished objective reads as done, with a check mark, not as the quest handed in", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:ingest("quest_progress", { quest = "A Quest", objective = "Scarlet Insignia Ring", have = 10, need = 10 })
+	local row = w.ns.ViewModel:Build("all")[1]
+	equal(row.title, "Done: 10/10 |cffffd100Scarlet Insignia Ring|r")
+	equal(row.icon, "Interface\\RaidFrame\\ReadyCheck-Ready")
+	equal(row.highlight, nil)
+end)
+
+-- ========= XP runs ==========================================================
+test("kills of one creature add up in one row, and other XP in another", function()
+	local w = Harness.new({ switches = { chatEcho = false, kills = true } })
+	w.xp = 100
+	w:event("PLAYER_LOGIN")
+	local function kill(mob, xp)
+		w:advance(20)
+		w.ns.Collectors:Handle("CHAT_MSG_COMBAT_XP_GAIN", ("%s dies, you gain %d experience."):format(mob, xp))
+		w.xp = w.xp + xp
+		w:event("PLAYER_XP_UPDATE", "player")
+		w:advance(0)
+	end
+	kill("Wandering Spirit", 81)
+	kill("Wandering Spirit", 81)
+	kill("Rotting Ghoul", 70)
+	kill("Wandering Spirit", 81)
+	local feed = w.ns.Store:GetFeed(true)
+	equal(#feed, 2)
+	equal(feed[1].data.mob, "Wandering Spirit") -- moved to the newest end
+	equal(feed[1].data.xp, 243)
+	equal(feed[1].data.gains, 3)
+	local rows = w.ns.ViewModel:Build("xp")
+	equal(rows[2].title, "Kills Wandering Spirit x3 for 243 XP")
+	-- 1000 - 413 = 587 to go, at 81 a kill.
+	equal(rows[2].summary, "Tester, Level 20, 8 kills like this to Level 21")
+	equal(rows[1].title, "Kills Rotting Ghoul for 70 XP")
+	-- Other XP adds up on its own row.
+	w:advance(20)
+	w.xp = w.xp + 50
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(0)
+	w:advance(20)
+	w.xp = w.xp + 30
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(0)
+	equal(#w.ns.Store:GetFeed(true), 3)
+	equal(w.ns.ViewModel:Build("xp")[3].title, "+80 XP in 2 gains")
+	-- After five quiet minutes, a new run.
+	w:advance(6 * 60)
+	kill("Wandering Spirit", 81)
+	equal(#w.ns.Store:GetFeed(true), 4)
+end)
+
+test("a friend's XP runs add up too, kept apart from yours", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	for gained = 1, 3 do
+		w:hear("E", { t = "xp", c = "WARRIOR", xp = 79, level = 14, currentXP = 100 + gained * 79, maxXP = 12900 }, "Tombert Roams")
+	end
+	local feed = w.ns.Store:GetFeed(true)
+	equal(#feed, 1)
+	equal(feed[1].data.xp, 237)
+	equal(w.ns.ViewModel:Build("xp")[1].title, "+237 XP in 3 gains")
+end)
+
+-- ========= Stats ============================================================
+test("stats tally each player's week, even what the feed folds or hides", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w.ns.SetDebug(true)
+	w:share()
+	w.xp = 100
+	w:event("PLAYER_LOGIN")
+	for _ = 1, 3 do -- kills fold into one row, but each counts
+		w:advance(20)
+		w.ns.Collectors:Handle("CHAT_MSG_COMBAT_XP_GAIN", "Wandering Spirit dies, you gain 81 experience.")
+		w.xp = w.xp + 81
+		w:event("PLAYER_XP_UPDATE", "player")
+		w:advance(0)
+	end
+	equal(#w.ns.Store:GetFeed(true), 0) -- Kills is off: no rows at all
+	w.ns.Collectors:Handle("PLAYER_DEAD")
+	w:hear("E", { t = "quest_complete", c = "WARRIOR", quest = "Leonid's Letter", xp = 90 }, "Tombert Roams")
+	w:hear("E", { t = "level", c = "WARRIOR", level = 15 }, "Tombert Roams")
+	local mine = w.ns.Stats:Week("Tester")
+	equal(mine.xp, 243)
+	equal(mine.kills, 3)
+	equal(mine.deaths, 1)
+	local theirs = w.ns.Stats:Week("Tombert Roams")
+	equal(theirs.quests, 1)
+	equal(theirs.levels, 1)
+	equal(theirs.kills, nil)
+	w.env.SlashCmdList.QUESTPARTY("stats")
+	assert(w.chat[#w.chat - 1]:find("Tester: XP 243, kills 3, deaths 1", 1, true), w.chat[#w.chat - 1])
+	assert(w.chat[#w.chat]:find("Tombert Roams: quests 1, levels 1", 1, true), w.chat[#w.chat])
+end)
+
+test("stats keep a week and drop older days, and the emulator's players are not counted", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w.ns.SetDebug(true)
+	w.ns.Bus:Fire("ENTRY_RECEIVED", { type = "level", player = "Jaina", class = "MAGE", emulated = true, data = { level = 23 } })
+	equal(#w.ns.Stats:Players(), 0)
+	w:ingest("level", { level = 21 })
+	w.now = w.now + 8 * 86400
+	w:ingest("level", { level = 22 })
+	equal(w.ns.Stats:Week("Tester").levels, 2) -- not yet pruned
+	local reloaded = Harness.new(w.ns.db, w.ns.charDb, nil, w.now)
+	equal(reloaded.ns.Stats:Week("Tester").levels, 1) -- the old day is gone
+	reloaded.env.SlashCmdList.QUESTPARTY("stats")
+	assert(reloaded.chat[#reloaded.chat]:find("Tester: levels 1", 1, true))
+	local empty = Harness.new()
+	empty.ns.SetDebug(true)
+	empty.env.SlashCmdList.QUESTPARTY("stats")
+	assert(empty.chat[#empty.chat]:find("No stats yet", 1, true))
+end)
+
+test("stats are an advanced feature: kept only in debug mode, which a source install has on", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:ingest("level", { level = 21 })
+	equal(#w.ns.Stats:Players(), 0) -- a released build keeps nothing
+	w.env.SlashCmdList.QUESTPARTY("stats")
+	assert(w.chat[#w.chat]:find(w.ns.L.CMD_DEBUG_REQUIRED, 1, true))
+	local source = Harness.new({ switches = { chatEcho = false } }, nil, true) -- X-Debug: true
+	source:ingest("level", { level = 21 })
+	equal(source.ns.Stats:Week("Tester").levels, 1)
+end)
+
+-- ========= Profession runs ==================================================
+test("a run of skill-ups is one row that climbs and moves to the newest end", function()
+	local w = Harness.new()
+	local function skillUp(skill, level)
+		w.ns.Collectors:Handle("CHAT_MSG_SKILL", ("Your skill in %s has increased to %d."):format(skill, level))
+	end
+	skillUp("Cooking", 19)
+	equal(w.ns.ViewModel:Build("all")[1].summary, "Tester") -- one step: nothing more to say
+	w.ns.Collectors:Handle("PLAYER_LEVEL_UP", 21)
+	for level = 20, 26 do
+		w:advance(5)
+		skillUp("Cooking", level)
+	end
+	local feed = w.ns.Store:GetFeed(true)
+	equal(#feed, 2) -- the level-up, and one Cooking row
+	equal(feed[1].type, "skill")
+	equal(feed[1].data.level, 26)
+	equal(feed[1].data.from, 19)
+	local rows = w.ns.ViewModel:Build("all")
+	equal(rows[#rows].title, "Cooking 19 > |cffffd10026|r") -- newest at the bottom
+	equal(rows[#rows].summary, "Tester, 7 skill-ups")
+	equal(#w.chat, 2) -- announced once in chat, plus the level-up, not once a point
+	skillUp("Herbalism", 62)
+	equal(#w.ns.Store:GetFeed(true), 3) -- another profession is its own row
+	w:advance(5)
+	skillUp("Herbalism", 63)
+	equal(w.ns.ViewModel:Build("professions")[2].summary, "Tester, 1 skill-up")
+	w:advance(11 * 60)
+	skillUp("Cooking", 27)
+	equal(#w.ns.Store:GetFeed(true), 4) -- long after, a new run
+	equal(w.ns.Store:GetFeed(true)[1].data.from, nil)
+end)
+
+test("a friend's run of skill-ups is kept apart from yours", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	w.ns.Collectors:Handle("CHAT_MSG_SKILL", "Your skill in Cooking has increased to 10.")
+	w:hear("E", { t = "skill", c = "WARRIOR", skill = "Cooking", level = 40 }, "Tombert Roams")
+	w:hear("E", { t = "skill", c = "WARRIOR", skill = "Cooking", level = 41 }, "Tombert Roams")
+	local feed = w.ns.Store:GetFeed(true)
+	equal(#feed, 2)
+	equal(feed[1].player, "Tombert Roams")
+	equal(feed[1].data.level, 41)
+	equal(feed[1].data.from, 40)
+end)
+
+-- ========= Level-ups ========================================================
+test("a level-up says DING first", function()
+	local w = Harness.new()
+	w.ns.Collectors:Handle("PLAYER_LEVEL_UP", 11)
+	local row = w.ns.ViewModel:Build("all")[1]
+	equal(row.title, "DING!! Reached Level 11!")
+	equal(row.highlight, "level")
+	equal(row.badge.style, "level") -- a gold badge with the new level, in place of the icon
+	equal(row.badge.text, "11")
+	equal(w.ns.ViewModel:Build("all")[1].kind, "feed")
+	assert(w.chat[#w.chat]:find("DING!! ", 1, true), w.chat[#w.chat])
+end)
+
+test("confetti bursts for anyone's level-up while the panel shows, and only then", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	local confetti = w.ns.Confetti
+	local bursts = 0
+	confetti.Burst = function() bursts = bursts + 1 end
+	w.ns.Collectors:Handle("PLAYER_LEVEL_UP", 11)
+	equal(bursts, 0) -- no panel yet
+	local shown = true
+	confetti:SetHost({ IsShown = function() return shown end })
+	w.ns.Collectors:Handle("PLAYER_LEVEL_UP", 12)
+	equal(bursts, 1)
+	w:share()
+	w:hear("E", { t = "level", c = "WARRIOR", level = 14 }, "Tombert Roams")
+	equal(bursts, 2) -- a friend's ding too
+	w:ingest("quest_complete", { quest = "A Quest", xp = 90 })
+	equal(bursts, 2) -- only level-ups
+	shown = false
+	w.ns.Collectors:Handle("PLAYER_LEVEL_UP", 13)
+	equal(bursts, 2) -- the panel is hidden
+	shown = true
+	w.ns.SetEnabled("confetti", false)
+	w.ns.Collectors:Handle("PLAYER_LEVEL_UP", 14)
+	equal(bursts, 2) -- switched off
+end)
+
+test("/qp testloc shows a test in your own panel and sends nothing", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	local confetti = w.ns.Confetti
+	local bursts = 0
+	confetti.Burst = function() bursts = bursts + 1 end
+	confetti:SetHost({ IsShown = function() return true end })
+	w:share()
+	local sent = #w.sent
+	w.env.SlashCmdList.QUESTPARTY("testloc confetti")
+	assert(w.chat[#w.chat]:find(w.ns.L.CMD_DEBUG_REQUIRED, 1, true)) -- debug mode only
+	equal(bursts, 0)
+	w.ns.SetDebug(true)
+	w.env.SlashCmdList.QUESTPARTY("testloc confetti")
+	equal(bursts, 1)
+	equal(#w.ns.Store:GetFeed(true), 0) -- confetti alone, no row
+	w.env.SlashCmdList.QUESTPARTY("testloc LEVEL")
+	equal(w.ns.Store:GetFeed(true)[1].type, "level")
+	equal(w.ns.Store:GetFeed(true)[1].data.level, 21)
+	equal(bursts, 2) -- a level-up row sets off confetti too
+	w.env.SlashCmdList.QUESTPARTY("testloc all")
+	equal(bursts, 4)
+	equal(#w.sent, sent) -- nothing at all went to the channel
+	w.env.SlashCmdList.QUESTPARTY("testloc")
+	assert(w.chat[#w.chat]:find("confetti, level, death, quest, kill", 1, true), w.chat[#w.chat])
+	w.env.SlashCmdList.QUESTPARTY("testloc nonsense")
+	assert(w.chat[#w.chat]:find("Local tests", 1, true))
+end)
+
+test("confetti falls, sways, spins and fades, then is done", function()
+	local confetti = Harness.new().ns.Confetti
+	local seed = 1
+	local function random()
+		seed = (seed * 16807) % 2147483647
+		return seed / 2147483647
+	end
+	local pieces = confetti.Spawn(390, random)
+	equal(#pieces, confetti.Config.pieces)
+	for _, piece in ipairs(pieces) do
+		assert(piece.x >= 0 and piece.x <= 390)
+		assert(piece.delay >= 0 and piece.delay <= confetti.Config.stagger)
+	end
+	local first = pieces[1]
+	local startY, startRotation = first.y, first.rotation
+	local left = confetti.Step(pieces, 0.05, 420)
+	equal(left, #pieces) -- nothing is done yet
+	for _ = 1, 30 do confetti.Step(pieces, 0.05, 420) end
+	assert(first.y > startY, "it falls")
+	assert(first.rotation ~= startRotation, "it spins")
+	assert(first.vy <= confetti.Config.terminal, "never faster than paper falls")
+	local seconds = 0
+	repeat
+		left = confetti.Step(pieces, 0.05, 420)
+		seconds = seconds + 0.05
+	until left == 0 or seconds > 10
+	equal(left, 0)
+	assert(seconds <= confetti.Config.stagger + confetti.Config.duration + 0.1, "all done within its time")
+	-- A long frame is stepped as a short one, so nothing leaps across the panel.
+	local more = confetti.Spawn(390, random)
+	more[1].delay = 0
+	local y = more[1].y
+	confetti.Step(more, 5, 420)
+	assert(more[1].y - y <= confetti.Config.terminal * confetti.Config.maxStep + 0.001)
+end)
+
 test("turn-in after quest removal is not announced as abandonment", function()
 	local w = Harness.new()
 	w:quest(1, 3)
@@ -357,8 +658,10 @@ test("saved XP history survives reload without announcing old gains again", func
 	reloaded.xp = 125
 	reloaded:event("PLAYER_XP_UPDATE", "player")
 	reloaded:advance(0)
-	equal(#reloaded.ns.Store:GetFeed(true), 2)
-	equal(reloaded.ns.Store:GetFeed(true)[1].data.xp, 25)
+	-- A new gain soon after joins the run: one row that adds up.
+	equal(#reloaded.ns.Store:GetFeed(true), 1)
+	equal(reloaded.ns.Store:GetFeed(true)[1].data.xp, 125)
+	equal(reloaded.ns.Store:GetFeed(true)[1].data.gains, 2)
 end)
 
 test("XP collection respects Leveling and Include self without carrying disabled gains forward", function()
@@ -414,6 +717,210 @@ test("multi-level XP updates avoid invented gain totals and capped levels avoid 
 			equal(row.summary, "Tester, Level 22, 87.50% to Level 23")
 		end
 	end
+end)
+
+test("XP gains keep each player's XP, and your own is not one of the party's bars", function()
+	local w = Harness.new()
+	w.xp = 400
+	w:event("PLAYER_LOGIN")
+	w.xp = 550
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(0)
+	local member = w.ns.Store:GetMembers()[1]
+	equal(member.lastXP, 150)
+	equal(member.currentXP, 550)
+	equal(member.maxXP, 1000)
+	equal(#w.ns.ViewModel:PartyBars(), 0) -- you have the game's own XP bar
+end)
+
+test("an XP gain names the kill behind it when the game said, and not otherwise", function()
+	local w = Harness.new()
+	w.ns.SetEnabled("kills", true)
+	w.xp = 100
+	w:event("PLAYER_LOGIN")
+	w.ns.Collectors:Handle("CHAT_MSG_COMBAT_XP_GAIN", "Riverpaw Gnoll dies, you gain 65 experience.")
+	w.xp = 165
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(0)
+	equal(w.ns.Store:GetMembers()[1].lastMob, "Riverpaw Gnoll")
+	equal(w.ns.Store:GetFeed(true)[1].data.mob, "Riverpaw Gnoll")
+	local row = w.ns.ViewModel:Build("xp")[1]
+	equal(row.title, "Kills Riverpaw Gnoll for 65 XP")
+	equal(row.progress, nil) -- no bar: it would read as quest progress
+	equal(row.lines[1].progress, nil)
+	equal(row.summary, "Tester, Level 20, 13 kills like this to Level 21") -- 835 left, 65 a kill
+	w:advance(5)
+	w.xp = 265 -- a quest turn-in: no kill
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(0)
+	equal(w.ns.Store:GetMembers()[1].lastMob, "")
+	equal(#w.ns.Store:GetFeed(true), 2) -- every gain is a feed row
+	equal(w.ns.ViewModel:Build("xp")[2].title, "+100 XP")
+	equal(w.ns.ViewModel:Build("xp")[2].progress.have, 265) -- other XP keeps its bar
+	w.ns.Collectors:Handle("CHAT_MSG_COMBAT_XP_GAIN", "Old Kill dies, you gain 9 experience.")
+	w:advance(5)
+	w.xp = 300 -- long after that kill: not named after it
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(0)
+	equal(w.ns.Store:GetMembers()[1].lastMob, "")
+end)
+
+test("the party's XP bars: one per other player sharing, sorted by name, with level and how far to go", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	w:hear("H", { v = "0.1.3", c = "WARRIOR", l = 13, z = "Duskwood", x = 5400, m = 11400 }, "Tombert Roams")
+	w:hear("H", { v = "0.1.3", c = "PRIEST", l = 9, z = "Westfall" }, "Another")
+	local bars = w.ns.ViewModel:PartyBars()
+	equal(#bars, 2)
+	equal(bars[1].name, "Another")
+	equal(bars[1].have, nil) -- an older build's hello says no XP: level only, until it gains some
+	equal(bars[1].text, "Lv 9")
+	equal(bars[2].name, "Tombert Roams")
+	equal(bars[2].have, 5400)
+	equal(bars[2].need, 11400)
+	equal(bars[2].text, "Lv 13, 52.6% to go")
+	w.ns.SetEnabled("levels", false)
+	equal(#w.ns.ViewModel:PartyBars(), 0) -- Leveling off: no bars
+end)
+
+test("XP from a kill is a feed row only with Kills on, as Quest Tweet had it, and the bar moves either way", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	equal(w.ns.IsEnabled("kills"), false) -- off for a new install
+	w.xp = 100
+	w:event("PLAYER_LOGIN")
+	w.ns.Collectors:Handle("CHAT_MSG_COMBAT_XP_GAIN", "Riverpaw Gnoll dies, you gain 65 experience.")
+	w.xp = 165
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(0)
+	equal(#w.ns.Store:GetFeed(true), 0)
+	equal(w.ns.Store:GetMembers()[1].currentXP, 165) -- kept all the same
+	w:advance(5)
+	w.xp = 265 -- not a kill: a row as always
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(0)
+	equal(#w.ns.Store:GetFeed(true), 1)
+	equal(w.ns.Store:GetFeed(true)[1].data.xp, 100)
+	w.ns.SetEnabled("kills", true)
+	w.ns.Collectors:Handle("CHAT_MSG_COMBAT_XP_GAIN", "Riverpaw Gnoll dies, you gain 65 experience.")
+	w.xp = 330
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(0)
+	equal(#w.ns.Store:GetFeed(true), 2)
+	w.ns.SetEnabled("kills", false)
+	equal(#w.ns.Store:GetFeed(true), 1) -- turning Kills off hides those rows again
+	-- A friend's kill XP follows your own switch, and still moves their bar.
+	w:share()
+	w:hear("E", { t = "xp", c = "WARRIOR", xp = 75, level = 13, currentXP = 5400, maxXP = 11400, mob = "Murloc" }, "Tombert Roams")
+	equal(#w.ns.Store:GetFeed(true), 1)
+	equal(w.ns.ViewModel:PartyBars()[1].have, 5400)
+end)
+
+test("a player at the level cap, who never gains XP, still has a bar from the hello", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	w:hear("H", { v = "0.1.3", c = "WARRIOR", l = 60, z = "Orgrimmar", x = 0, m = 0 }, "Old Timer")
+	local bar = w.ns.ViewModel:PartyBars()[1]
+	equal(bar.name, "Old Timer")
+	equal(bar.maxLevel, true)
+	equal(bar.text, "Lv 60, max level")
+end)
+
+test("a friend's XP is a feed row that names the kill, and it moves their bar", function()
+	local w = Harness.new({ switches = { chatEcho = false, kills = true } })
+	w:share()
+	w:hear("E", { t = "xp", c = "WARRIOR", xp = 75, level = 13, currentXP = 5400, maxXP = 11400, mob = "Riverpaw Gnoll" }, "Tombert Roams")
+	local feed = w.ns.Store:GetFeed(true)
+	equal(#feed, 1)
+	equal(feed[1].player, "Tombert Roams")
+	equal(w.ns.ViewModel:Build("xp")[1].title, "Kills Riverpaw Gnoll for 75 XP")
+	local bar = w.ns.ViewModel:PartyBars()[1]
+	equal(bar.have, 5400)
+	equal(bar.text, "Lv 13, 52.6% to go")
+	equal(bar.lastXP, 75)
+	equal(bar.lastMob, "Riverpaw Gnoll")
+	-- An older build sends no kill name: the row is the plain gain.
+	w:hear("E", { t = "xp", c = "WARRIOR", xp = 59, level = 13, currentXP = 5459, maxXP = 11400 }, "Tombert Roams")
+	equal(w.ns.ViewModel:Build("xp")[2].title, "+59 XP")
+	equal(w.ns.ViewModel:PartyBars()[1].have, 5459)
+end)
+
+test("the emulator's players have bars in debug mode only", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w.ns.Bus:Fire("ENTRY_RECEIVED", { type = "xp", player = "Jaina", class = "MAGE", emulated = true, data = { xp = 3000, level = 23, currentXP = 22000, maxXP = 25000 } })
+	equal(#w.ns.ViewModel:PartyBars(), 0)
+	w.ns.SetDebug(true)
+	equal(w.ns.ViewModel:PartyBars()[1].name, "Jaina")
+end)
+
+test("logged messages from others survive a reload and replay into the panel without sending anything", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	w:hear("H", { v = "0.1.3", c = "WARRIOR", l = 13, z = "Duskwood", x = 6000, m = 11400 }, "Tombert Roams")
+	w:hear("E", { t = "level", c = "WARRIOR", level = 14 }, "Tombert Roams")
+	w:hear("Q", { id = 9, quest = "Wolves", c = "WARRIOR", o1 = "Wolves slain", h1 = 3, n1 = 8 }, "Tombert Roams")
+	w.ns.Store:Clear()
+	local reloaded = Harness.new(w.ns.db, w.ns.charDb)
+	reloaded.ns.SetDebug(true)
+	local sent = #reloaded.sent
+	reloaded.env.SlashCmdList.QUESTPARTY("replay")
+	equal(#reloaded.sent, sent) -- the replayed hello is not answered
+	equal(#reloaded.ns.Store:GetFeed(true), 1)
+	equal(reloaded.ns.Store:GetFeed(true)[1].player, "Tombert Roams")
+	equal(#reloaded.ns.Store:GetCards("quest"), 1)
+	equal(reloaded.ns.Store:GetMembers()[1].name, "Tombert Roams")
+	assert(reloaded.chat[#reloaded.chat]:find("Replayed 3 messages", 1, true), reloaded.chat[#reloaded.chat])
+end)
+
+test("replay needs debug mode", function()
+	local w = Harness.new()
+	w.env.SlashCmdList.QUESTPARTY("replay")
+	assert(w.chat[#w.chat]:find(w.ns.L.CMD_DEBUG_REQUIRED, 1, true))
+end)
+
+test("only profession skill-ups are reported, not weapon skills or Defense", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	local function skillUp(skill, level)
+		w.ns.Collectors:Handle("CHAT_MSG_SKILL", ("Your skill in %s has increased to %d."):format(skill, level))
+	end
+	skillUp("Swords", 64)
+	skillUp("Defense", 62)
+	equal(#w.ns.Store:GetFeed(true), 0)
+	skillUp("Herbalism", 62)
+	skillUp("Cooking", 40)
+	local feed = w.ns.Store:GetFeed(true)
+	equal(#feed, 2)
+	equal(feed[1].data.skill, "Cooking")
+	equal(feed[2].data.skill, "Herbalism")
+	skillUp("Some New Craft", 5) -- not in the list: reported, as before
+	equal(#w.ns.Store:GetFeed(true), 3)
+end)
+
+test("a death is reported with where it happened and the level", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	local sent = {}
+	w.ns.Bus:On("ENTRY_OUTGOING", function(entry) sent[#sent + 1] = entry end)
+	w.ns.Collectors:Handle("PLAYER_DEAD")
+	local feed = w.ns.Store:GetFeed(true)
+	equal(#feed, 1)
+	equal(feed[1].type, "death")
+	equal(feed[1].data.zone, "Elwynn Forest")
+	equal(feed[1].data.level, 20)
+	equal(#sent, 1) -- and shared with the channel
+	local row = w.ns.ViewModel:Build("all")[1]
+	assert(row.title:find("Elwynn Forest", 1, true), row.title)
+	w.ns.SetEnabled("deaths", false)
+	w.ns.Collectors:Handle("PLAYER_DEAD")
+	equal(#sent, 1) -- with the switch off, a death is neither shown nor sent
+end)
+
+test("a friend's death arrives over the channel", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	w:hear("E", { t = "death", c = "WARRIOR", zone = "Duskwood", level = 13 }, "Tombert Roams")
+	local feed = w.ns.Store:GetFeed(true)
+	equal(#feed, 1)
+	equal(feed[1].player, "Tombert Roams")
+	equal(feed[1].data.zone, "Duskwood")
 end)
 
 test("collectors ignore secret and non-text messages", function()

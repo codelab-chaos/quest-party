@@ -46,6 +46,19 @@ function Harness.new(saved, character, debugBuild, serverTime)
 	env.UnitXP = function() return world.xp end
 	env.UnitXPMax = function() return world.xpMax end
 	env.GetRealZoneText = function() return "Elwynn Forest" end
+	-- The game's skill list, with its category numbers: 6 weapon skills,
+	-- 9 secondary skills, 11 professions.
+	world.skills = {
+		{ name = "Professions", isHeader = true, skillLineCategoryID = 11 },
+		{ name = "Herbalism", isHeader = false, skillLineCategoryID = 11 },
+		{ name = "Cooking", isHeader = false, skillLineCategoryID = 9 },
+		{ name = "Swords", isHeader = false, skillLineCategoryID = 6 },
+		{ name = "Defense", isHeader = false, skillLineCategoryID = 6 },
+	}
+	env.C_SkillInfo = {
+		GetNumSkillLines = function() return #world.skills end,
+		GetSkillLineInfo = function(index) return world.skills[index] end,
+	}
 	env.IsInGroup = function() return next(world.party) ~= nil end
 	env.IsInRaid = function() return world.raid == true end
 	env.UnitInParty = function(name) return world.party[name] == true end
@@ -123,10 +136,10 @@ function Harness.new(saved, character, debugBuild, serverTime)
 	}
 	local ns = {}
 	local modules = {
-		"core.lua", "locales/en-us.lua", "data/feed-types.lua", "data/filters.lua", "data/settings.lua",
-		"store.lua", "comms/protocol.lua", "comms/transport.lua", "comms/session.lua", "comms/sharing.lua",
+		"core.lua", "locales/en-us.lua", "data/feed-types.lua", "data/filters.lua", "data/settings.lua", "data/stats.lua",
+		"store.lua", "stats.lua", "comms/protocol.lua", "comms/transport.lua", "comms/session.lua", "comms/sharing.lua",
 		"collectors/patterns.lua", "collectors/samples.lua", "collectors/collectors.lua",
-		"emulator/script.lua", "emulator/emulator.lua", "ui/view-model.lua", "ui/chat-echo.lua", "commands.lua",
+		"emulator/script.lua", "emulator/emulator.lua", "ui/view-model.lua", "ui/confetti.lua", "ui/chat-echo.lua", "commands.lua",
 	}
 	for _, path in ipairs(modules) do
 		local chunk

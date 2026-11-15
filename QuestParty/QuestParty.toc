@@ -18,7 +18,9 @@ locales\en-us.lua
 data\feed-types.lua
 data\filters.lua
 data\settings.lua
+data\stats.lua
 store.lua
+stats.lua
 comms\protocol.lua
 comms\transport.lua
 comms\session.lua
@@ -29,6 +31,7 @@ collectors\collectors.lua
 emulator\script.lua
 emulator\emulator.lua
 ui\view-model.lua
+ui\confetti.lua
 ui\panel.lua
 ui\listener.lua
 ui\chat-echo.lua
