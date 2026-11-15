@@ -8,7 +8,7 @@ the original beside it as .bak. The same pruning is in game under Options
   scripts/prune-saved.py PATH                       show what it holds
   scripts/prune-saved.py PATH --log --write         drop the message log
   scripts/prune-saved.py PATH --players 7 --write   forget players not seen for 7 days
-  scripts/prune-saved.py PATH --cards --keep "Bagoe Bones" --write
+  scripts/prune-saved.py PATH --cards --keep "Your Name" --write
                                                      forget quest cards but your own
   scripts/prune-saved.py PATH --feed --write        empty the feed
 
