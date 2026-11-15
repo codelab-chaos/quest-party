@@ -1,3 +1,6 @@
 .deploy-target
 dist/
 __pycache__/
+
+concept-art
+imgbugs
