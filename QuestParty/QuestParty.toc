@@ -21,6 +21,7 @@ data\settings.lua
 data\stats.lua
 store.lua
 stats.lua
+resolver.lua
 comms\protocol.lua
 comms\transport.lua
 comms\session.lua

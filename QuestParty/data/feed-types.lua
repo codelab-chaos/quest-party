@@ -163,6 +163,16 @@ ns.FeedTypes = {
 		chat = L.CHAT_DEATH,
 		member = { level = "level", zone = "zone" },
 	},
+	-- The generic card: an update of a type this version does not know (or
+	-- cannot read), from a newer Quest Party. It shows what the sender said it
+	-- was. See resolver.lua.
+	unknown = {
+		setting = "otherUpdates",
+		requires = { "summary" },
+		filters = {},
+		icon = "Interface\\Icons\\INV_Misc_QuestionMark",
+		text = L.FEED_UNKNOWN,
+	},
 	achievement = {
 		setting = "achievements",
 		filters = { achievements = true },

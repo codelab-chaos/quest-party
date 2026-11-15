@@ -1711,12 +1711,73 @@ test("a friend's quest progress becomes their quest card", function()
 	equal(cards[1].data.quest, "Wolves")
 end)
 
+-- ========= Resolving what arrives ===========================================
+test("every entry sent carries the sender's plain summary of it", function()
+	local w = Harness.new()
+	w:share()
+	w.ns.Collectors:Handle("PLAYER_LEVEL_UP", 21)
+	local _, fields = w.ns.Protocol.Decode(w.sent[#w.sent].text)
+	equal(fields.t, "level")
+	equal(fields.s, "DING!! Reached Level 21!")
+	w.ns.Collectors:Handle("PLAYER_DEAD")
+	_, fields = w.ns.Protocol.Decode(w.sent[#w.sent].text)
+	equal(fields.s, "Died in Elwynn Forest") -- no color codes on the wire
+end)
+
+test("an entry too long with its summary is sent without it", function()
+	local w = Harness.new()
+	w:share()
+	local long = string.rep("Very Long Quest Name ", 6)
+	w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "quest_complete", data = { quest = long, xp = 875 } })
+	local _, fields = w.ns.Protocol.Decode(w.sent[#w.sent].text)
+	equal(fields.t, "quest_complete")
+	equal(fields.quest, long)
+	equal(fields.s, nil)
+end)
+
+test("a type this version does not know shows as a generic card with the sender's summary", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	w:hear("E", { t = "pet_battle_won", c = "HUNTER", s = "Won a pet battle against Squirrel", pet = "Squirrel" }, "Newer Friend")
+	local feed = w.ns.Store:GetFeed(true)
+	equal(#feed, 1)
+	equal(feed[1].type, "unknown")
+	equal(feed[1].data.kind, "pet_battle_won")
+	local row = w.ns.ViewModel:Build("all")[1]
+	equal(row.title, "Won a pet battle against Squirrel")
+	equal(row.summary, "Newer Friend")
+	equal(#w.ns.ViewModel:Build("xp"), 0) -- the All tab only
+	w.ns.SetEnabled("otherUpdates", false)
+	equal(#w.ns.Store:GetFeed(true), 0) -- and it has a switch
+end)
+
+test("with no summary, the generic card guesses from the type's name", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	w:hear("E", { t = "pet_battle_won", c = "HUNTER" }, "Newer Friend")
+	equal(w.ns.ViewModel:Build("all")[1].title, "Pet battle won")
+end)
+
+test("a known type missing what its card needs falls back to the sender's summary", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	-- A newer version that changed the xp entry's fields, say.
+	w:hear("E", { t = "xp", c = "WARRIOR", s = "+79 XP", gain = 79 }, "Newer Friend")
+	equal(w.ns.ViewModel:Build("all")[1].title, "+79 XP")
+	-- An older sender's entry with what it needs resolves as it always did.
+	w:hear("E", { t = "level", c = "WARRIOR", level = 15 }, "Tombert Roams")
+	equal(w.ns.Store:GetFeed(true)[1].type, "level")
+	equal(w.ns.ViewModel:Build("all")[2].title, "DING!! Reached Level 15!")
+	-- And without a summary, an unreadable known type is dropped, as before.
+	w:hear("E", { t = "xp", c = "WARRIOR", gain = 79 }, "Old Friend")
+	equal(#w.ns.Store:GetFeed(true), 2)
+end)
+
 test("messages that are not for us are ignored", function()
 	local w = Harness.new()
 	w:share()
 	w:hear("E", { t = "level", c = "PRIEST", level = 12 }, "Friend", 9) -- another channel
 	w:hear("E", { t = "level", c = "MAGE", level = 12 }, "Tester") -- our own, echoed back
-	w:hear("E", { t = "no_such_type", level = 12 }, "Friend")
 	w:event("CHAT_MSG_ADDON", "QuestParty", "<secret>", "CHANNEL", "Friend-TestRealm", "", 0, 5, "QuestFriends")
 	w:event("CHAT_MSG_ADDON", "OtherAddon", w.ns.Protocol.Encode("E", { t = "level", level = 12 }), "CHANNEL", "Friend-TestRealm", "", 0, 5, "QuestFriends")
 	w:event("CHAT_MSG_ADDON", "QuestParty", "not a quest party message", "CHANNEL", "Friend-TestRealm", "", 0, 5, "QuestFriends")

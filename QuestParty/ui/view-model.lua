@@ -22,45 +22,10 @@ local PULSE_SECONDS = 3
 local ViewModel = {}
 ns.ViewModel = ViewModel
 
--- True for an XP gain that came from a kill the game named.
-local function KillXP(data)
-	return type(data.mob) == "string" and data.mob ~= "" and type(data.xp) == "number" and data.xp > 0
-end
+-- Template fields and an entry's text come from the resolver (resolver.lua).
+ViewModel.Fields = ns.Resolver.Fields
+local KillXP = ns.Resolver.KillXP
 
--- Template fields: the data with number formatting applied, plus {player}.
-function ViewModel.Fields(player, class, data, def)
-	local fields = { player = ns.ColorName(player, class) }
-	for key, value in pairs(data) do
-		if def.format and def.format[key] and type(value) == "number" then
-			fields[key] = ns.Comma(value)
-		else
-			fields[key] = value
-		end
-	end
-	if def.experience then
-		-- A merged run of gains adds up its XP and counts them (data.gains).
-		local gains = type(data.gains) == "number" and data.gains or 1
-		fields.xpGain = data.xp and L.XP_GAIN:format(ns.Comma(data.xp)) or L.XP_UPDATED
-		if data.xp and gains > 1 then
-			fields.xpGain = L.XP_GAINS:format(ns.Comma(data.xp), gains)
-		end
-		if KillXP(data) then
-			fields.xpGain = gains > 1 and L.XP_KILLS:format(data.mob, gains, ns.Comma(data.xp)) or L.XP_KILL:format(data.mob, ns.Comma(data.xp))
-		end
-		fields.xpStatus = L.XP_LEVEL:format(data.level)
-		if data.maxXP and data.maxXP > 0 and data.currentXP then
-			if KillXP(data) then
-				-- A kill says how many more like it to the next level, not a percentage.
-				local left = math.ceil(math.max(0, data.maxXP - data.currentXP) / (data.xp / gains))
-				fields.xpStatus = L.XP_KILLS_LEFT:format(data.level, ns.Comma(left), data.level + 1)
-			else
-				local remaining = math.max(0, math.min(100, 100 * (data.maxXP - data.currentXP) / data.maxXP))
-				fields.xpStatus = L.XP_STATUS:format(data.level, remaining, data.level + 1)
-			end
-		end
-	end
-	return fields
-end
 
 -- A card's objectives in the order they were first seen.
 local function SortedObjectives(record)
@@ -213,21 +178,11 @@ end
 
 local function FeedRow(entry, now)
 	local def = ns.FeedTypes[entry.type]
-	local fields = ViewModel.Fields(entry.player, entry.class, entry.data, def)
+	local title, detail, fields = ns.Resolver.Text(entry, def)
 	local subtitle = fields.player
-	local titleTemplate, detailTemplate = def.text, def.detail
-	-- A merged run that has climbed says from where, and by how much.
-	local merge = def.merge
-	local first, last = merge and entry.data[merge.first], merge and entry.data[merge.field]
-	if type(first) == "number" and type(last) == "number" and last > first then
-		fields.first, fields.gained = first, last - first
-		titleTemplate = merge.text
-		detailTemplate = fields.gained == 1 and merge.detailOne or merge.detail
+	if detail then
+		subtitle = subtitle .. ", " .. detail
 	end
-	if detailTemplate then
-		subtitle = subtitle .. ", " .. ns.Fill(detailTemplate, fields)
-	end
-	local title = ns.Fill(titleTemplate, fields)
 	local progress
 	-- A kill's row has no bar: it would read as quest progress.
 	if def.experience and entry.data.maxXP and entry.data.maxXP > 0 and not KillXP(entry.data) then

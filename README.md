@@ -39,7 +39,12 @@ When someone joins, everyone already there tells them where their quests stand,
 so a newcomer's panel fills in at once without waiting for anyone to do
 something. Only quests that are underway are shown and told: ones with some
 progress and something still left to do. They travel as addon messages, the game's own way for addons to talk
-to each other, so nothing is posted in the channel's chat. `/qp share`
+to each other, so nothing is posted in the channel's chat.
+
+Every update also carries a short description written by the sender. When a
+friend runs a newer Quest Party that sends something your version does not
+know yet, you still see it, as a plain card with that description, under
+**Other updates** in Options. `/qp share`
 says how much has been sent and received.
 
 ## Installation
@@ -105,7 +110,7 @@ Arguments in square brackets are optional.
 | `/qp debug [on/off]` | Enable or disable debug mode; omit the argument to toggle it. |
 
 Available switches: `quests`, `questDetails`, `kills`, `levels`, `discovery`,
-`professions`, `achievements`, `deaths`, `confetti`, `chatEcho`, `chatOrder`, and `showSelf`.
+`professions`, `achievements`, `deaths`, `otherUpdates`, `confetti`, `chatEcho`, `chatOrder`, and `showSelf`.
 
 For example, `/qp set showSelf off` turns off **Include self**,
 `/qp set levels off` disables XP and level-up updates, and

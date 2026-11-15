@@ -13,9 +13,11 @@
 --   HELLO  "I am here", sent a moment after connecting: v version, c class,
 --          l level, z zone, x XP so far this level, m XP the level needs. Everyone who hears it answers with ACK.
 --   ACK    the same fields, so the newcomer learns who is already there.
---   ENTRY  one feed entry: t is its type, c the sender's class, the rest is
---          the entry's data. From the emulator it also carries as, the name
---          of the pretend player it stands for.
+--   ENTRY  one feed entry: t is its type, c the sender's class, s a short
+--          plain summary written by the sender (see resolver.lua), the rest
+--          is the entry's data. From the emulator it also carries as, the
+--          name of the pretend player it stands for. A message that would be
+--          too long is sent without its summary.
 --   QUEST  where one of the sender's quests stands now: id, quest (its name),
 --          c class, and for each objective o1 its name, h1 how many, n1 of
 --          how many (then o2, h2, n2 and so on).
@@ -41,6 +43,8 @@ local STATE_DELAY = { min = 1, max = 4 }
 local TYPE_KEY, CLASS_KEY = "t", "c"
 -- On an ENTRY from the emulator: the pretend player it stands for.
 local VIRTUAL_KEY = "as"
+-- On an ENTRY: the sender's own plain summary of it.
+local SUMMARY_KEY = "s"
 
 -- sent      messages handed to the game
 -- echoed    of those, how many the server sent back to us. It sends a
@@ -188,7 +192,22 @@ local function EntryFields(typeName, class, data, virtual)
 	fields[TYPE_KEY] = typeName
 	fields[CLASS_KEY] = class or ""
 	fields[VIRTUAL_KEY] = virtual
+	fields[SUMMARY_KEY] = ns.Resolver.Summary({ type = typeName, player = "", class = class, data = data or {} })
 	return fields
+end
+
+-- Sends an entry. When it is too long for one message with its summary, it
+-- goes without one: the summary only matters to clients that do not know the
+-- type, and the entry itself matters to everyone.
+local function SendEntry(fields, key)
+	if Send(Kinds.ENTRY, fields, key) then
+		return true
+	end
+	if fields[SUMMARY_KEY] == nil then
+		return false
+	end
+	fields[SUMMARY_KEY] = nil
+	return Send(Kinds.ENTRY, fields, key)
 end
 
 -- Reads an ENTRY's fields back: its type, the sender's class, its data and the
@@ -196,18 +215,21 @@ end
 -- does not know. This is the one place a message becomes an entry, whoever it
 -- is from.
 local function ReadEntry(fields)
-	local typeName, class, virtual = fields[TYPE_KEY], fields[CLASS_KEY], fields[VIRTUAL_KEY]
-	if type(typeName) ~= "string" or not ns.FeedTypes[typeName] then
+	local typeName, class, virtual, summary = fields[TYPE_KEY], fields[CLASS_KEY], fields[VIRTUAL_KEY], fields[SUMMARY_KEY]
+	if type(typeName) ~= "string" or typeName == "" then
 		return nil
 	end
 	local data = {}
 	for key, value in pairs(fields) do
-		if key ~= TYPE_KEY and key ~= CLASS_KEY and key ~= VIRTUAL_KEY then
+		if key ~= TYPE_KEY and key ~= CLASS_KEY and key ~= VIRTUAL_KEY and key ~= SUMMARY_KEY then
 			data[key] = Clean(value)
 		end
 	end
 	class = type(class) == "string" and class ~= "" and class or nil
 	virtual = type(virtual) == "string" and virtual ~= "" and Clean(virtual) or nil
+	summary = type(summary) == "string" and summary ~= "" and Clean(summary) or nil
+	-- What this version can show of it: the type itself, or the generic card.
+	typeName, data = ns.Resolver.Interpret(typeName, data, summary)
 	return typeName, class, data, virtual
 end
 
@@ -245,7 +267,7 @@ end
 
 Bus:On("ENTRY_OUTGOING", function(entry)
 	local _, class = UnitClass("player")
-	Send(Kinds.ENTRY, EntryFields(entry.type, class, entry.data), LatestKey(entry))
+	SendEntry(EntryFields(entry.type, class, entry.data), LatestKey(entry))
 end)
 
 -- ========= How our quests stand =============================================
@@ -296,7 +318,7 @@ end
 -- entry. So what the panel shows of them has made the real trip.
 -- Returns false when there is no channel, so the caller knows nothing went out.
 function Sharing:SendVirtual(persona, typeName, data)
-	return Send(Kinds.ENTRY, EntryFields(typeName, persona.class, data, persona.name))
+	return SendEntry(EntryFields(typeName, persona.class, data, persona.name))
 end
 
 -- ========= Incoming, from other players =====================================

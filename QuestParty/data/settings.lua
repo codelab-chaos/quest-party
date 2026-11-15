@@ -13,6 +13,7 @@ ns.Settings = {
 	{ id = "professions", label = L.SET_PROFESSIONS, tip = L.SET_PROFESSIONS_TIP, default = true },
 	{ id = "achievements", label = L.SET_ACHIEVEMENTS, tip = L.SET_ACHIEVEMENTS_TIP, default = true },
 	{ id = "deaths", label = L.SET_DEATHS, tip = L.SET_DEATHS_TIP, default = true },
+	{ id = "otherUpdates", label = L.SET_OTHER_UPDATES, tip = L.SET_OTHER_UPDATES_TIP, default = true },
 	{ id = "confetti", label = L.SET_CONFETTI, tip = L.SET_CONFETTI_TIP, default = true },
 	{ id = "chatEcho", label = L.SET_CHAT_ECHO, tip = L.SET_CHAT_ECHO_TIP, default = true },
 	{ id = "chatOrder", label = L.SET_CHAT_ORDER, tip = L.SET_CHAT_ORDER_TIP, default = true },
