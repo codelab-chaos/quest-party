@@ -165,6 +165,12 @@ ns.L = {
 	SET_REMEMBER_TIP = "Keep the heads and cards of players who logged off, greyed out, for up to a week.",
 
 	FEED_JOINED = "Joined the party",
+	FORGET_PLAYERS = "Forget players",
+	FORGET_PLAYERS_TIP = "Forget everyone not in the party right now: their heads, cards and gear.",
+	FORGET_CARDS = "Forget cards",
+	FORGET_CARDS_TIP = "Forget friends' quest cards. Your own stay: your quest log keeps them right.",
+	FORGET_HOLDS = "Holds %d now.",
+	FORGOT = "%s: done.",
 	READ_FAILED = "A message could not be read and was skipped: %s",
 
 	-- The player card

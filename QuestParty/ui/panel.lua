@@ -1045,7 +1045,8 @@ local function BuildOptions()
 	optionsScroll.ScrollBar:SetPoint("TOPLEFT", optionsScroll, "TOPRIGHT", 6, -2)
 	optionsScroll.ScrollBar:SetPoint("BOTTOMLEFT", optionsScroll, "BOTTOMRIGHT", 6, 2)
 	local content = CreateFrame("Frame", nil, optionsScroll)
-	local actionsHeight = LAYOUT.optionHeight + 8
+	-- Two rows of actions: clearing and the emulator, then forgetting.
+	local actionsHeight = 2 * LAYOUT.optionHeight + 12
 	content:SetSize(1, actionsHeight + 112 + #ns.Settings * LAYOUT.optionHeight)
 	optionsScroll:SetScrollChild(content)
 	local function ResizeOptions(self)
@@ -1069,6 +1070,30 @@ local function BuildOptions()
 		GameTooltip:Show()
 	end)
 	clear:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+	-- Forgetting what is saved about others: each button says how much it holds.
+	local forgets = {
+		{ what = "players", label = L.FORGET_PLAYERS, tip = L.FORGET_PLAYERS_TIP, count = "members" },
+		{ what = "cards", label = L.FORGET_CARDS, tip = L.FORGET_CARDS_TIP, count = "cards" },
+	}
+	for index, forget in ipairs(forgets) do
+		local button = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+		button:SetSize(110, LAYOUT.optionHeight)
+		button:SetPoint("TOPLEFT", 4 + (index - 1) * 114, -(LAYOUT.optionHeight + 6))
+		button:SetText(forget.label)
+		button:SetScript("OnClick", function()
+			ns.Store:Prune(forget.what)
+			ns.Print(L.FORGOT:format(forget.label))
+		end)
+		button:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:SetText(forget.label)
+			GameTooltip:AddLine(forget.tip, 1, 1, 1, true)
+			GameTooltip:AddLine(L.FORGET_HOLDS:format(ns.Store:Counts()[forget.count]), 0.8, 0.8, 0.8)
+			GameTooltip:Show()
+		end)
+		button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	end
 
 	local emulator = CreateFrame("Button", nil, content)
 	emulator:SetSize(70, LAYOUT.optionHeight)
@@ -1254,10 +1279,21 @@ end
 
 Bus:On("READY", Build)
 
+-- A busy channel changes the store many times a second: draw once for all
+-- of them, a moment later.
+local REDRAW_SECONDS = 0.2
+local redrawPending = false
 Bus:On("STORE_CHANGED", function()
-	Panel:UpdateXpBars()
-	ns.Confetti:SetHost(frame)
-	Panel:Refresh()
+	if redrawPending then
+		return
+	end
+	redrawPending = true
+	C_Timer.After(REDRAW_SECONDS, function()
+		redrawPending = false
+		Panel:UpdateXpBars()
+		ns.Confetti:SetHost(frame)
+		Panel:Refresh()
+	end)
 end)
 
 Bus:On("PEERS_CHANGED", function()
