@@ -1917,6 +1917,86 @@ test("with no channel the emulator's players are shown directly and nothing is s
 	equal(#w.ns.Store:GetFeed(true), 1)
 end)
 
+-- ========= Recorded sessions ================================================
+-- The evening recording (emulator\recordings.lua): two real players' messages
+-- from 14 November 2026, brought up to what 0.1.3 sends.
+local function playEvening(w)
+	w.ns.SetDebug(true)
+	w.ns.SetEnabled("kills", true)
+	local emulator = w.ns.Emulator
+	equal(emulator:Use("evening"), true)
+	emulator:SetSpeed(20)
+	emulator:Start()
+	w:advance(2 * 60 * 60) -- 22 minutes of play, at 20x
+	equal(emulator.running, false) -- a recording plays once, then stops
+end
+
+local function checkEvening(w)
+	local players = {}
+	for _, entry in ipairs(w.ns.Store:GetFeed(true)) do
+		players[entry.player] = true
+		assert(entry.type ~= "unknown", "fell back to a generic card: " .. tostring(entry.data.kind))
+		assert(not (entry.type == "xp" and entry.data.quest), "a turn-in's XP is a second row")
+	end
+	equal(players["Replay Paladin"], true)
+	equal(players["Replay Warrior"], true)
+	local bars = {}
+	for _, bar in ipairs(w.ns.ViewModel:PartyBars()) do bars[bar.name] = bar end
+	equal(bars["Replay Paladin"].level, 12)
+	equal(bars["Replay Paladin"].have, 590)
+	equal(bars["Replay Warrior"].level, 14)
+	equal(bars["Replay Warrior"].have, 4529)
+	for _, filter in ipairs(w.ns.Filters) do
+		for _, row in ipairs(w.ns.ViewModel:Build(filter.id)) do
+			assert(type(row.title) == "string")
+		end
+	end
+end
+
+test("the evening recording plays both players once, sped up, with no channel", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	equal(w.ns.Emulator:Use("no such recording"), false)
+	playEvening(w)
+	checkEvening(w)
+	equal(#w.sent, 0)
+end)
+
+test("the evening recording goes over the channel and reads back as 0.1.3 entries", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	playEvening(w)
+	local virtual = 0
+	for _, message in ipairs(w.sent) do
+		local kind, fields = w.ns.Protocol.Decode(message.text)
+		if kind == "E" and fields.as then
+			virtual = virtual + 1
+			w:event("CHAT_MSG_ADDON", "QuestParty", message.text, "CHANNEL", "Tester-TestRealm", "", 0, 5, "QuestFriends")
+		end
+	end
+	equal(virtual, #w.ns.Emulator:GetSteps())
+	checkEvening(w)
+	equal(w.ns.Sharing.refused, 0)
+	equal(w.ns.Session:Count(), 0) -- pretend players are not someone sharing
+end)
+
+test("a recording that played to the end starts again, and the sample party loops", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w.ns.SetDebug(true)
+	local emulator = w.ns.Emulator
+	emulator:Use("evening")
+	local count = #emulator:GetSteps()
+	emulator:Burst(count + 5) -- steps past the end do nothing
+	equal(#w.ns.Store:GetMembers(), 2)
+	emulator:Start()
+	equal(emulator.running, true)
+	equal(emulator.index, 1)
+	emulator:Stop()
+	equal(emulator:Use(nil), true)
+	local sample = #emulator:GetSteps()
+	emulator:Burst(sample + 1)
+	equal(emulator.index, 2)
+end)
+
 -- ========= Which quests are shown and told ==================================
 test("a quest is underway when something is started and something is left", function()
 	local underway = Harness.new().ns.QuestUnderway
