@@ -2381,5 +2381,71 @@ test("Quest Party in debug sees the sandbox's pretend player as a peer, and answ
 	equal(#sentOfKind(main, "A"), 1)
 end)
 
+-- ========= Party heads and the player card ==================================
+test("race portraits use the game's atlas names", function()
+	local w = Harness.new()
+	local Atlas = w.ns.PartyModel.RaceAtlas
+	equal(Atlas("Scourge", 3), "raceicon128-undead-female")
+	equal(Atlas("NightElf", 2), "raceicon128-nightelf-male")
+	equal(Atlas(nil, 2), nil)
+	equal(Atlas("Human", 0), nil)
+end)
+
+test("heads come in arrival order, and players who left stay greyed when remembered", function()
+	local w = Harness.new()
+	w:share()
+	w:hear("H", { c = "PRIEST", l = 14, r = "Dwarf", g = 3 }, "Second")
+	w:advance(1)
+	w:hear("H", { c = "ROGUE", l = 20 }, "Third")
+	local heads = w.ns.PartyModel:Heads()
+	equal(#heads, 2)
+	equal(heads[1].name, "Second")
+	equal(heads[1].atlas, "raceicon128-dwarf-female")
+	equal(heads[1].here, true)
+	equal(heads[2].name, "Third")
+	w:event("CHAT_MSG_CHANNEL_LEAVE", "", "Second-TestRealm", "", "", "", "", 0, 5, "QuestFriends")
+	heads = w.ns.PartyModel:Heads()
+	equal(heads[1].name, "Third")
+	equal(heads[2].name, "Second")
+	equal(heads[2].here, false)
+	w.ns.SetEnabled("rememberPlayers", false)
+	equal(#w.ns.PartyModel:Heads(), 1)
+	w.ns.SetEnabled("partyHeads", false)
+	equal(#w.ns.PartyModel:Heads(), 0)
+end)
+
+test("a player's card: level, XP, session XP, their quests, quests in common and gear", function()
+	local w = Harness.new()
+	w:share()
+	w.quests[1] = { questID = 356, title = "Rear Guard Patrol", objectives = {
+		{ text = "Wandering Spirit slain: 3/8", numFulfilled = 3, numRequired = 8 },
+	} }
+	w:hear("H", { c = "WARRIOR", l = 14, x = 500, m = 9000, r = "Orc", g = 2, v = "0.1.3" }, "Friend")
+	w:hear("E", { t = "xp", c = "WARRIOR", xp = 120, level = 14, currentXP = 620, maxXP = 9000 }, "Friend")
+	w:hear("Q", { id = 356, quest = "Rear Guard Patrol", o1 = "Wandering Spirit", h1 = 5, n1 = 8 }, "Friend")
+	w:hear("G", { c = "WARRIOR", s16 = "25:0:0" }, "Friend")
+	local card = w.ns.PartyModel:Card("Friend")
+	equal(card.level, 14)
+	equal(card.here, true)
+	equal(card.version, "0.1.3")
+	equal(card.xp.need, 9000)
+	equal(card.sessionXP, 120)
+	equal(card.todayXP, 120)
+	equal(card.quests[1].quest, "Rear Guard Patrol")
+	equal(card.quests[1].progress, "5/8")
+	equal(card.inCommon[1].mine, "3/8")
+	equal(card.inCommon[1].theirs, "5/8")
+	equal(card.hasGear, true)
+	local mainHand
+	for _, slot in ipairs(card.gear) do
+		if slot.id == 16 then mainHand = slot end
+	end
+	equal(mainHand.itemString, "item:25:0:0:0:0:0:0")
+	equal(mainHand.itemId, 25)
+	equal(mainHand.column, "bottom")
+	equal(#card.gear, 19)
+	equal(w.ns.PartyModel:Card("Nobody"), nil)
+end)
+
 print(string.format("\n%d passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end

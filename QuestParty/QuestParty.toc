@@ -35,8 +35,10 @@ collectors\gear.lua
 emulator\script.lua
 emulator\emulator.lua
 ui\view-model.lua
+ui\party-model.lua
 ui\confetti.lua
 ui\panel.lua
+ui\party.lua
 ui\listener.lua
 ui\chat-echo.lua
 commands.lua

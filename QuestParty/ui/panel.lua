@@ -1241,6 +1241,11 @@ local function Build()
 	end)
 end
 
+-- The window, for frames that sit beside it (ui\party.lua).
+function Panel:GetFrame()
+	return frame
+end
+
 function Panel:Toggle()
 	if frame then
 		frame:SetShown(not frame:IsShown())
