@@ -135,6 +135,29 @@ is also available in Options while debug mode is enabled.
 | `/qp test` | Replay sample game events as your own character. They are shared with your channel like real progress, so leave the channel first if friends are on it. |
 | `/qp testloc <target>` | Show one test in your own panel only; nothing is sent. Targets: `confetti`, `level`, `death`, `quest`, `kill`, or `all`. With no target it lists them. |
 
+### The sandbox
+
+The sandbox is a second build of Quest Party, **QuestPartySandbox**, that plays
+pretend players from your own character, for testing a party without a second
+account. It has its own saved variables, its own panel and its own commands
+(`/qps`), collects nothing of your own, and never sends as your character: every
+message names the pretend player it stands for. Friends' clients ignore those
+messages, and your own Quest Party shows them only in debug mode.
+
+Install it with `scripts/deploy.sh --sandbox`, or build a ZIP with
+`python3 scripts/package.py --sandbox`. It is never part of a release. Your
+Quest Party can be enabled alongside it or not.
+
+| Command | What it does |
+| --- | --- |
+| `/qps party [count] [seed] [speed]` | Start a made-up party: `count` players from `seed` (the same seed makes the same party), at `speed` (10 plays an hour in six minutes). Over the channel, at most 4. |
+| `/qps replay [speed]` | Play back a real recorded session (two hours of leveling) as one pretend player. |
+| `/qps loopback on` | Read the pretend players' messages straight back, with no network, for parties of 20, 50 or 100. `off` sends them over the channel again. |
+| `/qps measure` | What the run costs: this addon's memory, messages, read time and what is saved. |
+| `/qps burst [count]` | Send a quick burst past the queue and report the game's answers, to measure the send budget. Nothing reads these messages. |
+| `/qps stop` | Stop; the pretend players leave. |
+| `/qps wipe` | Forget everything the sandbox saved, to run again from nothing. |
+
 ## Builds and releases
 
 Every push to `main` and every pull request runs Lua 5.1 syntax checks, addon
@@ -199,6 +222,11 @@ Check for Lua errors with `/console scriptErrors 1` before reloading.
 
 For local installation, `scripts/deploy.sh` uses the AddOns path in
 `.deploy-target` (ignored by Git) or `WOW_ADDONS_DIR`.
+
+To shrink a saved file with the game closed, `scripts/prune-saved.py` shows what
+it holds and, with `--write`, removes the message log, the feed, friends' quest
+cards or players not seen for a number of days, keeping a `.bak` copy. In game,
+Options has Forget players and Forget cards.
 
 Local source installs start in debug mode, making the emulator button available
 after every reload. `/qp debug off` hides it until the next reload. Packaged ZIPs

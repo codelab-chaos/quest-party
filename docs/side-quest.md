@@ -615,6 +615,32 @@ Reviewed 14 November 2026, before building.
 Sandbox first: each step after it is tested against pretend players in game.
 Every step ships on `side-quest` with tests; IDs are for reference.
 
+### Status, 15 November 2026
+
+Built on `side-quest`, with tests (158 Lua, 6 Python):
+
+- **A1 to A4 done:** the sandbox build, the `as` marker on every kind
+  (`comms\origin.lua`), the recorded session (`sandbox\recording.lua`) and the
+  burst test (`/qps burst`). The burst numbers are still to be measured in game.
+- **B1 to B4 done:** `n` on stateful messages, race and sex in the hello, one
+  calm answer per newcomer, presence every 5 minutes, silent players dropped.
+  **B5 partly:** players go after a week; friends' cards are still kept until
+  cleared, as decided for 0.1.2 (a test holds that), so a day's lifetime for
+  cards needs the owner's word first (`ns.Timing.cardSeconds`).
+- **C1 to C8 done:** welcome rows, heads, the card with Overview, Quests and
+  Items, remembered players, session and weekly XP, gear streaming.
+- **D1 done:** requests, answered on the channel with the storm limits.
+  **D2 and D3 not started:** friends-only sharing (whispers) and level
+  profiles. Off works today through the switches (Share my gear, Quests,
+  Deaths, Professions).
+- **E1, E2 and E4 done:** loopback, the procedural party, `/qps measure`,
+  Forget buttons and `scripts/prune-saved.py`. **E3 partly:** the list
+  already draws only rows in view; redraws are now coalesced. Scale numbers
+  are still to be taken in game.
+
+Not yet seen in game: every frame added (heads, card, Items tab, Forget
+buttons) and the sandbox itself.
+
 ### A. Sandbox (first)
 
 | ID | Step | Done when |

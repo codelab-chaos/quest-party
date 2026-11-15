@@ -14,10 +14,18 @@ CurseForge's changelog field using Markdown formatting.
 - Deaths: where someone died and at what level. Turn them on or off with Deaths in Options.
 - In debug mode, `/qp stats` shows what you and your friends have done over the last 7 days: XP, kills, quests, levels, skill-ups, achievements and deaths. A small daily tally per player is kept for a week, apart from the feed, and only while debug mode is on.
 - In debug mode, `/qp testloc <target>` shows a test in your own panel only, with nothing sent to the channel: `confetti`, `level`, `death`, `quest`, `kill` or `all`.
+- Party heads down the right of the panel: one for each player in the party, with their race portrait, a ring in their class color and their level, in the order they arrived. Players who logged off stay as greyed heads for up to a week, unless Remember players who left is off. Turn the heads off with Party heads.
+- Click a head for that player's card: Overview (level, zone, XP bar, XP this session, today and this week), Quests (their quests, and the ones you share, side by side) and Items (their equipped items, laid out as on the character window, with the game's tooltips and shift-click links).
+- Your equipped items are shared with the party, a slot at a time as they change. Turn it off with Share my gear.
+- A row in the feed when someone joins the party (Welcomes).
+- Options has Forget players and Forget cards, to free what is saved about others.
 - In debug mode, `/qp replay` reads the saved messages from other players again to rebuild the panel from real traffic. The last 200 messages are now kept across reloads.
 
 ### Changed
 
+- Players who say hello are answered once, after a short random wait, so a big party does not answer at the same moment. Everyone also says where they stand every five minutes, and a player not heard from for 16 minutes is taken to have left.
+- Messages about how things stand carry a number that only grows, so a late or repeated message never replaces newer news.
+- A player not seen for a week is forgotten.
 - XP from kills is no longer a feed row unless Kills is on (it is off by default), as Quest Tweet kept kill XP behind its own option. Other XP gains show as before, and every gain still moves the XP bars.
 - A quest handed in is one row with a gold background, "Quest complete: <quest>" with its XP. Its XP no longer shows again as a second row, though it still moves the XP bars.
 - A finished objective reads "Done: 10/10 <objective>" with a check mark, so it is no longer mistaken for the quest being handed in.
