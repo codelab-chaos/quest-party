@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Build the emulator's recordings (QuestParty/emulator/recordings.lua) from a
-saved message log, as Quest Party 0.1.3 clients would have sent them.
+saved message log, as Quest Party 0.2.0 clients would have sent them.
 
 A recording is real players' messages from one evening, turned into pretend
 players for the debug emulator (emulator/emulator.lua): `/qp emu play evening`
 replays them in time with each other, and `/qp emu speed` speeds them up.
-Each player's messages are brought up to what 0.1.3 sends (modernize below)
+Each player's messages are brought up to what 0.2.0 sends (modernize below)
 and written as emulator steps, so they go over the channel the same way the
 sample party does.
 
@@ -39,7 +39,7 @@ ENTRY = "E"
 # Keys of an ENTRY that are about the message, not the entry's data
 # (see comms/sharing.lua): type, class, pretend player, summary.
 MESSAGE_KEYS = {"t", "c", "as", "s"}
-# 0.1.3 reports skill-ups in professions only.
+# 0.2.0 reports skill-ups in professions only.
 PROFESSIONS = {"Alchemy", "Blacksmithing", "Cooking", "Enchanting", "Engineering", "First Aid", "Fishing",
                "Herbalism", "Leatherworking", "Mining", "Skinning", "Tailoring"}
 TURN_IN_SECONDS = 3  # an XP gain this soon after a turn-in, of the same amount, is its XP
@@ -56,7 +56,7 @@ def decode(text):
 
 
 def modernize(messages):
-    """One player's messages as 0.1.3 entries. messages: [(time, kind, fields)].
+    """One player's messages as 0.2.0 entries. messages: [(time, kind, fields)].
 
     Returns [(time, type, data)]. Only entries are kept: the emulator's
     pretend players send entries, not hellos or quest states.
@@ -128,7 +128,7 @@ def render(records):
 	}},''')
     return '''-- Real Quest Party sessions for the emulator to play back as pretend players
 -- (/qp emu play <name>): what each player's client sent, with the seconds
--- between, brought up to what Quest Party 0.1.3 sends. Same shape as
+-- between, brought up to what Quest Party 0.2.0 sends. Same shape as
 -- emulator\\script.lua.
 -- Made by scripts/make-recordings.py from a saved message log; do not edit.
 local _, ns = ...

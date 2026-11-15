@@ -132,7 +132,7 @@ is also available in Options while debug mode is enabled.
 | `/qp emu step` | Play the next sample entry once. |
 | `/qp emu burst [n]` | Play sample entries immediately; defaults to 10. |
 | `/qp emu speed [n]` | Set playback speed from 0.25× to 20×; defaults to 1×. |
-| `/qp emu play [name]` | Play a recorded session instead of the sample party, once, from its start: `evening` is two real players' 22 minutes from 14 November 2026, brought up to what 0.1.3 sends (about a minute at 20×). With no name it lists the recordings; `sample` goes back to the sample party. Rebuild the recordings from a saved file with `scripts/make-recordings.py <path to QuestParty.lua>`. |
+| `/qp emu play [name]` | Play a recorded session instead of the sample party, once, from its start: `evening` is two real players' 22 minutes from 14 November 2026, brought up to what 0.2.0 sends (about a minute at 20×). With no name it lists the recordings; `sample` goes back to the sample party. Rebuild the recordings from a saved file with `scripts/make-recordings.py <path to QuestParty.lua>`. |
 | `/qp test` | Replay sample game events as your own character. They are shared with your channel like real progress, so leave the channel first if friends are on it. |
 | `/qp testloc <target>` | Show one test in your own panel only; nothing is sent. Targets: `confetti`, `level`, `death`, `quest`, `kill`, or `all`. With no target it lists them. |
 

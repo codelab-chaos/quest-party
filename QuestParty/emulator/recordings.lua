@@ -1,6 +1,6 @@
 -- Real Quest Party sessions for the emulator to play back as pretend players
 -- (/qp emu play <name>): what each player's client sent, with the seconds
--- between, brought up to what Quest Party 0.1.3 sends. Same shape as
+-- between, brought up to what Quest Party 0.2.0 sends. Same shape as
 -- emulator\script.lua.
 -- Made by scripts/make-recordings.py from a saved message log; do not edit.
 local _, ns = ...

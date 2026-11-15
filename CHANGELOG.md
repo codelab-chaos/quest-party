@@ -3,7 +3,9 @@
 Features and fixes shipped in each release. Copy a version's section into
 CurseForge's changelog field using Markdown formatting.
 
-## Unreleased
+## 0.2.0 - 2026-11-15
+
+Friends on 0.1.2 and 0.2.0 can share a channel: the messages are the same format with more in them. A friend still on 0.1.2 does not see XP bars, deaths or the newer rows until they update, so ask everyone to update.
 
 ### Added
 
@@ -42,7 +44,6 @@ CurseForge's changelog field using Markdown formatting.
 
 ### Changed
 
-- XP from kills is no longer a feed row unless Kills is on (it is off by default), as Quest Tweet kept kill XP behind its own option. Other XP gains show as before, and every gain still moves the XP bars.
 - Quest cards are shown only while a quest is underway: at least one objective has progress and not all are complete. Quests not yet started, and quests that only need handing in, are left out of the panel and of what is told to others.
 - Clear and the debug emulator button moved into Options.
 
