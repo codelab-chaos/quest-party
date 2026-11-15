@@ -2325,6 +2325,14 @@ test("a sandbox party over the channel is marked as its pretend players, and sho
 	-- Too many for one character's send budget over the channel.
 	local ok = w.ns.Sandbox:StartParty(20, 7, 1)
 	equal(ok, false)
+	-- A friend on the channel: their older Quest Party would take the
+	-- pretend players for this character, so the channel is refused.
+	w:hear("H", { c = "WARRIOR", l = 14, v = "0.1.2" }, "Tombert")
+	local started, why = w.ns.Sandbox:StartParty(2, 7, 1)
+	equal(started, false)
+	assert(why:find("Tombert", 1, true), why)
+	w.ns.Sharing.loopback = true
+	equal(w.ns.Sandbox:StartParty(2, 7, 1), true)
 end)
 
 test("in loopback a party of 20 plays for an hour without the network, and every player is seen", function()

@@ -33,6 +33,25 @@ local CHANNEL_LIMIT = 4 -- pretend players over the real channel at once
 
 local ticker
 
+-- Over the channel, friends' clients from before the as marker worked on
+-- every message (0.1.2, 0.1.3) would take a pretend player's hello or quest
+-- for this character's own. So channel runs need a channel with no friends
+-- on it; loopback is always fine. Returns false and why.
+local function ChannelUsable()
+	if ns.Sharing.loopback then
+		return true
+	end
+	if ns.Session.state ~= "connected" then
+		return false, L.SANDBOX_NO_CHANNEL
+	end
+	for name, peer in pairs(ns.Session.peers) do
+		if not peer.virtual and not ns.IsMe(name) then
+			return false, L.SANDBOX_FRIENDS_HERE:format(name)
+		end
+	end
+	return true
+end
+
 local function Sharing()
 	return ns.Sharing
 end
@@ -196,8 +215,9 @@ function Sandbox:StartParty(count, seed, speed)
 	if not Sharing().loopback and count > CHANNEL_LIMIT then
 		return false, L.SANDBOX_TOO_MANY:format(CHANNEL_LIMIT)
 	end
-	if not Sharing().loopback and ns.Session.state ~= "connected" then
-		return false, L.SANDBOX_NO_CHANNEL
+	local usable, problem = ChannelUsable()
+	if not usable then
+		return false, problem
 	end
 	self:Stop()
 	wipe(self.personas)
@@ -221,8 +241,9 @@ function Sandbox:StartRecording(name, speed)
 	if not recording then
 		return false, L.SANDBOX_NO_RECORDING
 	end
-	if not Sharing().loopback and ns.Session.state ~= "connected" then
-		return false, L.SANDBOX_NO_CHANNEL
+	local usable, problem = ChannelUsable()
+	if not usable then
+		return false, problem
 	end
 	self:Stop()
 	wipe(self.personas)

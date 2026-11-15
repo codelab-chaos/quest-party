@@ -148,6 +148,11 @@ Install it with `scripts/deploy.sh --sandbox`, or build a ZIP with
 `python3 scripts/package.py --sandbox`. It is never part of a release. Your
 Quest Party can be enabled alongside it or not.
 
+Over the channel, use a channel of your own (such as `qpsandbox`): Quest Party
+0.1.3 and older would take a pretend player's hello or quest for yours, so the
+sandbox refuses channel runs while a friend is on the channel. Loopback has no
+such limit.
+
 | Command | What it does |
 | --- | --- |
 | `/qps party [count] [seed] [speed]` | Start a made-up party: `count` players from `seed` (the same seed makes the same party), at `speed` (10 plays an hour in six minutes). Over the channel, at most 4. |

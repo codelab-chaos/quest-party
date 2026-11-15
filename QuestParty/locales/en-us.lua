@@ -222,6 +222,7 @@ ns.L = {
 	SANDBOX_TOO_MANY = "Over the channel, at most %d pretend players share one character's send budget. Use /qps loopback on for more.",
 	SANDBOX_NO_CHANNEL = "Connect to a channel first, or use /qps loopback on.",
 	SANDBOX_NO_RECORDING = "No recording by that name.",
+	SANDBOX_FRIENDS_HERE = "%s is on this channel. Their Quest Party may take pretend players for you: use a channel of your own (such as qpsandbox), or /qps loopback on.",
 	SANDBOX_MEASURE_1 = "Here %d of %d, peers %d, memory %.0f KB, %.1f pretend minutes at %sx.",
 	SANDBOX_MEASURE_2 = "Sent %d (%.1f a pretend minute), read %d, failed %d, reading took %.1f ms.",
 	SANDBOX_MEASURE_3 = "Saved: %d feed rows, %d cards, %d players.",
