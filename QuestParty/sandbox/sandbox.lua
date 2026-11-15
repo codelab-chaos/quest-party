@@ -152,8 +152,12 @@ local function Advance(persona)
 			local following = messages[persona.next]
 			persona.nextAt = persona.nextAt + (following and following.after or 0)
 		end
+		-- Done: it stays a moment, so its last messages are read before it goes.
 		if persona.next > #messages then
-			Leave(persona)
+			persona.leaveAt = persona.leaveAt or (Sandbox.clock + 30)
+			if Sandbox.clock >= persona.leaveAt then
+				Leave(persona)
+			end
 		end
 		return
 	end
@@ -235,12 +239,19 @@ function Sandbox:StartParty(count, seed, speed)
 	return true
 end
 
--- Plays a recording back as a pretend player.
+-- Plays recordings back as pretend players: one by its id, or "all" of
+-- them together, each starting when it did that evening.
 function Sandbox:StartRecording(name, speed)
-	local recording = ns.SandboxRecordings[name or "tirisfal"]
-	if not recording then
+	local chosen = {}
+	for id, recording in pairs(ns.SandboxRecordings) do
+		if name == "all" or name == nil or id == name then
+			chosen[#chosen + 1] = recording
+		end
+	end
+	if #chosen == 0 then
 		return false, L.SANDBOX_NO_RECORDING
 	end
+	table.sort(chosen, function(a, b) return (a.start or 0) < (b.start or 0) end)
 	local usable, problem = ChannelUsable()
 	if not usable then
 		return false, problem
@@ -248,9 +259,11 @@ function Sandbox:StartRecording(name, speed)
 	self:Stop()
 	wipe(self.personas)
 	wipe(self.order)
-	local persona = { name = recording.name, class = recording.class, race = recording.race, sex = recording.sex, recording = recording, next = 1 }
-	Add(persona, 0)
-	persona.nextAt = recording.messages[1] and recording.messages[1].after or 0
+	for _, recording in ipairs(chosen) do
+		local persona = { name = recording.name, class = recording.class, race = recording.race, sex = recording.sex, recording = recording, next = 1 }
+		Add(persona, recording.start or 0)
+		persona.nextAt = (recording.start or 0) + (recording.messages[1] and recording.messages[1].after or 0)
+	end
 	Begin(speed)
 	return true
 end

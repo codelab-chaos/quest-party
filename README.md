@@ -156,7 +156,7 @@ such limit.
 | Command | What it does |
 | --- | --- |
 | `/qps party [count] [seed] [speed]` | Start a made-up party: `count` players from `seed` (the same seed makes the same party), at `speed` (10 plays an hour in six minutes). Over the channel, at most 4. |
-| `/qps replay [speed]` | Play back a real recorded session (two hours of leveling) as one pretend player. |
+| `/qps replay [name\|all] [speed]` | Play back real recorded players, all together by default: two players from one evening of leveling, brought up to what 0.1.3 sends, in time with each other. `scripts/make-recordings.py` builds them from a saved message log. |
 | `/qps loopback on` | Read the pretend players' messages straight back, with no network, for parties of 20, 50 or 100. `off` sends them over the channel again. |
 | `/qps measure` | What the run costs: this addon's memory, messages, read time and what is saved. |
 | `/qps burst [count]` | Send a quick burst past the queue and report the game's answers, to measure the send budget. Nothing reads these messages. |

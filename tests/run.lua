@@ -2358,6 +2358,25 @@ test("in loopback a party of 20 plays for an hour without the network, and every
 	equal(w.ns.Session:Count(), 0)
 end)
 
+test("two recorded players play back together as 0.1.3 clients", function()
+	local w = sandbox()
+	w.ns.Bus:Fire("READY")
+	w.ns.Sharing.loopback = true
+	equal(w.ns.Sandbox:StartRecording("all", 100), true)
+	w:advance(10)
+	local warrior = w.ns.Session.peers["Replay Warrior"]
+	equal(warrior ~= nil, true)
+	equal(warrior.version, "0.1.3")
+	equal(warrior.race, "Scourge")
+	equal(warrior.maxXP, 12900)
+	equal(w.ns.Session.peers["Replay Paladin"] ~= nil, true)
+	-- 0.1.3 sends profession skill-ups only, and tags a turn-in's XP.
+	for _, entry in ipairs(w.ns.Store:GetFeed(true)) do
+		assert(not (entry.type == "skill" and entry.player == "Replay Warrior"), "a weapon skill-up came through")
+	end
+	equal(w.ns.Sharing.failed or 0, 0)
+end)
+
 test("the recorded session plays back as a pretend player", function()
 	local w = sandbox()
 	w.ns.Bus:Fire("READY")

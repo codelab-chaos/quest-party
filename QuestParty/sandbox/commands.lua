@@ -1,6 +1,6 @@
 -- The sandbox's commands, added to /qps:
 --   /qps party [count] [seed] [speed]  start a made-up party
---   /qps replay [speed]                play the recorded session back
+--   /qps replay [name|all] [speed]     play recorded players back, all together by default
 --   /qps stop                          stop, the pretend players leave
 --   /qps wipe                          forget everything and stop
 --   /qps loopback on|off               read messages back here, no network
@@ -22,8 +22,11 @@ local commands = {
 	party = function(count, seed, speed)
 		Report(Sandbox:StartParty(count, seed, speed))
 	end,
-	replay = function(speed)
-		Report(Sandbox:StartRecording("tirisfal", speed))
+	replay = function(name, speed)
+		if tonumber(name) then
+			name, speed = "all", name
+		end
+		Report(Sandbox:StartRecording(name or "all", speed))
 	end,
 	stop = function()
 		Sandbox:Stop()
