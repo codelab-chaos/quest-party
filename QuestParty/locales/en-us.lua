@@ -3,6 +3,7 @@ local _, ns = ...
 
 ns.L = {
 	TITLE = "Quest Party",
+	SANDBOX_TITLE = "Quest Party Sandbox",
 
 	-- Filter tabs
 	FILTER_ALL = "All",
@@ -154,6 +155,71 @@ ns.L = {
 	SET_CHAT_ECHO_TIP = "Also print each feed row in your chat frame. Only you see these.",
 	SET_SHOW_SELF = "Include self",
 	SET_SHOW_SELF_TIP = "Your own quests, levels and discoveries appear in your panel alongside everyone else's.",
+	SET_WELCOME = "Welcomes",
+	SET_WELCOME_TIP = "A row in the feed when someone joins the party.",
+	SET_SHARE_GEAR = "Share my gear",
+	SET_SHARE_GEAR_TIP = "Your equipped items show on your player card for everyone on the channel.",
+	SET_PARTY_HEADS = "Party heads",
+	SET_PARTY_HEADS_TIP = "A head for each player in the party beside the panel. Click one to open their card.",
+	SET_REMEMBER = "Remember players who left",
+	SET_REMEMBER_TIP = "Keep the heads and cards of players who logged off, greyed out, for up to a week.",
+
+	FEED_JOINED = "Joined the party",
+	READ_FAILED = "A message could not be read and was skipped: %s",
+
+	-- The player card
+	CARD_OVERVIEW = "Overview",
+	CARD_QUESTS = "Quests",
+	CARD_ITEMS = "Items",
+	CARD_LEVEL_CLASS = "Level %s %s",
+	CARD_ONLINE = "Here now",
+	CARD_AS_OF = "As of %s ago",
+	CARD_XP_SESSION = "XP this session: %s",
+	CARD_XP_TODAY = "XP today: %s",
+	CARD_XP_WEEK = "XP this week: %s",
+	CARD_VERSION = "Quest Party %s",
+	CARD_NO_QUESTS = "No quests heard yet.",
+	CARD_IN_COMMON = "In common",
+	CARD_THEIRS = "Their quests",
+	CARD_IN_COMMON_LINE = "%s: you %s, %s %s",
+	CARD_NO_GEAR = "No gear heard yet. Asked them for it.",
+	CARD_GEAR_AS_OF = "Gear as of %s ago",
+	CARD_EMPTY_SLOT = "%s: empty",
+	CARD_CLOSE = "Close",
+
+	SLOT_HEAD = "Head",
+	SLOT_NECK = "Neck",
+	SLOT_SHOULDER = "Shoulders",
+	SLOT_BACK = "Back",
+	SLOT_CHEST = "Chest",
+	SLOT_SHIRT = "Shirt",
+	SLOT_TABARD = "Tabard",
+	SLOT_WRIST = "Wrists",
+	SLOT_HANDS = "Hands",
+	SLOT_WAIST = "Waist",
+	SLOT_LEGS = "Legs",
+	SLOT_FEET = "Feet",
+	SLOT_FINGER = "Finger",
+	SLOT_TRINKET = "Trinket",
+	SLOT_MAIN_HAND = "Main hand",
+	SLOT_OFF_HAND = "Off hand",
+	SLOT_RANGED = "Ranged",
+
+	-- The sandbox build
+	SANDBOX_STARTED = "Sandbox: %d pretend players at speed %sx, %s.",
+	SANDBOX_CHANNEL = "over the channel",
+	SANDBOX_LOOPBACK = "in loopback (no network)",
+	SANDBOX_STOPPED = "Sandbox stopped. The pretend players left.",
+	SANDBOX_WIPED = "Sandbox wiped: feed, cards, players, log and stats forgotten.",
+	SANDBOX_LOOPBACK_ON = "Loopback on: pretend players' messages are read back here, not sent.",
+	SANDBOX_LOOPBACK_OFF = "Loopback off: pretend players' messages go over the channel.",
+	SANDBOX_TOO_MANY = "Over the channel, at most %d pretend players share one character's send budget. Use /qps loopback on for more.",
+	SANDBOX_NO_CHANNEL = "Connect to a channel first, or use /qps loopback on.",
+	SANDBOX_NO_RECORDING = "No recording by that name.",
+	SANDBOX_MEASURE_1 = "Here %d of %d, peers %d, memory %.0f KB, %.1f pretend minutes at %sx.",
+	SANDBOX_MEASURE_2 = "Sent %d (%.1f a pretend minute), read %d, failed %d, reading took %.1f ms.",
+	SANDBOX_MEASURE_3 = "Saved: %d feed rows, %d cards, %d players.",
+	SANDBOX_BURST = "Burst of %d: %s. First refused: %s.",
 	SET_CHAT_ORDER = "Newest at the bottom",
 	SET_CHAT_ORDER_TIP = "Feed rows arrive at the bottom and scroll up, like chat. Turn off to put the newest row at the top.",
 
@@ -194,3 +260,8 @@ ns.L = {
 	CMD_DEBUG_REQUIRED = "Enable debug mode first: /qp debug on",
 	CMD_CLEARED = "Feed and cards cleared.",
 }
+
+-- The sandbox build names itself apart from Quest Party everywhere it shows.
+if ns.IsSandbox() then
+	ns.L.TITLE = ns.L.SANDBOX_TITLE
+end

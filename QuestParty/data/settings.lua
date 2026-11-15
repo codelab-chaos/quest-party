@@ -14,6 +14,10 @@ ns.Settings = {
 	{ id = "achievements", label = L.SET_ACHIEVEMENTS, tip = L.SET_ACHIEVEMENTS_TIP, default = true },
 	{ id = "deaths", label = L.SET_DEATHS, tip = L.SET_DEATHS_TIP, default = true },
 	{ id = "otherUpdates", label = L.SET_OTHER_UPDATES, tip = L.SET_OTHER_UPDATES_TIP, default = true },
+	{ id = "welcome", label = L.SET_WELCOME, tip = L.SET_WELCOME_TIP, default = true },
+	{ id = "shareGear", label = L.SET_SHARE_GEAR, tip = L.SET_SHARE_GEAR_TIP, default = true },
+	{ id = "partyHeads", label = L.SET_PARTY_HEADS, tip = L.SET_PARTY_HEADS_TIP, default = true },
+	{ id = "rememberPlayers", label = L.SET_REMEMBER, tip = L.SET_REMEMBER_TIP, default = true },
 	{ id = "confetti", label = L.SET_CONFETTI, tip = L.SET_CONFETTI_TIP, default = true },
 	{ id = "chatEcho", label = L.SET_CHAT_ECHO, tip = L.SET_CHAT_ECHO_TIP, default = true },
 	{ id = "chatOrder", label = L.SET_CHAT_ORDER, tip = L.SET_CHAT_ORDER_TIP, default = true },
@@ -37,4 +41,10 @@ ns.ProfessionCategories = {
 -- Cached cards remain available until cleared or closed by a quest update.
 ns.Timing = {
 	staleSeconds = 5 * 60, -- then it is drawn grayed out
+	-- A friend's quest card without news goes after this; nil keeps cards
+	-- until cleared, as decided for 0.1.2 (to revisit: docs\side-quest.md, B5).
+	cardSeconds = nil,
+	memberSeconds = 7 * 24 * 60 * 60, -- a player not seen goes after this
+	expireSeconds = 60 * 60, -- how often lifetimes are checked
+	xpDays = 7, -- days of XP kept for each player
 }

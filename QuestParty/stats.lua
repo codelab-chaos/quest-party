@@ -4,7 +4,7 @@
 -- added up. Small by design: one short table per player per day, and days
 -- older than ns.StatDays are dropped.
 --
--- Saved in QuestPartyDB.stats as stats[player][day] = { [tally id] = number },
+-- Saved in the account saved variables (QuestPartyDB) as stats as stats[player][day] = { [tally id] = number },
 -- where day is the number of whole days since 1970 (server time).
 --
 -- An advanced feature for now: tallies are kept only in debug mode, which a

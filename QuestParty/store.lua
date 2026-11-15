@@ -1,7 +1,8 @@
 -- Store: the only owner of feed state. It turns incoming entries into three things:
 --   feed     a capped, newest-first list of things that happened
 --   cards    persistent cards for things still going on (one per player per quest)
---   members  a roster of everyone we have heard from
+--   members  a roster of everyone we have heard from: what their hello said,
+--            their XP this session and by day, and their equipped items
 -- It does not care where entries come from (emulator now, addon comms later).
 --
 -- A quest card record looks like:
@@ -169,6 +170,18 @@ local function TouchMember(entry, def)
 		for memberField, dataKey in pairs(def.member) do
 			if entry.data[dataKey] ~= nil then
 				member[memberField] = entry.data[dataKey]
+			end
+		end
+	end
+	-- XP gained, worked out from what is heard: no messages of its own.
+	if def.experience and type(entry.data.xp) == "number" and entry.data.xp > 0 then
+		member.sessionXP = (member.sessionXP or 0) + entry.data.xp
+		member.xpDays = member.xpDays or {}
+		local day = ns.Day(entry.time)
+		member.xpDays[day] = (member.xpDays[day] or 0) + entry.data.xp
+		for known in pairs(member.xpDays) do
+			if ns.DaysBetween(known, day) >= ns.Timing.xpDays then
+				member.xpDays[known] = nil
 			end
 		end
 	end
@@ -486,6 +499,81 @@ function Store:GetCards(kindName, shownOnly)
 	return result
 end
 
+-- Equipped items heard from a player: { [slot] = "item:enchant:suffix" or "" }.
+function Store:UpdateGear(player, class, gear)
+	local member = db.members[player]
+	if not member then
+		member = { name = player }
+		db.members[player] = member
+	end
+	member.class = class or member.class
+	member.gear = member.gear or {}
+	for slot, item in pairs(gear) do
+		member.gear[slot] = item
+	end
+	member.gearTime = GetServerTime()
+	member.time = GetServerTime()
+	Bus:Fire("STORE_CHANGED")
+end
+
+function Store:GetMember(name)
+	return db.members[name]
+end
+
+-- Lifetimes: a friend's quest card goes after a day without news, and a
+-- player not seen for a week goes with everything known of them. This
+-- character's own cards stay: the quest log keeps them right.
+-- Returns how many cards and players went.
+function Store:Expire(now)
+	now = now or GetServerTime()
+	local cards, members = 0, 0
+	for key, record in pairs(db.cards) do
+		if ns.Timing.cardSeconds and not ns.IsMe(record.player) and now - (record.time or 0) > ns.Timing.cardSeconds then
+			db.cards[key] = nil
+			cards = cards + 1
+		end
+	end
+	for name, member in pairs(db.members) do
+		if not ns.IsMe(name) and not ns.Session.peers[name] and now - (member.time or 0) > ns.Timing.memberSeconds then
+			db.members[name] = nil
+			members = members + 1
+		end
+	end
+	if cards + members > 0 then
+		Bus:Fire("STORE_CHANGED")
+	end
+	return cards, members
+end
+
+-- What the saved state holds, for pruning and the sandbox's measurements.
+function Store:Counts()
+	local cards, members = 0, 0
+	for _ in pairs(db.cards) do cards = cards + 1 end
+	for _ in pairs(db.members) do members = members + 1 end
+	return { feed = #db.feed, cards = cards, members = members }
+end
+
+-- Pruning, from Options or a command: forgets what is asked for.
+--   what  "players" (not here now), "cards" (friends' quest cards), "feed"
+function Store:Prune(what)
+	if what == "players" then
+		for name in pairs(db.members) do
+			if not ns.IsMe(name) and not ns.Session.peers[name] then
+				db.members[name] = nil
+			end
+		end
+	elseif what == "cards" then
+		for key, record in pairs(db.cards) do
+			if not ns.IsMe(record.player) then
+				db.cards[key] = nil
+			end
+		end
+	elseif what == "feed" then
+		wipe(db.feed)
+	end
+	Bus:Fire("STORE_CHANGED")
+end
+
 function Store:GetMembers()
 	local result = {}
 	for _, member in pairs(db.members) do
@@ -499,6 +587,13 @@ end
 
 Bus:On("INIT", function()
 	Store:Init()
+	Store:Expire()
+end)
+
+Bus:On("READY", function()
+	C_Timer.NewTicker(ns.Timing.expireSeconds, function()
+		Store:Expire()
+	end)
 end)
 
 Bus:On("ENTRY_RECEIVED", function(entry)
@@ -522,6 +617,15 @@ Bus:On("PEERS_CHANGED", function(peer)
 		member.zone = peer.zone or member.zone
 		member.currentXP = peer.currentXP or member.currentXP
 		member.maxXP = peer.maxXP or member.maxXP
+		member.race = peer.race or member.race
+		member.sex = peer.sex or member.sex
+		member.version = peer.version or member.version
+		member.emulated = peer.virtual or member.emulated
+		-- A new arrival starts a new session's XP.
+		if member.session ~= peer.arrived then
+			member.session = peer.arrived
+			member.sessionXP = 0
+		end
 		member.time = GetServerTime()
 	end
 	Bus:Fire("STORE_CHANGED")

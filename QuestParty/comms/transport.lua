@@ -14,7 +14,7 @@ local LIMITS = {
 	retrySeconds = 1,
 }
 
-local Transport = { queue = {}, tokens = LIMITS.burst, last = 0, waiting = false }
+local Transport = { queue = {}, tokens = LIMITS.burst, last = 0, waiting = false, prefix = PREFIX }
 ns.Transport = Transport
 
 -- The name the game gives a send result, such as "InvalidChatType".

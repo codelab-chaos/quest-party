@@ -1,0 +1,8 @@
+# The sandbox build's own files, added to its TOC after Quest Party's
+# (scripts/package.py). The release build leaves them out.
+sandbox\random.lua
+sandbox\world.lua
+sandbox\party.lua
+sandbox\recording.lua
+sandbox\sandbox.lua
+sandbox\commands.lua

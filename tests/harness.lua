@@ -1,13 +1,29 @@
 -- Small game boundary for headless tests. Addon logic runs unchanged.
 local Harness = {}
 
-function Harness.new(saved, character, debugBuild, serverTime)
+-- The sandbox build's own files, as in QuestParty/sandbox/files.toc (the
+-- packaging test checks the two agree).
+Harness.SANDBOX_MODULES = {
+	"sandbox/random.lua", "sandbox/world.lua", "sandbox/party.lua",
+	"sandbox/recording.lua", "sandbox/sandbox.lua", "sandbox/commands.lua",
+}
+
+-- options.sandbox builds the sandbox (QuestPartySandbox) instead.
+function Harness.new(saved, character, debugBuild, serverTime, options)
+	options = options or {}
+	local addonName = options.sandbox and "QuestPartySandbox" or "QuestParty"
+	-- Welcome rows are off unless a test turns them on, so feeds count as before.
+	saved = saved or {}
+	saved.switches = saved.switches or {}
+	if saved.switches.welcome == nil then
+		saved.switches.welcome = false
+	end
 	local world = { now = serverTime or 10000, level = 20, xp = 0, xpMax = 1000, frames = {}, timers = {}, sent = {}, chat = {}, party = {}, quests = {}, questData = {}, questWatches = {}, channels = {}, joins = {}, leaves = {} }
 	local env = setmetatable({}, { __index = _G })
 	env._G = env
 	env.unpack = unpack or table.unpack
-	env.QuestPartyDB = saved
-	env.QuestPartyCharDB = character
+	env[addonName .. "DB"] = saved
+	env[addonName .. "CharDB"] = character
 	env.ACCEPT, env.DECLINE = "Accept", "Decline"
 	env.CANCEL = "Cancel"
 	env.StaticPopupDialogs = {}
@@ -42,6 +58,11 @@ function Harness.new(saved, character, debugBuild, serverTime)
 	env.GetServerTime = env.GetTime
 	env.UnitName = function() return "Tester" end
 	env.UnitClass = function() return "Mage", "MAGE" end
+	env.UnitRace = function() return "Human", "Human" end
+	env.UnitSex = function() return 3 end
+	env.debugprofilestop = function() return world.now * 1000 end
+	world.gear = {}
+	env.GetInventoryItemLink = function(_, slot) return world.gear[slot] end
 	env.UnitLevel = function() return world.level end
 	env.UnitXP = function() return world.xp end
 	env.UnitXPMax = function() return world.xpMax end
@@ -105,6 +126,7 @@ function Harness.new(saved, character, debugBuild, serverTime)
 	end
 	env.C_AddOns = { GetAddOnMetadata = function(_, key)
 		if key == "X-Debug" then return debugBuild and "true" or "false" end
+		if key == "X-Sandbox" then return options.sandbox and "true" or nil end
 		return "0.1.0"
 	end }
 	env.Enum = { SendAddonMessageResult = { Success = 0, AddonMessageThrottle = 1, ChannelThrottle = 2, AddOnMessageLockdown = 3, TargetOffline = 4, InvalidChatType = 5 } }
@@ -136,11 +158,16 @@ function Harness.new(saved, character, debugBuild, serverTime)
 	}
 	local ns = {}
 	local modules = {
-		"core.lua", "locales/en-us.lua", "data/feed-types.lua", "data/filters.lua", "data/settings.lua", "data/stats.lua",
-		"store.lua", "stats.lua", "resolver.lua", "comms/protocol.lua", "comms/transport.lua", "comms/session.lua", "comms/sharing.lua",
-		"collectors/patterns.lua", "collectors/samples.lua", "collectors/collectors.lua",
+		"core.lua", "locales/en-us.lua", "data/feed-types.lua", "data/filters.lua", "data/settings.lua", "data/slots.lua", "data/stats.lua",
+		"store.lua", "stats.lua", "resolver.lua", "comms/protocol.lua", "comms/origin.lua", "comms/transport.lua", "comms/session.lua", "comms/sharing.lua",
+		"collectors/patterns.lua", "collectors/samples.lua", "collectors/collectors.lua", "collectors/gear.lua",
 		"emulator/script.lua", "emulator/emulator.lua", "ui/view-model.lua", "ui/confetti.lua", "ui/chat-echo.lua", "commands.lua",
 	}
+	if options.sandbox then
+		for _, path in ipairs(Harness.SANDBOX_MODULES) do
+			modules[#modules + 1] = path
+		end
+	end
 	for _, path in ipairs(modules) do
 		local chunk
 		if setfenv then
@@ -149,7 +176,7 @@ function Harness.new(saved, character, debugBuild, serverTime)
 		else
 			chunk = assert(loadfile("QuestParty/" .. path, "t", env))
 		end
-		chunk("QuestParty", ns)
+		chunk(addonName, ns)
 	end
 	world.ns, world.env = ns, env
 	function world:event(event, ...)
@@ -164,7 +191,7 @@ function Harness.new(saved, character, debugBuild, serverTime)
 		self:event("CHAT_MSG_CHANNEL_NOTICE", "YOU_JOINED", nil, nil, nil, nil, nil, 0, id or 5, name)
 	end
 	local startup = world.frames[1]
-	startup.scripts.OnEvent(startup, "ADDON_LOADED", "QuestParty")
+	startup.scripts.OnEvent(startup, "ADDON_LOADED", addonName)
 	function world:ingest(kind, data, player)
 		ns.Bus:Fire("ENTRY_RECEIVED", { type = kind, data = data, player = player or "Tester", class = "MAGE" })
 	end

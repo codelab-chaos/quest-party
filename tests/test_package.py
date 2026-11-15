@@ -33,6 +33,37 @@ class PackagingTests(unittest.TestCase):
             self.assertEqual(filename, archive.name)
         self.assertEqual((ROOT / "QuestParty/QuestParty.toc").read_bytes(), original)
 
+    def test_sandbox_archive(self):
+        with tempfile.TemporaryDirectory() as output:
+            archive = package.build("v0.2.0-rc.1", output, sandbox=True)
+            with zipfile.ZipFile(archive) as release:
+                names = release.namelist()
+                self.assertTrue(all(name.startswith("QuestPartySandbox/") for name in names))
+                toc = release.read("QuestPartySandbox/QuestPartySandbox.toc").decode()
+                self.assertIn("## X-Sandbox: true\n", toc)
+                self.assertIn("## X-Debug: true\n", toc)
+                self.assertIn("## SavedVariables: QuestPartySandboxDB\n", toc)
+                self.assertIn("## SavedVariablesPerCharacter: QuestPartySandboxCharDB\n", toc)
+                self.assertIn("sandbox\\sandbox.lua", toc)
+                for line in package.toc_files(toc):
+                    self.assertIn("QuestPartySandbox/" + line, names)
+                self.assertNotIn("QuestPartySandbox/QuestParty.toc", names)
+        with tempfile.TemporaryDirectory() as output:
+            release = package.build("v0.2.0-rc.1", output)
+            with zipfile.ZipFile(release) as archive:
+                self.assertFalse(any("/sandbox/" in name for name in archive.namelist()))
+
+    def test_sandbox_stage_and_harness_agree(self):
+        with tempfile.TemporaryDirectory() as output:
+            staged = package.stage_sandbox(Path(output) / "QuestPartySandbox")
+            self.assertTrue((staged / "QuestPartySandbox.toc").is_file())
+            self.assertFalse((staged / "QuestParty.toc").exists())
+        fragment = (ROOT / "QuestParty/sandbox/files.toc").read_text()
+        listed = [line.strip().replace("\\", "/") for line in fragment.splitlines() if line.strip() and not line.startswith("#")]
+        harness = (ROOT / "tests/harness.lua").read_text()
+        for path in listed:
+            self.assertIn(f'"{path}"', harness)
+
     def test_versions(self):
         for value in ("0.1.0", "v1.2.3", "2.0.0-alpha.1", "1.0.0-rc.2"):
             with self.subTest(value=value):

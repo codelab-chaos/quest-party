@@ -166,6 +166,14 @@ ns.FeedTypes = {
 	-- The generic card: an update of a type this version does not know (or
 	-- cannot read), from a newer Quest Party. It shows what the sender said it
 	-- was. See resolver.lua.
+	-- A player arriving on the channel: their hello was heard. Only shown
+	-- here, never sent (comms\sharing.lua).
+	joined = {
+		setting = "welcome",
+		filters = {},
+		icon = "Interface\\Icons\\Ability_Warrior_BattleShout",
+		text = L.FEED_JOINED,
+	},
 	unknown = {
 		setting = "otherUpdates",
 		requires = { "summary" },

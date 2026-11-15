@@ -60,7 +60,7 @@ local function SavePosition()
 end
 
 local function Build()
-	frame = CreateFrame("Frame", "QuestPartyListener", UIParent, "BackdropTemplate")
+	frame = CreateFrame("Frame", ns.Globals.frame("Listener"), UIParent, "BackdropTemplate")
 	frame:SetSize(LAYOUT.width, LAYOUT.height)
 	frame:SetBackdrop(BACKDROP)
 	frame:SetBackdropColor(0.04, 0.05, 0.08, 0.94)

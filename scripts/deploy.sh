@@ -7,6 +7,7 @@
 #
 # Usage:
 #   scripts/deploy.sh            copy the addon
+#   scripts/deploy.sh --sandbox  copy the sandbox build, QuestPartySandbox
 #   scripts/deploy.sh --dry-run  show what would change, copy nothing
 set -euo pipefail
 
@@ -22,9 +23,11 @@ fail() {
 
 # No permission or owner syncing: the Windows drive cannot store them.
 rsync_flags=(--recursive --links --times --delete --itemize-changes)
+sandbox=false
 for arg in "$@"; do
 	case "$arg" in
 		--dry-run) rsync_flags+=(--dry-run) ;;
+		--sandbox) sandbox=true ;;
 		*) fail "unknown option: $arg" ;;
 	esac
 done
@@ -42,6 +45,14 @@ addons_dir="${addons_dir%/}"
 
 # --delete only removes stale files inside the addon's own folder.
 # Saved variables live in the WTF folder and are never touched.
+if [[ "$sandbox" == true ]]; then
+	# The sandbox is written out first: the same source under its own names.
+	stage="$(mktemp -d)"
+	trap 'rm -rf "$stage"' EXIT
+	python3 "$REPO_ROOT/scripts/package.py" --sandbox --stage "$stage/QuestPartySandbox" >/dev/null
+	ADDON_NAME="QuestPartySandbox"
+	SOURCE_DIR="$stage/QuestPartySandbox"
+fi
 rsync "${rsync_flags[@]}" "$SOURCE_DIR/" "$addons_dir/$ADDON_NAME/"
 
 version="$(sed -n 's/^## Version: *//p' "$SOURCE_DIR/$ADDON_NAME.toc" | tr -d '\r')"

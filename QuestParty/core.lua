@@ -4,6 +4,26 @@ local addonName, ns = ...
 
 ns.name = addonName
 
+-- The global names this addon owns, from its folder's name, so a second build
+-- of the same source (the sandbox, QuestPartySandbox) owns its own: its saved
+-- variables, slash commands and frames never meet this one's.
+ns.Globals = {
+	db = addonName .. "DB",
+	charDb = addonName .. "CharDB",
+	slashKey = addonName:upper(),
+	frame = function(name) return addonName .. name end,
+	popup = function(name) return addonName:upper() .. "_" .. name end,
+}
+
+-- The sandbox: a second build of Quest Party that plays pretend players instead
+-- of this character (see sandbox\sandbox.lua). Its TOC says so with X-Sandbox.
+-- Known as the files load, so commands and frames can be named for it.
+ns.sandbox = C_AddOns.GetAddOnMetadata(addonName, "X-Sandbox") == "true"
+
+function ns.IsSandbox()
+	return ns.sandbox == true
+end
+
 -- ========= Message bus ======================================================
 -- Messages used across the addon:
 --   INIT                      saved variables are loaded
@@ -78,6 +98,20 @@ function ns.Ago(seconds)
 		return ns.L.TIME_HOURS:format(math.floor(seconds / 3600))
 	end
 	return ns.L.TIME_DAYS:format(math.floor(seconds / 86400))
+end
+
+-- A day's key, "2026-11-15", for a server time.
+function ns.Day(time)
+	return (date or os.date)("%Y-%m-%d", math.floor(time or 0))
+end
+
+-- Whole days from one day's key to another's.
+function ns.DaysBetween(first, second)
+	local function Stamp(day)
+		local year, month, dayOfMonth = day:match("^(%d+)-(%d+)-(%d+)$")
+		return (time or os.time)({ year = tonumber(year), month = tonumber(month), day = tonumber(dayOfMonth), hour = 12 })
+	end
+	return math.floor((Stamp(second) - Stamp(first)) / 86400 + 0.5)
 end
 
 function ns.ColorName(name, class)
@@ -170,15 +204,16 @@ frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:SetScript("OnEvent", function(_, event, arg1)
 	if event == "ADDON_LOADED" and arg1 == addonName then
-		QuestPartyDB = QuestPartyDB or {}
-		QuestPartyCharDB = QuestPartyCharDB or {}
+		local QuestPartyDB = _G[ns.Globals.db] or {}
+		local QuestPartyCharDB = _G[ns.Globals.charDb] or {}
+		_G[ns.Globals.db], _G[ns.Globals.charDb] = QuestPartyDB, QuestPartyCharDB
 		for _, setting in ipairs(ns.Settings) do
 			ACCOUNT_DEFAULTS.switches[setting.id] = setting.default
 		end
 		ApplyDefaults(QuestPartyDB, ACCOUNT_DEFAULTS)
 		-- Local source installs expose developer tools after every reload.
 		-- The packager sets X-Debug to false for distributed builds.
-		if C_AddOns.GetAddOnMetadata(addonName, "X-Debug") == "true" then
+		if C_AddOns.GetAddOnMetadata(addonName, "X-Debug") == "true" or ns.sandbox then
 			QuestPartyDB.debug = true
 		end
 		QuestPartyDB.settings = nil -- replaced by switches

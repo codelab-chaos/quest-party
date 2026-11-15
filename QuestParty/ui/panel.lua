@@ -1192,7 +1192,7 @@ local function BuildResizeGrip()
 end
 
 local function Build()
-	frame = CreateFrame("Frame", "QuestPartyPanel", UIParent, "BackdropTemplate")
+	frame = CreateFrame("Frame", ns.Globals.frame("Panel"), UIParent, "BackdropTemplate")
 	local size = ns.charDb.size
 	frame:SetSize(size and size.width or LAYOUT.width, size and size.height or LAYOUT.height)
 	frame:SetBackdrop(BACKDROP)

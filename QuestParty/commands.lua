@@ -3,7 +3,8 @@ local _, ns = ...
 local L = ns.L
 
 -- The Options button and slash command share the same destructive-action prompt.
-StaticPopupDialogs["QUESTPARTY_CONFIRM_CLEAR"] = {
+local CONFIRM_CLEAR = ns.Globals.popup("CONFIRM_CLEAR")
+StaticPopupDialogs[CONFIRM_CLEAR] = {
 	text = L.CLEAR_CONFIRM,
 	button1 = L.CLEAR,
 	button2 = CANCEL,
@@ -17,7 +18,7 @@ StaticPopupDialogs["QUESTPARTY_CONFIRM_CLEAR"] = {
 }
 
 function ns.ConfirmClear()
-	StaticPopup_Show("QUESTPARTY_CONFIRM_CLEAR")
+	StaticPopup_Show(CONFIRM_CLEAR)
 end
 
 local emulatorCommands = {
@@ -200,9 +201,14 @@ local commands = {
 	help = PrintHelp,
 }
 
-SLASH_QUESTPARTY1 = "/qp"
-SLASH_QUESTPARTY2 = "/questparty"
-SlashCmdList["QUESTPARTY"] = function(text)
+-- The sandbox build answers to its own commands, so both can be loaded at once.
+local SLASH = ns.IsSandbox() and { "/qps", "/qpsandbox" } or { "/qp", "/questparty" }
+for index, command in ipairs(SLASH) do
+	_G["SLASH_" .. ns.Globals.slashKey .. index] = command
+end
+-- Other modules (the sandbox) add commands of their own here.
+ns.Commands = commands
+SlashCmdList[ns.Globals.slashKey] = function(text)
 	local words = {}
 	for word in (text or ""):gmatch("%S+") do
 		words[#words + 1] = word
@@ -210,13 +216,13 @@ SlashCmdList["QUESTPARTY"] = function(text)
 	-- The command word is matched without case. Arguments keep theirs, for names.
 	local handler = commands[(words[1] or ""):lower()]
 	if handler then
-		handler(words[2], words[3])
+		handler(words[2], words[3], words[4])
 	else
 		PrintHelp()
 	end
 end
 
 -- Click target for the minimap addon menu (see AddonCompartmentFunc in the TOC).
-function QuestParty_OnAddonCompartmentClick()
+_G[ns.Globals.frame("_OnAddonCompartmentClick")] = function()
 	ns.Panel:Toggle()
 end

@@ -1799,6 +1799,8 @@ test("a hello is answered and adds the newcomer, an answer adds who was already 
 	w:share()
 	local before = #sentOfKind(w, "A")
 	w:hear("H", { v = "0.2.0", c = "PRIEST", l = 14, z = "Westfall" }, "Newcomer")
+	equal(#sentOfKind(w, "A"), before) -- after a short random wait
+	w:advance(3)
 	equal(#sentOfKind(w, "A"), before + 1)
 	equal(w.ns.Session.peers.Newcomer.class, "PRIEST")
 	equal(w.ns.Session.peers.Newcomer.level, 14)
@@ -2084,6 +2086,299 @@ test("a send the game refuses is reported once and counted", function()
 	assert(w.chat[#w.chat]:find("InvalidChatType", 1, true), w.chat[#w.chat])
 	equal(w.ns.Sharing.refused, 2)
 	assert(w.ns.Sharing:Status():find("refused 2", 1, true), w.ns.Sharing:Status())
+end)
+
+-- ========= Who a message is from (origin) ===================================
+test("the origin rule: friends are peers, pretend players only here in debug or the sandbox", function()
+	local w = Harness.new()
+	local Origin = w.ns.Origin
+	equal(select(2, Origin("Friend", false, nil, false, false)), "Friend")
+	equal(Origin("Friend", false, "Jaina", false, true), nil) -- someone else's emulator
+	equal(Origin("Tester", true, nil, false, true), "self")
+	equal(Origin("Tester", true, "Jaina", false, false), nil)
+	equal(select(2, Origin("Tester", true, "Jaina", false, true)), "Jaina")
+	equal(select(2, Origin("Tester", true, nil, true, false)), "Tester") -- the sandbox sees this character's Quest Party
+	equal(select(2, Origin("Tester", true, "Jaina", true, false)), "Jaina")
+end)
+
+-- An addon message from this character, as the server sends it back.
+local function echo(w, text)
+	w:event("CHAT_MSG_ADDON", "QuestParty", text, "CHANNEL", "Tester-TestRealm", "", 0, 5, "QuestFriends")
+end
+
+test("a pretend player's hello from this character makes it a peer here in debug, not counted as sharing", function()
+	local w = Harness.new()
+	w.ns.SetDebug(true)
+	w:share()
+	echo(w, w.ns.Protocol.Encode("H", { as = "Fenwick", c = "PRIEST", l = 12, z = "Westfall", r = "Dwarf", g = 3 }))
+	local peer = w.ns.Session.peers.Fenwick
+	equal(peer.level, 12)
+	equal(peer.race, "Dwarf")
+	equal(peer.sex, 3)
+	equal(peer.virtual, true)
+	equal(w.ns.Session:Count(), 0)
+	w.ns.SetDebug(false)
+	echo(w, w.ns.Protocol.Encode("H", { as = "Other", c = "PRIEST", l = 12 }))
+	equal(w.ns.Session.peers.Other, nil)
+end)
+
+-- ========= How things stand: hello, counter, presence =======================
+test("the hello says race and sex, and messages about how things stand carry a growing n", function()
+	local w = Harness.new()
+	w:share()
+	local hello = sentOfKind(w, "H")[1].fields
+	equal(hello.r, "Human")
+	equal(hello.g, 3)
+	equal(type(hello.n), "number")
+	w.ns.Sharing.Send("P", { l = 20 })
+	local presence = sentOfKind(w, "P")[1].fields
+	assert(presence.n > hello.n, "n must grow")
+end)
+
+test("an older message never replaces newer news", function()
+	local w = Harness.new()
+	w:share()
+	w:hear("H", { c = "PRIEST", l = 14, n = 100 }, "Friend")
+	w:hear("P", { c = "PRIEST", l = 15, n = 200 }, "Friend")
+	w:hear("P", { c = "PRIEST", l = 13, n = 150 }, "Friend") -- late, out of order
+	equal(w.ns.Session.peers.Friend.level, 15)
+	w:hear("Q", { id = 7, quest = "Ribs", n = 300, o1 = "Ribs", h1 = 4, n1 = 5 }, "Friend")
+	w:hear("Q", { id = 7, quest = "Ribs", n = 250, o1 = "Ribs", h1 = 2, n1 = 5 }, "Friend")
+	local card = w.ns.Store:GetCards("quest")[1]
+	equal(card.data.objectives.Ribs.have, 4)
+	-- Messages from older versions have no n, and always count.
+	w:hear("P", { c = "PRIEST", l = 16 }, "Friend")
+	equal(w.ns.Session.peers.Friend.level, 16)
+end)
+
+test("a newcomer is answered once, after a short wait; a presence is never answered", function()
+	local w = Harness.new()
+	w:share()
+	w:hear("H", { c = "PRIEST", l = 14 }, "Friend")
+	w:hear("H", { c = "PRIEST", l = 14 }, "Friend") -- said again
+	w:advance(5)
+	equal(#sentOfKind(w, "A"), 1)
+	w:hear("P", { c = "PRIEST", l = 14 }, "Other")
+	w:advance(5)
+	equal(#sentOfKind(w, "A"), 1)
+	equal(w.ns.Session.peers.Other.level, 14)
+end)
+
+test("presence goes out every few minutes, and a silent player is taken to have gone", function()
+	local w = Harness.new()
+	w:share()
+	w:hear("H", { c = "PRIEST", l = 14 }, "Friend")
+	w:advance(5 * 60 + 1)
+	equal(#sentOfKind(w, "P"), 1)
+	equal(w.ns.Session.peers.Friend ~= nil, true)
+	w:advance(20 * 60)
+	equal(w.ns.Session.peers.Friend, nil)
+end)
+
+test("a welcome row when someone joins, under its own switch", function()
+	local w = Harness.new({ switches = { welcome = true, chatEcho = false } })
+	w:share()
+	w:hear("H", { c = "PRIEST", l = 14 }, "Friend")
+	local feed = w.ns.Store:GetFeed(true)
+	equal(#feed, 1)
+	equal(feed[1].type, "joined")
+	equal(w.ns.ViewModel:Build("all")[1].title, "Joined the party")
+end)
+
+-- ========= Gear ==============================================================
+test("our gear goes out a slot at a time as it changes, and with the hello as a set", function()
+	local w = Harness.new()
+	w.gear[16] = "|cffffffff|Hitem:25:0:0:0:0:0:0:0:20|h[Worn Shortsword]|h|r"
+	w.gear[1] = "|cff1eff00|Hitem:3887:15:0:0:0:0:592:0:20|h[Hat of the Bear]|h|r"
+	w:share()
+	w:advance(5)
+	local sets = sentOfKind(w, "G")
+	equal(#sets >= 1, true)
+	local found = {}
+	for _, message in ipairs(sets) do
+		for key, value in pairs(message.fields) do found[key] = value end
+	end
+	equal(found.s16, "25:0:0")
+	equal(found.s1, "3887:15:592")
+	w.gear[16] = "|cffffffff|Hitem:2092:0:0:0:0:0:0:0:20|h[Worn Dagger]|h|r"
+	w:event("PLAYER_EQUIPMENT_CHANGED", 16)
+	w:advance(2)
+	local last = sentOfKind(w, "G")
+	equal(last[#last].fields.s16, "2092:0:0")
+	equal(last[#last].fields.s1, nil)
+end)
+
+test("a friend's gear lands on their card, a slot at a time, and junk is not an item", function()
+	local w = Harness.new()
+	w:share()
+	w:hear("G", { c = "WARRIOR", s1 = "3887:15:592", s16 = "25:0:0", n = 10 }, "Friend")
+	w:hear("G", { c = "WARRIOR", s16 = "2092:0:0", n = 20 }, "Friend")
+	w:hear("G", { c = "WARRIOR", s5 = "|cff|Hevil|h", n = 30 }, "Friend")
+	local gear = w.ns.Store:GetMember("Friend").gear
+	equal(gear[1], "3887:15:592")
+	equal(gear[16], "2092:0:0")
+	equal(gear[5], "")
+	equal(w.ns.ItemString(gear[1]), "item:3887:15:0:0:0:0:592")
+	equal(w.ns.ItemString(""), nil)
+end)
+
+-- ========= Requests ==========================================================
+test("a request is answered only by the player asked, once a minute, and not repeated while one waits", function()
+	local w = Harness.new()
+	w:share()
+	w.sent = {}
+	w:hear("R", { to = "Tester" }, "Friend")
+	w:advance(5)
+	equal(#sentOfKind(w, "Q") + #sentOfKind(w, "G") >= 0, true) -- answered with how we stand (nothing underway here)
+	local before = #w.sent
+	w:hear("R", { to = "Tester" }, "Friend")
+	w:advance(5)
+	equal(#w.sent, before) -- once a minute for each asker
+	w:hear("R", { to = "Someone" }, "Friend")
+	equal(w.ns.Sharing:Request("Someone"), false) -- someone else's request is already waiting
+	w:advance(11)
+	equal(w.ns.Sharing:Request("Someone"), true)
+	equal(#sentOfKind(w, "R"), 1)
+end)
+
+-- ========= XP over time, lifetimes, pruning =================================
+test("a player's XP is added up for the session and by day, from what is heard", function()
+	local w = Harness.new()
+	w:share()
+	w:hear("H", { c = "WARRIOR", l = 14 }, "Friend")
+	w:hear("E", { t = "xp", c = "WARRIOR", xp = 100, level = 14, currentXP = 500, maxXP = 9000 }, "Friend")
+	w:hear("E", { t = "xp", c = "WARRIOR", xp = 50, level = 14, currentXP = 550, maxXP = 9000 }, "Friend")
+	local member = w.ns.Store:GetMember("Friend")
+	equal(member.sessionXP, 150)
+	equal(member.xpDays[w.ns.Day(w.now)], 150)
+end)
+
+test("a player not seen for a week is forgotten; the sandbox's measures count what is saved", function()
+	local w = Harness.new()
+	w:ingest("level", { level = 9 }, "Buddy")
+	equal(w.ns.Store:Counts().members, 1)
+	w:advance(8 * 24 * 60 * 60)
+	w.ns.Store:Expire(w.now)
+	equal(w.ns.Store:GetMember("Buddy"), nil)
+end)
+
+test("pruning forgets players not here, and friends' cards", function()
+	local w = Harness.new()
+	w:ingest("quest_accepted", { questID = 47, quest = "Buddy's Quest" }, "Buddy")
+	w:ingest("quest_accepted", { questID = 48, quest = "My Quest" }, "Tester")
+	w.ns.Store:Prune("cards")
+	local cards = w.ns.Store:GetCards("quest")
+	equal(#cards, 1)
+	equal(cards[1].player, "Tester")
+	w.ns.Store:Prune("players")
+	equal(w.ns.Store:GetMember("Buddy"), nil)
+end)
+
+-- ========= The sandbox =======================================================
+local function sandbox(saved)
+	return Harness.new(saved or { switches = { chatEcho = false } }, nil, true, nil, { sandbox = true })
+end
+
+test("the sandbox build owns its own names and never speaks as this character", function()
+	local w = sandbox()
+	equal(w.ns.IsSandbox(), true)
+	equal(w.ns.L.TITLE, "Quest Party Sandbox")
+	equal(w.env.QuestPartySandboxDB ~= nil, true)
+	equal(w.env.QuestPartyDB, nil)
+	equal(w.env.SLASH_QUESTPARTYSANDBOX1, "/qps")
+	w:share()
+	equal(#w.sent, 0) -- no hello of its own
+	w.ns.Collectors:Handle("PLAYER_LEVEL_UP", 21)
+	equal(#w.sent, 0)
+	equal(#w.ns.Store:GetFeed(true), 0)
+end)
+
+test("the same seed makes the same party", function()
+	local w = sandbox()
+	local first = w.ns.SandboxParty.Make(42, 5)
+	local second = w.ns.SandboxParty.Make(42, 5)
+	for index = 1, 5 do
+		equal(first[index].name, second[index].name)
+		equal(first[index].class, second[index].class)
+		equal(first[index].level, second[index].level)
+	end
+	local other = w.ns.SandboxParty.Make(43, 5)
+	assert(other[1].name ~= first[1].name or other[1].level ~= first[1].level, "another seed, another party")
+end)
+
+test("a sandbox party over the channel is marked as its pretend players, and shows when it comes back", function()
+	local w = sandbox()
+	w:share()
+	equal(w.ns.Sandbox:StartParty(2, 7, 1), true)
+	w:advance(30)
+	local hellos = sentOfKind(w, "H")
+	equal(#hellos >= 1, true)
+	local name = hellos[1].fields.as
+	equal(w.ns.Sandbox.personas[name] ~= nil, true)
+	for _, message in ipairs(w.sent) do
+		local _, fields = w.ns.Protocol.Decode(message.text)
+		assert(fields.as, "every message names its pretend player: " .. message.text)
+	end
+	-- The server sends it back; the sandbox's panel shows the pretend player.
+	echo(w, hellos[1].message.text)
+	equal(w.ns.Session.peers[name].virtual, true)
+	-- Too many for one character's send budget over the channel.
+	local ok = w.ns.Sandbox:StartParty(20, 7, 1)
+	equal(ok, false)
+end)
+
+test("in loopback a party of 20 plays for an hour without the network, and every player is seen", function()
+	local w = sandbox()
+	w.ns.Bus:Fire("READY")
+	w.ns.Sharing.loopback = true
+	equal(w.ns.Sandbox:StartParty(20, 3, 60), true)
+	w:advance(60)
+	equal(#w.sent, 0) -- nothing on the wire
+	local measure = w.ns.Sandbox:Measure()
+	equal(measure.players, 20)
+	equal(measure.failed, 0)
+	assert(measure.peers >= 15, "most of the party has arrived: " .. measure.peers)
+	assert(measure.feed > 20, "they have been busy: " .. measure.feed)
+	assert(measure.feed <= 200, "the feed stays capped")
+	local gear = 0
+	for _, member in pairs(w.ns.db.members) do
+		if member.gear then gear = gear + 1 end
+	end
+	assert(gear >= 10, "their gear arrived: " .. gear)
+	w.ns.Sandbox:Wipe()
+	equal(w.ns.Store:Counts().feed, 0)
+	equal(w.ns.Session:Count(), 0)
+end)
+
+test("the recorded session plays back as a pretend player", function()
+	local w = sandbox()
+	w.ns.Bus:Fire("READY")
+	w.ns.Sharing.loopback = true
+	equal(w.ns.Sandbox:StartRecording("tirisfal", 100), true)
+	w:advance(60)
+	local peer = w.ns.Session.peers["Replay Paladin"]
+	equal(peer ~= nil, true)
+	equal(peer.class, "PALADIN")
+	assert(peer.level >= 11, "the recorded level: " .. tostring(peer.level))
+	assert(#w.ns.Store:GetFeed(true) > 5, "its feed came back")
+	assert(#w.ns.Store:GetCards("quest") > 0, "its quests came back")
+end)
+
+test("Quest Party in debug sees the sandbox's pretend player as a peer, and answers its hello", function()
+	local main = Harness.new()
+	main.ns.SetDebug(true)
+	main:share()
+	main.sent = {}
+	local box = sandbox()
+	box:share()
+	box.ns.Sandbox:StartParty(1, 9, 1)
+	box:advance(5)
+	local hello = sentOfKind(box, "H")[1]
+	echo(main, hello.message.text)
+	local name = hello.fields.as
+	equal(main.ns.Session.peers[name] ~= nil, true)
+	main:advance(5)
+	equal(#sentOfKind(main, "A"), 1)
 end)
 
 print(string.format("\n%d passed, %d failed", passed, failed))

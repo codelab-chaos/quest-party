@@ -40,9 +40,10 @@ end
 
 -- Shows the entry in our own panel and sends it out. A type whose feature switch
 -- is off is neither shown nor sent.
+-- The sandbox build collects nothing: its feed is its pretend players'.
 local function Emit(typeName, data)
 	local def = ns.FeedTypes[typeName]
-	if not def or not ns.IsEnabled(def.setting) then
+	if ns.IsSandbox() or not def or not ns.IsEnabled(def.setting) then
 		return
 	end
 	Bus:Fire("ENTRY_OUTGOING", { type = typeName, data = Copy(data) })
@@ -432,6 +433,9 @@ function Collectors:RunTest()
 end
 
 Bus:On("READY", function()
+	if ns.IsSandbox() then
+		return
+	end
 	ready = true
 	experience = ReadExperience() -- establish a baseline without replaying old gains
 	RepairSavedQuests()

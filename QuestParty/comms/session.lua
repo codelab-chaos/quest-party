@@ -101,10 +101,14 @@ function Session:IsConnected(name)
 	return self.peers[name] ~= nil
 end
 
+-- How many real players are sharing: pretend ones (the emulator's and the
+-- sandbox's) are peers too, so the party view shows them, but not counted.
 function Session:Count()
 	local count = 0
-	for _ in pairs(self.peers) do
-		count = count + 1
+	for _, peer in pairs(self.peers) do
+		if not peer.virtual then
+			count = count + 1
+		end
 	end
 	return count
 end

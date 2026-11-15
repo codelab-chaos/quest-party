@@ -17,6 +17,9 @@ Protocol.Kinds = {
 	ACK = "A", -- the answer to HELLO, same fields
 	ENTRY = "E", -- one feed entry. t is the feed type, the rest is its data.
 	QUEST = "Q", -- where one of the sender's quests stands now: its id, name and every objective's count.
+	PRESENCE = "P", -- the hello's fields again, every few minutes. Never answered.
+	GEAR = "G", -- equipped items, by slot: one slot when it changes, the whole set when asked.
+	REQUEST = "R", -- "tell me how you stand", to one player (to). Answered on the channel.
 }
 
 local function Escape(value)
