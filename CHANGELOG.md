@@ -23,6 +23,22 @@ CurseForge's changelog field using Markdown formatting.
 
 Friends on 0.1.2 and 0.2.0 can share a channel: the messages are the same format with more in them. A friend still on 0.1.2 does not see XP bars, deaths or the newer rows until they update, so ask everyone to update.
 
+### Protocol
+
+The message format is still version 1. Nothing was removed or given a new meaning, and there are no new kinds of message, only new fields and entry types:
+
+- Hello and its answer also carry `x`, the XP so far this level, and `m`, the XP the level needs (0 at the level cap), so a newcomer sees everyone's XP bar at once.
+- Every entry carries `s`, the sender's own plain description of it. A message too long with it is sent without it.
+- An entry of a type this version does not know is shown as a plain card with that description, instead of being dropped. From now on, friends on an older version still see a newer version's news.
+- New entry type `death`, with the zone and the level.
+- An XP entry from handing in a quest carries the quest's name, so it is shown on the quest's row and not as a second row.
+- Skill-up entries are sent for professions only.
+
+With a friend still on 0.1.2:
+
+- They ignore the new fields and drop the entry types they do not know, such as deaths, so they see less but nothing breaks.
+- Their hello has no XP, so their bar shows on yours from their first XP gain.
+
 ### Added
 
 - Party XP bars above the tabs: one bar per other player sharing on the channel, stacked, each in its own color, with their name, level and how far they have to go. Bars move as they gain XP, a player at the level cap shows as max level, and a newcomer sees everyone's bar as soon as they join. Hover a bar for that player's XP and last gain.
