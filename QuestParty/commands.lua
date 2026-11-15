@@ -37,6 +37,20 @@ local emulatorCommands = {
 	burst = function(arg)
 		ns.Emulator:Burst(tonumber(arg) or 10)
 	end,
+	play = function(name)
+		if not name then
+			ns.Print(L.CMD_EMU_RECORDINGS:format(table.concat(ns.Emulator:Recordings(), ", ")))
+			return
+		end
+		name = name:lower()
+		local recording = name ~= "sample" and name or nil
+		if not ns.Emulator:Use(recording) then
+			ns.Print(L.CMD_EMU_NO_RECORDING:format(name, table.concat(ns.Emulator:Recordings(), ", ")))
+			return
+		end
+		ns.Emulator:Start()
+		ns.Print(L.CMD_EMU_PLAYING:format(recording or "sample", ns.Emulator.speed))
+	end,
 	speed = function(arg)
 		ns.Emulator:SetSpeed(tonumber(arg) or 1)
 		ns.Print(L.CMD_EMU_SPEED:format(ns.Emulator.speed))

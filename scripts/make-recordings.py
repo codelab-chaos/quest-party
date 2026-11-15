@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Build the sandbox's recordings (QuestParty/sandbox/recording.lua) from a
-saved message log, as 0.1.3 clients would have sent them.
+"""Build the emulator's recordings (QuestParty/emulator/recordings.lua) from a
+saved message log, as Quest Party 0.2.0 clients would have sent them.
 
-Each recording is one player's messages from the log, turned into a pretend
-player: its name, class, race and sex are given here, and its messages are
-brought up to what Quest Party 0.1.3 sends (RULES below), so two recordings
-from one evening play back as two 0.1.3 clients together, in time with each
-other.
+A recording is real players' messages from one evening, turned into pretend
+players for the debug emulator (emulator/emulator.lua): `/qp emu play evening`
+replays them in time with each other, and `/qp emu speed` speeds them up.
+Each player's messages are brought up to what 0.2.0 sends (modernize below)
+and written as emulator steps, so they go over the channel the same way the
+sample party does.
 
   scripts/make-recordings.py PATH   PATH is WTF/.../SavedVariables/QuestParty.lua
 """
@@ -16,134 +17,129 @@ import importlib.util
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-spec = importlib.util.spec_from_file_location("saved_vars", Path(__file__).with_name("saved_vars.py"))
-saved_vars = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(saved_vars)
+TARGET = ROOT / "QuestParty/emulator/recordings.lua"
+def load(name):
+    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(f"{name}.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
-# Which messages make each recording, and who it plays as. Race and sex were
-# not in the log; these are made up.
+
+saved_vars = load("saved_vars")
+wire = load("wire")
+
+# Which messages make each recording, and who each player in it plays as.
+# Names are placeholders, so no real character names end up in the addon.
 RECORDINGS = [
-    {"id": "tirisfal", "direction": "out", "name": "Replay Paladin", "class": "PALADIN", "race": "Human", "sex": 2,
-     "about": "a level 11 paladin in Tirisfal Glades (the owner's side)"},
-    {"id": "silverpine", "direction": "in", "sender": "Tombert Roams", "name": "Replay Warrior", "class": "WARRIOR", "race": "Scourge", "sex": 2,
-     "about": "a level 14 warrior in Silverpine Forest (a friend's side, sent by 0.1.2)"},
+    {
+        "id": "evening",
+        "about": "14 November 2026: the owner leveling a paladin in Tirisfal Glades, a friend a warrior in Silverpine Forest",
+        "players": [
+            {"who": "paladin", "direction": "out", "name": "Replay Paladin", "class": "PALADIN"},
+            {"who": "warrior", "direction": "in", "sender": "Tombert Roams", "name": "Replay Warrior", "class": "WARRIOR"},
+        ],
+    },
 ]
 
-VERSION = "0.1.3"
-# 0.1.3 reports skill-ups in professions only.
+ENTRY = "E"
+# Keys of an ENTRY that are about the message, not the entry's data
+# (see comms/sharing.lua): type, class, pretend player, summary.
+MESSAGE_KEYS = {"t", "c", "as", "s"}
+# 0.2.0 reports skill-ups in professions only.
 PROFESSIONS = {"Alchemy", "Blacksmithing", "Cooking", "Enchanting", "Engineering", "First Aid", "Fishing",
                "Herbalism", "Leatherworking", "Mining", "Skinning", "Tailoring"}
 TURN_IN_SECONDS = 3  # an XP gain this soon after a turn-in, of the same amount, is its XP
 
 
-def decode(text):
-    version, kind, body = text.split(":", 2)
-    fields = {}
-    for pair in body.split(";"):
-        if "=" in pair:
-            key, value = pair.split("=", 1)
-            fields[key] = int(value[1:]) if value.startswith("#") and value[1:].lstrip("-").isdigit() else value
-    return version, kind, fields
 
+def modernize(messages):
+    """One player's messages as 0.2.0 entries. messages: [(time, kind, fields)].
 
-def encode(version, kind, fields):
-    def text(value):
-        return f"#{value}" if isinstance(value, int) else str(value)
-    return f"{version}:{kind}:" + ";".join(f"{key}={text(fields[key])}" for key in sorted(fields))
-
-
-def modernize(messages, recording):
-    """Brings one player's messages up to 0.1.3. messages: [(time, kind, fields)]."""
-    out, xp, last_turn_in = [], {}, None
+    Returns [(time, type, data)]. Only entries are kept: the emulator's
+    pretend players send entries, not hellos or quest states.
+    """
+    out, last_turn_in = [], None
     for time, kind, fields in messages:
-        if kind == "E" and fields.get("t") == "xp":
-            xp = {"x": fields.get("currentXP"), "m": fields.get("maxXP")}
-    # A hello first, as 0.1.3 sends on connecting, if the log has none.
-    first_xp = next((f for _, k, f in messages if k == "E" and f.get("t") == "xp"), None)
-    if not any(kind == "H" for _, kind, _ in messages) and messages:
-        hello = {"c": recording["class"], "v": VERSION, "r": recording["race"], "g": recording["sex"]}
-        if first_xp:
-            hello.update({"l": first_xp["level"], "x": first_xp["currentXP"] - first_xp["xp"], "m": first_xp["maxXP"]})
-        zone = next((f.get("z") for _, k, f in messages if k in ("A", "H") and f.get("z")), None)
-        if zone:
-            hello["z"] = zone
-        out.append((messages[0][0], "H", hello))
-    xp = {}
-    for time, kind, fields in messages:
-        fields = dict(fields)
-        if kind == "E":
-            entry = fields.get("t")
-            if entry == "skill" and fields.get("skill") not in PROFESSIONS:
-                continue
-            if entry == "quest_complete":
-                last_turn_in = (time, fields.get("xp"), fields.get("quest"))
-            if entry == "xp":
-                xp = {"x": fields.get("currentXP"), "m": fields.get("maxXP"), "l": fields.get("level")}
-                if last_turn_in and time - last_turn_in[0] <= TURN_IN_SECONDS and fields.get("xp") == last_turn_in[1] and "quest" not in fields:
-                    fields["quest"] = last_turn_in[2]
-        elif kind in ("H", "A", "P"):
-            # An answer said again unprompted is a presence: never answered.
-            if kind == "A":
-                kind = "P"
-            fields["v"] = VERSION
-            fields.setdefault("r", recording["race"])
-            fields.setdefault("g", recording["sex"])
-            for key in ("x", "m"):
-                if key not in fields and xp.get(key) is not None:
-                    fields[key] = xp[key]
-        out.append((time, kind, fields))
+        if kind != ENTRY or not fields.get("t"):
+            continue
+        entry = fields["t"]
+        data = {key: value for key, value in fields.items() if key not in MESSAGE_KEYS}
+        if entry == "skill" and data.get("skill") not in PROFESSIONS:
+            continue
+        if entry == "quest_complete":
+            last_turn_in = (time, data.get("xp"), data.get("quest"))
+        if entry == "xp" and last_turn_in and not data.get("quest") and not data.get("mob") \
+                and time - last_turn_in[0] <= TURN_IN_SECONDS and data.get("xp") == last_turn_in[1]:
+            data["quest"] = last_turn_in[2]
+        out.append((time, entry, data))
     return out
 
 
-def lua_string(text):
-    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+def lua_value(value):
+    if isinstance(value, int):
+        return str(value)
+    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n") + '"'
+
+
+def lua_table(data):
+    return "{ " + ", ".join(f"{key} = {lua_value(data[key])}" for key in sorted(data)) + " }"
+
+
+def steps_for(records, recording):
+    """Every player's entries in one timeline, with seconds between steps."""
+    timeline = []
+    for player in recording["players"]:
+        chosen = [r for r in records if r.get("direction") == player["direction"]
+                  and (player.get("sender") is None or r.get("sender") == player["sender"])]
+        messages = []
+        for record in sorted(chosen, key=lambda r: r["time"]):
+            _, kind, fields = wire.decode(record["text"])
+            messages.append((record["time"], kind, fields))
+        timeline += [(time, player["who"], entry, data) for time, entry, data in modernize(messages)]
+    timeline.sort(key=lambda step: step[0])  # stable: a player's own order is kept
+    steps, previous = [], timeline[0][0] if timeline else 0
+    for time, who, entry, data in timeline:
+        steps.append((time - previous, who, entry, data))
+        previous = time
+    return steps
+
+
+def render(records):
+    blocks = []
+    for recording in RECORDINGS:
+        personas = "\n".join(
+            f'\t\t\t{p["who"]} = {{ name = {lua_value(p["name"])}, class = {lua_value(p["class"])} }},'
+            for p in recording["players"])
+        steps = "\n".join(
+            f'\t\t\t{{ after = {after}, who = {lua_value(who)}, type = {lua_value(entry)}, data = {lua_table(data)} }},'
+            for after, who, entry, data in steps_for(records, recording))
+        blocks.append(f'''	{recording["id"]} = {{
+		-- {recording["about"]}
+		loop = false,
+		personas = {{
+{personas}
+		}},
+		steps = {{
+{steps}
+		}},
+	}},''')
+    return '''-- Real Quest Party sessions for the emulator to play back as pretend players
+-- (/qp emu play <name>): what each player's client sent, with the seconds
+-- between, brought up to what Quest Party 0.2.0 sends. Same shape as
+-- emulator\\script.lua.
+-- Made by scripts/make-recordings.py from a saved message log; do not edit.
+local _, ns = ...
+
+ns.EmulatorRecordings = {
+''' + "\n".join(blocks) + "\n}\n"
 
 
 def build(path):
     variables = saved_vars.parse(Path(path).read_text(encoding="utf-8"))
     log = variables["QuestPartyDB"]["commsLog"]
     records = [log[index] for index in sorted(log)]
-    start = min(record["time"] for record in records)
-    blocks = []
-    for recording in RECORDINGS:
-        chosen = [r for r in records if r.get("direction") == recording["direction"]
-                  and (recording.get("sender") is None or r.get("sender") == recording["sender"])]
-        messages = []
-        for record in sorted(chosen, key=lambda r: r["time"]):
-            version, kind, fields = decode(record["text"])
-            fields.pop("as", None)
-            messages.append((record["time"], kind, fields))
-        messages = modernize(messages, recording)
-        lines, previous = [], messages[0][0] if messages else start
-        for time, kind, fields in messages:
-            lines.append(f"\t\t\t{{ after = {time - previous}, text = {lua_string(encode('1', kind, fields))} }},")
-            previous = time
-        offset = (messages[0][0] - start) if messages else 0
-        blocks.append(f'''	{recording["id"]} = {{
-		-- {recording["about"]}
-		name = {lua_string(recording["name"])},
-		class = {lua_string(recording["class"])},
-		race = {lua_string(recording["race"])},
-		sex = {recording["sex"]},
-		start = {offset}, -- seconds into the evening it starts
-		messages = {{
-''' + "\n".join(lines) + "\n\t\t},\n\t},")
-    text = '''-- Real Quest Party sessions, for the sandbox to play back as pretend
--- players: what each player's client sent over one evening of leveling
--- (14 November 2026), with the seconds between messages, brought up to what
--- Quest Party 0.1.3 sends. Played together they are two 0.1.3 clients on one
--- channel, in time with each other.
--- Made by scripts/make-recordings.py from a saved message log; do not edit.
---   start  seconds into the evening the recording starts
---   after  seconds after the message before
---   text   the message as it goes over the wire
-local _, ns = ...
-
-ns.SandboxRecordings = {
-''' + "\n".join(blocks) + "\n}\n"
-    target = ROOT / "QuestParty/sandbox/recording.lua"
-    target.write_text(text)
-    print(f"{target.relative_to(ROOT)}: " + ", ".join(f"{r['id']}" for r in RECORDINGS))
+    TARGET.write_text(render(records))
+    print(f"{TARGET.relative_to(ROOT)}: " + ", ".join(r["id"] for r in RECORDINGS))
 
 
 if __name__ == "__main__":

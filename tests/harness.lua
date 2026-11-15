@@ -161,7 +161,7 @@ function Harness.new(saved, character, debugBuild, serverTime, options)
 		"core.lua", "locales/en-us.lua", "data/feed-types.lua", "data/filters.lua", "data/settings.lua", "data/slots.lua", "data/stats.lua",
 		"store.lua", "stats.lua", "resolver.lua", "comms/protocol.lua", "comms/origin.lua", "comms/transport.lua", "comms/session.lua", "comms/sharing.lua",
 		"collectors/patterns.lua", "collectors/samples.lua", "collectors/collectors.lua", "collectors/gear.lua",
-		"emulator/script.lua", "emulator/emulator.lua", "ui/view-model.lua", "ui/party-model.lua", "ui/confetti.lua", "ui/chat-echo.lua", "commands.lua",
+		"emulator/script.lua", "emulator/recordings.lua", "emulator/emulator.lua", "ui/view-model.lua", "ui/party-model.lua", "ui/confetti.lua", "ui/chat-echo.lua", "commands.lua",
 	}
 	if options.sandbox then
 		for _, path in ipairs(Harness.SANDBOX_MODULES) do

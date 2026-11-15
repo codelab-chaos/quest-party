@@ -21,7 +21,7 @@ collectors -> protocol -> resolvers -> state -> view models -> components
 
 1. **The protocol is flexible and stable.** Messages are flat key and value
    fields. New fields and new kinds are added, never repurposed; unknown
-   fields are ignored and unknown kinds become the generic card (0.1.3).
+   fields are ignored and unknown kinds become the generic card (0.2.0).
    Every message stands alone, and each piece of state has a key, so the
    latest for a key wins.
 2. **Resolvers fail early and safe.** A message is checked as it arrives,
@@ -346,7 +346,7 @@ Still open:
 1. How many tabs fit down the window before they scroll (the panel is about
    eight heads tall)?
 
-## Testing: pretend 0.1.3 players
+## Testing: pretend 0.2.0 players
 
 Party members need other players to arrive, stream, answer card requests and
 leave. Testing that with real friends is slow, so the emulator grows into a
@@ -358,13 +358,13 @@ pretend peer.
   players send feed entries over the real channel, marked with the player they
   stand for (`as`), and are shown when the server echoes them back. Other
   clients ignore them. Since the resolver work, their entries carry summaries
-  like any 0.1.3 entry.
+  like any 0.2.0 entry.
 - **The replay** (`/qp replay`): reads the saved incoming messages again, all
   at once. Real traffic, but only what friends sent (Tombert's is 0.1.2).
 
 ### What a pretend peer is missing
 
-| A real 0.1.3 player | Emulator today |
+| A real 0.2.0 player | Emulator today |
 | --- | --- |
 | Hello and ACK with version, level, XP (and soon race and sex) | None; party bars use a debug-only shortcut |
 | Quest messages that fill quest cards | None |
@@ -380,7 +380,7 @@ pretend peer.
    Personas get race, sex, XP and an equipped set in the script data, and the
    emulator answers card requests for them. The party view then never needs
    a debug shortcut: it sees pretend players exactly as real ones.
-2. **Record and play back a real 0.1.3 stream.** Your own client is a 0.1.3
+2. **Record and play back a real 0.2.0 stream.** Your own client is a 0.2.0
    player: a debug recording of what you send (the log's "out" records, with
    their times) can be played back as a persona, at its real pace or faster.
    That gives a realistic stream (real kills, quests, merges) without a
@@ -420,7 +420,7 @@ What makes it work:
 Benefits over an emulator inside the addon: real isolation (separate memory,
 saved state, reloads), the real code path end to end, and the sandbox's code can
 be a different build from yours, so a new version can talk to the one before
-it. Only builds that know `as` can be the sandbox, so 0.1.3 onward, not 0.1.2.
+it. Only builds that know `as` can be the sandbox, so 0.3.0 onward, not 0.2.0 or older.
 
 Costs: both copies share your character's send budget, so a fast replay must
 stay under the throttle; and nobody else should see sandbox traffic, so other
@@ -585,7 +585,7 @@ Reviewed 14 November 2026, before building.
 - One pipeline for everything, already proven by the feed and the resolver,
   so the new work extends what exists instead of adding beside it.
 - The protocol changes are additive: race and sex, a counter, the `as`
-  marker on every kind, gear slots, requests. Older 0.1.3 clients show what
+  marker on every kind, gear slots, requests. Older 0.2.0 clients show what
   they do not know as the generic card.
 - The sandbox makes every later step testable in game without a second
   account, and the scale tests turn "will it be smooth" into numbers.

@@ -1,4 +1,6 @@
--- Emulator: plays emulator\script.lua as if other players were sharing with us.
+-- Emulator: plays a script as if other players were sharing with us: the
+-- sample party (emulator\script.lua) or a real recorded session
+-- (emulator\recordings.lua), chosen with Emulator:Use.
 -- Its pretend players use the real protocol: while connected to a channel,
 -- each of their entries is sent over it, and is read and shown only when the
 -- server sends it back (comms\sharing.lua). So it tests how this client picks
@@ -13,6 +15,7 @@ local Emulator = {
 	speed = 1,
 	index = 1,
 	steps = nil,
+	script = nil, -- nil for the sample party, else a recording's name
 }
 ns.Emulator = Emulator
 
@@ -60,14 +63,41 @@ local function Expand(script)
 	return steps
 end
 
+-- The script being played: the sample party, or the chosen recording.
+function Emulator:Script()
+	return self.script and ns.EmulatorRecordings[self.script] or ns.EmulatorScript
+end
+
 function Emulator:GetSteps()
 	if not self.steps then
-		self.steps = Expand(ns.EmulatorScript)
+		self.steps = Expand(self:Script())
 	end
 	return self.steps
 end
 
--- Emits the current step and moves to the next, looping at the end.
+-- The names of the recordings that can be played, sorted.
+function Emulator:Recordings()
+	local names = {}
+	for name in pairs(ns.EmulatorRecordings or {}) do
+		names[#names + 1] = name
+	end
+	table.sort(names)
+	return names
+end
+
+-- Plays name, a recording, or the sample party when name is nil, from its
+-- start. Returns false for a recording that does not exist.
+function Emulator:Use(name)
+	if name and not (ns.EmulatorRecordings and ns.EmulatorRecordings[name]) then
+		return false
+	end
+	self:Stop()
+	self.script, self.steps, self.index = name, nil, 1
+	return true
+end
+
+-- Emits the current step and moves to the next. The sample party loops at
+-- the end; a recording stops there.
 function Emulator:Step()
 	if not ns.IsDebug() then
 		return
@@ -77,7 +107,10 @@ function Emulator:Step()
 	if not step then
 		return
 	end
-	self.index = (self.index % #steps) + 1
+	self.index = self.index + 1
+	if self.index > #steps and self:Script().loop ~= false then
+		self.index = 1 -- the sample party loops; a recording plays once
+	end
 	if ns.Sharing:SendVirtual(step.persona, step.type, step.data) then
 		return -- it shows when the server sends it back
 	end
@@ -122,6 +155,9 @@ end
 function Emulator:Start()
 	if not ns.IsDebug() or self.running then
 		return
+	end
+	if self.index > #self:GetSteps() then
+		self.index = 1 -- a recording that played to the end starts again
 	end
 	self.running = true
 	Bus:Fire("EMULATOR_STATE", true)

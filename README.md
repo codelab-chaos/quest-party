@@ -132,6 +132,7 @@ is also available in Options while debug mode is enabled.
 | `/qp emu step` | Play the next sample entry once. |
 | `/qp emu burst [n]` | Play sample entries immediately; defaults to 10. |
 | `/qp emu speed [n]` | Set playback speed from 0.25× to 20×; defaults to 1×. |
+| `/qp emu play [name]` | Play a recorded session instead of the sample party, once, from its start: `evening` is two real players' 22 minutes from 14 November 2026, brought up to what 0.2.0 sends (about a minute at 20×). With no name it lists the recordings; `sample` goes back to the sample party. Rebuild the recordings from a saved file with `scripts/make-recordings.py <path to QuestParty.lua>`. |
 | `/qp test` | Replay sample game events as your own character. They are shared with your channel like real progress, so leave the channel first if friends are on it. |
 | `/qp testloc <target>` | Show one test in your own panel only; nothing is sent. Targets: `confetti`, `level`, `death`, `quest`, `kill`, or `all`. With no target it lists them. |
 
@@ -149,14 +150,14 @@ Install it with `scripts/deploy.sh --sandbox`, or build a ZIP with
 Quest Party can be enabled alongside it or not.
 
 Over the channel, use a channel of your own (such as `qpsandbox`): Quest Party
-0.1.3 and older would take a pretend player's hello or quest for yours, so the
+0.2.0 and older would take a pretend player's hello or quest for yours, so the
 sandbox refuses channel runs while a friend is on the channel. Loopback has no
 such limit.
 
 | Command | What it does |
 | --- | --- |
 | `/qps party [count] [seed] [speed]` | Start a made-up party: `count` players from `seed` (the same seed makes the same party), at `speed` (10 plays an hour in six minutes). Over the channel, at most 4. |
-| `/qps replay [name\|all] [speed]` | Play back real recorded players, all together by default: two players from one evening of leveling, brought up to what 0.1.3 sends, in time with each other. `scripts/make-recordings.py` builds them from a saved message log. |
+| `/qps replay [name\|all] [speed]` | Play back real recorded players, all together by default: two players from one evening of leveling, brought up to what 0.3.0 sends, in time with each other. `scripts/make-recordings.py` builds them from a saved message log. |
 | `/qps loopback on` | Read the pretend players' messages straight back, with no network, for parties of 20, 50 or 100. `off` sends them over the channel again. |
 | `/qps measure` | What the run costs: this addon's memory, messages, read time and what is saved. |
 | `/qps burst [count]` | Send a quick burst past the queue and report the game's answers, to measure the send budget. Nothing reads these messages. |

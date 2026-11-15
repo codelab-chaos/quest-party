@@ -34,7 +34,7 @@ local CHANNEL_LIMIT = 4 -- pretend players over the real channel at once
 local ticker
 
 -- Over the channel, friends' clients from before the as marker worked on
--- every message (0.1.2, 0.1.3) would take a pretend player's hello or quest
+-- every message (0.1.2, 0.2.0) would take a pretend player's hello or quest
 -- for this character's own. So channel runs need a channel with no friends
 -- on it; loopback is always fine. Returns false and why.
 local function ChannelUsable()

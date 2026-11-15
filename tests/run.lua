@@ -768,8 +768,8 @@ end)
 test("the party's XP bars: one per other player sharing, sorted by name, with level and how far to go", function()
 	local w = Harness.new({ switches = { chatEcho = false } })
 	w:share()
-	w:hear("H", { v = "0.1.3", c = "WARRIOR", l = 13, z = "Duskwood", x = 5400, m = 11400 }, "Tombert Roams")
-	w:hear("H", { v = "0.1.3", c = "PRIEST", l = 9, z = "Westfall" }, "Another")
+	w:hear("H", { v = "0.2.0", c = "WARRIOR", l = 13, z = "Duskwood", x = 5400, m = 11400 }, "Tombert Roams")
+	w:hear("H", { v = "0.2.0", c = "PRIEST", l = 9, z = "Westfall" }, "Another")
 	local bars = w.ns.ViewModel:PartyBars()
 	equal(#bars, 2)
 	equal(bars[1].name, "Another")
@@ -818,7 +818,7 @@ end)
 test("a player at the level cap, who never gains XP, still has a bar from the hello", function()
 	local w = Harness.new({ switches = { chatEcho = false } })
 	w:share()
-	w:hear("H", { v = "0.1.3", c = "WARRIOR", l = 60, z = "Orgrimmar", x = 0, m = 0 }, "Old Timer")
+	w:hear("H", { v = "0.2.0", c = "WARRIOR", l = 60, z = "Orgrimmar", x = 0, m = 0 }, "Old Timer")
 	local bar = w.ns.ViewModel:PartyBars()[1]
 	equal(bar.name, "Old Timer")
 	equal(bar.maxLevel, true)
@@ -855,7 +855,7 @@ end)
 test("logged messages from others survive a reload and replay into the panel without sending anything", function()
 	local w = Harness.new({ switches = { chatEcho = false } })
 	w:share()
-	w:hear("H", { v = "0.1.3", c = "WARRIOR", l = 13, z = "Duskwood", x = 6000, m = 11400 }, "Tombert Roams")
+	w:hear("H", { v = "0.2.0", c = "WARRIOR", l = 13, z = "Duskwood", x = 6000, m = 11400 }, "Tombert Roams")
 	w:hear("E", { t = "level", c = "WARRIOR", level = 14 }, "Tombert Roams")
 	w:hear("Q", { id = 9, quest = "Wolves", c = "WARRIOR", o1 = "Wolves slain", h1 = 3, n1 = 8 }, "Tombert Roams")
 	w.ns.Store:Clear()
@@ -1919,6 +1919,86 @@ test("with no channel the emulator's players are shown directly and nothing is s
 	equal(#w.ns.Store:GetFeed(true), 1)
 end)
 
+-- ========= Recorded sessions ================================================
+-- The evening recording (emulator\recordings.lua): two real players' messages
+-- from 14 November 2026, brought up to what 0.2.0 sends.
+local function playEvening(w)
+	w.ns.SetDebug(true)
+	w.ns.SetEnabled("kills", true)
+	local emulator = w.ns.Emulator
+	equal(emulator:Use("evening"), true)
+	emulator:SetSpeed(20)
+	emulator:Start()
+	w:advance(2 * 60 * 60) -- 22 minutes of play, at 20x
+	equal(emulator.running, false) -- a recording plays once, then stops
+end
+
+local function checkEvening(w)
+	local players = {}
+	for _, entry in ipairs(w.ns.Store:GetFeed(true)) do
+		players[entry.player] = true
+		assert(entry.type ~= "unknown", "fell back to a generic card: " .. tostring(entry.data.kind))
+		assert(not (entry.type == "xp" and entry.data.quest), "a turn-in's XP is a second row")
+	end
+	equal(players["Replay Paladin"], true)
+	equal(players["Replay Warrior"], true)
+	local bars = {}
+	for _, bar in ipairs(w.ns.ViewModel:PartyBars()) do bars[bar.name] = bar end
+	equal(bars["Replay Paladin"].level, 12)
+	equal(bars["Replay Paladin"].have, 590)
+	equal(bars["Replay Warrior"].level, 14)
+	equal(bars["Replay Warrior"].have, 4529)
+	for _, filter in ipairs(w.ns.Filters) do
+		for _, row in ipairs(w.ns.ViewModel:Build(filter.id)) do
+			assert(type(row.title) == "string")
+		end
+	end
+end
+
+test("the evening recording plays both players once, sped up, with no channel", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	equal(w.ns.Emulator:Use("no such recording"), false)
+	playEvening(w)
+	checkEvening(w)
+	equal(#w.sent, 0)
+end)
+
+test("the evening recording goes over the channel and reads back as 0.2.0 entries", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	playEvening(w)
+	local virtual = 0
+	for _, message in ipairs(w.sent) do
+		local kind, fields = w.ns.Protocol.Decode(message.text)
+		if kind == "E" and fields.as then
+			virtual = virtual + 1
+			w:event("CHAT_MSG_ADDON", "QuestParty", message.text, "CHANNEL", "Tester-TestRealm", "", 0, 5, "QuestFriends")
+		end
+	end
+	equal(virtual, #w.ns.Emulator:GetSteps())
+	checkEvening(w)
+	equal(w.ns.Sharing.refused, 0)
+	equal(w.ns.Session:Count(), 0) -- pretend players are not someone sharing
+end)
+
+test("a recording that played to the end starts again, and the sample party loops", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w.ns.SetDebug(true)
+	local emulator = w.ns.Emulator
+	emulator:Use("evening")
+	local count = #emulator:GetSteps()
+	emulator:Burst(count + 5) -- steps past the end do nothing
+	equal(#w.ns.Store:GetMembers(), 2)
+	emulator:Start()
+	equal(emulator.running, true)
+	equal(emulator.index, 1)
+	emulator:Stop()
+	equal(emulator:Use(nil), true)
+	local sample = #emulator:GetSteps()
+	emulator:Burst(sample + 1)
+	equal(emulator.index, 2)
+end)
+
 -- ========= Which quests are shown and told ==================================
 test("a quest is underway when something is started and something is left", function()
 	local underway = Harness.new().ns.QuestUnderway
@@ -2358,7 +2438,7 @@ test("in loopback a party of 20 plays for an hour without the network, and every
 	equal(w.ns.Session:Count(), 0)
 end)
 
-test("two recorded players play back together as 0.1.3 clients", function()
+test("two recorded players play back together as 0.3.0 clients", function()
 	local w = sandbox()
 	w.ns.Bus:Fire("READY")
 	w.ns.Sharing.loopback = true
@@ -2366,11 +2446,11 @@ test("two recorded players play back together as 0.1.3 clients", function()
 	w:advance(10)
 	local warrior = w.ns.Session.peers["Replay Warrior"]
 	equal(warrior ~= nil, true)
-	equal(warrior.version, "0.1.3")
+	equal(warrior.version, "0.3.0")
 	equal(warrior.race, "Scourge")
 	equal(warrior.maxXP, 12900)
 	equal(w.ns.Session.peers["Replay Paladin"] ~= nil, true)
-	-- 0.1.3 sends profession skill-ups only, and tags a turn-in's XP.
+	-- 0.3.0 sends profession skill-ups only, and tags a turn-in's XP.
 	for _, entry in ipairs(w.ns.Store:GetFeed(true)) do
 		assert(not (entry.type == "skill" and entry.player == "Replay Warrior"), "a weapon skill-up came through")
 	end
@@ -2447,14 +2527,14 @@ test("a player's card: level, XP, session XP, their quests, quests in common and
 	w.quests[1] = { questID = 356, title = "Rear Guard Patrol", objectives = {
 		{ text = "Wandering Spirit slain: 3/8", numFulfilled = 3, numRequired = 8 },
 	} }
-	w:hear("H", { c = "WARRIOR", l = 14, x = 500, m = 9000, r = "Orc", g = 2, v = "0.1.3" }, "Friend")
+	w:hear("H", { c = "WARRIOR", l = 14, x = 500, m = 9000, r = "Orc", g = 2, v = "0.3.0" }, "Friend")
 	w:hear("E", { t = "xp", c = "WARRIOR", xp = 120, level = 14, currentXP = 620, maxXP = 9000 }, "Friend")
 	w:hear("Q", { id = 356, quest = "Rear Guard Patrol", o1 = "Wandering Spirit", h1 = 5, n1 = 8 }, "Friend")
 	w:hear("G", { c = "WARRIOR", s16 = "25:0:0" }, "Friend")
 	local card = w.ns.PartyModel:Card("Friend")
 	equal(card.level, 14)
 	equal(card.here, true)
-	equal(card.version, "0.1.3")
+	equal(card.version, "0.3.0")
 	equal(card.xp.need, 9000)
 	equal(card.sessionXP, 120)
 	equal(card.todayXP, 120)
