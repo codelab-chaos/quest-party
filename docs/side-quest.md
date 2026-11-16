@@ -420,7 +420,7 @@ What makes it work:
 Benefits over an emulator inside the addon: real isolation (separate memory,
 saved state, reloads), the real code path end to end, and the sandbox's code can
 be a different build from yours, so a new version can talk to the one before
-it. Only builds that know `as` can be the sandbox, so 0.2.3 onward, not 0.2.0 or older.
+it. Only builds that know `as` can be the sandbox, so 0.3.5 onward, not 0.2.0 or older.
 
 Costs: both copies share your character's send budget, so a fast replay must
 stay under the throttle; and nobody else should see sandbox traffic, so other

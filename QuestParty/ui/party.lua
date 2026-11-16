@@ -112,6 +112,17 @@ local BACKDROP = {
 }
 
 local host, strip, card
+
+-- Shows or hides the head drawer, once per change: DRAWER_CHANGED says so,
+-- for what docks beside it (a popped-out chat). Never showing it and hiding
+-- it again in one redraw, which would make those listeners churn.
+local function SetDrawerShown(shown)
+	if strip:IsShown() == shown then
+		return
+	end
+	strip:SetShown(shown)
+	Bus:Fire("DRAWER_CHANGED", shown)
+end
 local LayoutArea -- defined with the card's area
 local ListWidth -- defined with the card's lists
 local heads = {}
@@ -283,8 +294,8 @@ local function DrawHeads(list)
 		button.order = shown
 		DrawHead(button, list[index], size, LAYOUT.headTop + (shown - 1) * step)
 	end
-	-- The drawer is only as tall as its heads.
-	strip:SetShown(shown > 0)
+	-- The drawer is only as tall as its heads, and not there with none.
+	SetDrawerShown(shown > 0)
 	if shown > 0 then
 		strip:SetHeight(LAYOUT.headTop + size + (shown - 1) * step + LAYOUT.drawerPad)
 	end
@@ -532,7 +543,7 @@ local function BuildCard()
 	card:SetFrameStrata(strip:GetFrameStrata())
 	card:SetFrameLevel(strip:GetFrameLevel())
 	card:SetSize(LAYOUT.cardWidth, CardHeight())
-	card:SetPoint("TOPLEFT", strip, "TOPRIGHT", -LAYOUT.dockOverlap, 0)
+	Party:PlaceCard()
 	card:SetBackdrop(BACKDROP)
 	card:SetBackdropColor(unpack(COLORS.back))
 	card:SetBackdropBorderColor(unpack(COLORS.border))
@@ -817,8 +828,8 @@ function Party:Redraw()
 		return
 	end
 	local show = ns.IsEnabled("partyHeads") and host:IsShown()
-	strip:SetShown(show)
 	if not show then
+		SetDrawerShown(false)
 		card:Hide()
 		return
 	end
@@ -900,6 +911,21 @@ end
 
 -- Brings the panel to the front of its layer, and the drawer and card with
 -- it, just under it in the order LAYOUT describes.
+-- What the popped-out chat docks to (ui\chat.lua): the head drawer.
+function Party:Dock()
+	return strip
+end
+
+-- The card sits beside the drawer, or beside the chat when it is popped out.
+function Party:PlaceCard()
+	if not card then
+		return
+	end
+	local chat = ns.ChatView and ns.ChatView:IsPopped() and _G[ns.Globals.frame("Chat")]
+	card:ClearAllPoints()
+	card:SetPoint("TOPLEFT", chat or strip, "TOPRIGHT", -LAYOUT.dockOverlap, 0)
+end
+
 function Party:Raise()
 	if not host then
 		return
@@ -911,6 +937,9 @@ function Party:Raise()
 	for _, part in ipairs({ strip, card }) do
 		part:SetFrameStrata(host:GetFrameStrata())
 		part:SetFrameLevel(base)
+	end
+	if ns.ChatView then
+		ns.ChatView:Raise(host:GetFrameStrata(), base)
 	end
 	self:Redraw() -- the heads take their levels from the drawer's
 end
@@ -929,3 +958,5 @@ itemLoads:SetScript("OnEvent", function()
 		Party:Changed()
 	end
 end)
+
+Bus:On("CHAT_POPPED", function() Party:PlaceCard() Party:Raise() end)

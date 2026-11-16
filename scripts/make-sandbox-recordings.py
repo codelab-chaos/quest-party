@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Build the sandbox's recordings (QuestParty/sandbox/recording.lua) from a
-saved message log, as 0.2.3 clients (the side quest build) would send them.
+saved message log, as 0.3.5 clients (the side quest build) would send them.
 
 Each recording is one player's messages from the log, turned into a pretend
 player: its name, class, race and sex are given here, and its messages are
-brought up to what Quest Party 0.2.3 sends (RULES below), so two recordings
-from one evening play back as two 0.2.3 clients together, in time with each
+brought up to what Quest Party 0.3.5 sends (RULES below), so two recordings
+from one evening play back as two 0.3.5 clients together, in time with each
 other.
 
   scripts/make-sandbox-recordings.py PATH   PATH is WTF/.../SavedVariables/QuestParty.lua
@@ -35,7 +35,7 @@ RECORDINGS = [
      "about": "a level 14 warrior in Silverpine Forest (a friend's side, sent by 0.1.2)"},
 ]
 
-VERSION = "0.2.3"
+VERSION = "0.3.5"
 # 0.2.0 and later report skill-ups in professions only.
 PROFESSIONS = {"Alchemy", "Blacksmithing", "Cooking", "Enchanting", "Engineering", "First Aid", "Fishing",
                "Herbalism", "Leatherworking", "Mining", "Skinning", "Tailoring"}
@@ -45,12 +45,12 @@ TURN_IN_SECONDS = 3  # an XP gain this soon after a turn-in, of the same amount,
 
 
 def modernize(messages, recording):
-    """Brings one player's messages up to 0.2.3. messages: [(time, kind, fields)]."""
+    """Brings one player's messages up to 0.3.5. messages: [(time, kind, fields)]."""
     out, xp, last_turn_in = [], {}, None
     for time, kind, fields in messages:
         if kind == "E" and fields.get("t") == "xp":
             xp = {"x": fields.get("currentXP"), "m": fields.get("maxXP")}
-    # A hello first, as 0.2.3 sends on connecting, if the log has none.
+    # A hello first, as 0.3.5 sends on connecting, if the log has none.
     first_xp = next((f for _, k, f in messages if k == "E" and f.get("t") == "xp"), None)
     if not any(kind == "H" for _, kind, _ in messages) and messages:
         hello = {"c": recording["class"], "v": VERSION, "r": recording["race"], "g": recording["sex"]}
@@ -123,7 +123,7 @@ def build(path):
     text = '''-- Real Quest Party sessions, for the sandbox to play back as pretend
 -- players: what each player's client sent over one evening of leveling
 -- (14 November 2026), with the seconds between messages, brought up to what
--- Quest Party 0.2.3 sends. Played together they are two 0.2.3 clients on one
+-- Quest Party 0.3.5 sends. Played together they are two 0.3.5 clients on one
 -- channel, in time with each other.
 -- Made by scripts/make-recordings.py from a saved message log; do not edit.
 --   start  seconds into the evening the recording starts

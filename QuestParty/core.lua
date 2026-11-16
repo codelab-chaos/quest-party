@@ -168,6 +168,7 @@ local CHARACTER_DEFAULTS = {
 	scenario = nil, -- the test run last chosen in Settings (emulator\scenarios.lua)
 	scenarioClear = true, -- Clear on go
 	shown = true,
+	docked = false, -- minimized to the dock (ui\dock.lua)
 }
 
 local function ApplyDefaults(target, defaults)
@@ -218,6 +219,16 @@ function ns.SetSlider(id, value)
 	ns.db.sliders[id] = value
 	Bus:Fire("SLIDER_CHANGED", id, value)
 	return value
+end
+
+-- Plays one of the game's sounds (a SOUNDKIT id) at the Volume set in
+-- Settings (data\settings.lua, VolumeLevels), or not at all when it is Mute.
+function ns.PlaySound(kit)
+	local level = ns.VolumeLevels[ns.GetSlider("volume") or 2]
+	if not level or level.volume <= 0 or not kit or not PlaySound then
+		return false
+	end
+	return pcall(PlaySound, kit, "SFX", nil, nil, nil, level.volume)
 end
 
 function ns.SetEnabled(id, value)

@@ -4,7 +4,7 @@
 ## Author: Wizwonk
 ## X-License: MIT
 ## X-Debug: true
-## Version: 0.2.3
+## Version: 0.3.5
 ## AllowLoadGameType: forever
 ## ExcludeLoadGameType: standard, classic
 ## Category: Quests
@@ -19,9 +19,13 @@ data\feed-types.lua
 data\filters.lua
 data\settings.lua
 data\slots.lua
+data\chat.lua
+data\effects.lua
 data\stats.lua
 store.lua
 stats.lua
+chat.lua
+particles.lua
 resolver.lua
 comms\protocol.lua
 comms\origin.lua
@@ -41,6 +45,10 @@ ui\party-model.lua
 ui\confetti.lua
 ui\panel.lua
 ui\party.lua
+ui\particles.lua
+ui\chat.lua
+ui\lab.lua
+ui\dock.lua
 ui\listener.lua
 ui\chat-echo.lua
 commands.lua

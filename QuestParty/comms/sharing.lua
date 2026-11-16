@@ -491,6 +491,20 @@ local function SendGear(gear, class, as, slots, changed)
 end
 Sharing.SendGear = SendGear
 
+-- Quest Party chat (chat.lua): up to three images (file IDs), a saying (an
+-- id from data\chat.lua) and an effect (an id from data\effects.lua). Only
+-- those travel. as is the pretend player sending it, if any. Returns false
+-- when there is no channel to send it to.
+local IMAGE_KEYS = { "i", "i2", "i3" }
+
+function Sharing.SendSay(icons, saying, effect, class, as)
+	local fields = { k = saying, e = effect, c = class or "" }
+	for index, icon in ipairs(icons or {}) do
+		if IMAGE_KEYS[index] then fields[IMAGE_KEYS[index]] = icon end
+	end
+	return Send(Kinds.SAY, fields, nil, as)
+end
+
 local stating = false -- a statement of our quests is already on its way
 
 -- Says how each quest we are working on stands, a moment from now.
@@ -654,6 +668,30 @@ handlers[Kinds.ENTRY] = function(sender, fields, virtual)
 end
 
 -- Equipped items: each slot replaces what was known of it, unless older.
+-- Quest Party chat. An icon must be a whole number, a saying a plain id
+-- (letters, numbers, _); anything else is left out, and a message with
+-- neither is dropped. chat.lua decides what of it shows.
+local function PlainId(value)
+	return type(value) == "string" and #value <= 24 and value:match("^[%w_]+$") and value or nil
+end
+
+handlers[Kinds.SAY] = function(sender, fields, virtual)
+	local icons = {}
+	for _, key in ipairs(IMAGE_KEYS) do
+		local icon = fields[key]
+		if type(icon) == "number" and icon > 0 and icon == math.floor(icon) then
+			icons[#icons + 1] = icon
+		end
+	end
+	local saying, effect = PlainId(fields.k), PlainId(fields.e)
+	if #icons == 0 and not saying then
+		return
+	end
+	local class = type(fields.c) == "string" and fields.c ~= "" and fields.c or nil
+	local peer = Session().peers[sender]
+	Bus:Fire("CHAT_SAY", { player = sender, class = class or (peer and peer.class), icons = icons, saying = saying, effect = effect, virtual = virtual or nil })
+end
+
 handlers[Kinds.GEAR] = function(sender, fields, virtual)
 	local class = type(fields.c) == "string" and fields.c ~= "" and fields.c or nil
 	local gear = {}
@@ -762,6 +800,12 @@ function Dispatch(text, chatType, sender, channelId, fromMe, loopback)
 		-- Logged whether or not it can be read, so the listener shows
 		-- everything that arrives on the channel under Quest Party's name.
 		Log("in", Clean(text), sender)
+	end
+	-- Our own decal back from the server: it shows in our chat too, now that
+	-- it has made the trip.
+	if origin == "self" and kind == Kinds.SAY then
+		Read(text, UnitName("player"), false)
+		return
 	end
 	if origin ~= "peer" then
 		return

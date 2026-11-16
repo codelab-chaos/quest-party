@@ -25,6 +25,8 @@ ns.Settings = {
 	{ id = "partyHeads", group = "party", label = L.SET_PARTY_HEADS, tip = L.SET_PARTY_HEADS_TIP, default = true },
 	{ id = "rememberPlayers", group = "party", label = L.SET_REMEMBER, tip = L.SET_REMEMBER_TIP, default = true },
 	{ id = "confetti", group = "display", label = L.SET_CONFETTI, tip = L.SET_CONFETTI_TIP, default = true },
+	{ id = "chatEffects", group = "display", label = L.SET_CHAT_EFFECTS, tip = L.SET_CHAT_EFFECTS_TIP, default = true },
+	{ id = "dockRight", group = "display", label = L.SET_DOCK_RIGHT, tip = L.SET_DOCK_RIGHT_TIP, default = false },
 	{ id = "chatEcho", group = "display", label = L.SET_CHAT_ECHO, tip = L.SET_CHAT_ECHO_TIP, default = true },
 	{ id = "chatOrder", group = "display", label = L.SET_CHAT_ORDER, tip = L.SET_CHAT_ORDER_TIP, default = true },
 	{ id = "showSelf", group = "display", label = L.SET_SHOW_SELF, tip = L.SET_SHOW_SELF_TIP, default = true },
@@ -41,7 +43,18 @@ ns.SettingGroups = {
 --   min, max, step  its range
 --   default         the value for a new install
 --   format          how its value reads beside it
+--   labels          or the name of a list (ns[labels]) whose entry at the value has a label
+-- Volume: four steps, from the speaker in the title bar or the slider.
+--   volume  passed to PlaySound (0 plays nothing)
+ns.VolumeLevels = {
+	[0] = { id = "mute", label = L.VOLUME_MUTE, volume = 0 },
+	[1] = { id = "soft", label = L.VOLUME_SOFT, volume = 0.35 },
+	[2] = { id = "regular", label = L.VOLUME_REGULAR, volume = 0.7 },
+	[3] = { id = "loud", label = L.VOLUME_LOUD, volume = 1 },
+}
+
 ns.SettingSliders = {
+	{ id = "volume", group = "display", label = L.SET_VOLUME, tip = L.SET_VOLUME_TIP, min = 0, max = 3, step = 1, default = 2, labels = "VolumeLevels" },
 	{ id = "gutterScale", group = "display", label = L.SET_GUTTER_SCALE, tip = L.SET_GUTTER_SCALE_TIP, min = 0.75, max = 2, step = 0.05, default = 1.5, format = "%.2fx" },
 }
 

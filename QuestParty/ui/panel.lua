@@ -209,9 +209,19 @@ local BACKDROP = {
 	insets = { left = 3, right = 3, top = 3, bottom = 3 },
 }
 
-local frame, scrollBox, scrollBar, listView, emptyText, optionsView, optionsButton, viewButton, titleIcon
+local frame, scrollBox, scrollBar, listView, emptyText, optionsView, optionsButton, viewButton, titleIcon, soundButton
+
+-- The speaker shows the volume: crossed out at Mute, fainter the softer.
+local VOLUME_ALPHA = { [0] = 0.6, [1] = 0.55, [2] = 0.8, [3] = 1 }
+local function UpdateSoundButton()
+	if not soundButton then return end
+	local value = ns.GetSlider("volume") or 2
+	soundButton.icon:SetAtlas(value > 0 and "voicechat-icon-speaker" or "voicechat-icon-speaker-mute")
+	soundButton.icon:SetDesaturated(value == 0)
+	soundButton.icon:SetAlpha(VOLUME_ALPHA[value] or 1)
+end
 local filterBar, xpStrip, gutter
-local PlaceList, PlaceUnderStrip
+local PlaceList, PlaceUnderStrip, BuildShrink
 local xpBars = {} -- the bar frames, reused
 local xpBarsShown = 0
 local filterTabs = {}
@@ -559,6 +569,15 @@ function Panel:Refresh(jumpToEnd)
 		return
 	end
 	local filter = ns.FilterById[ns.charDb.filter] or ns.Filters[1]
+	-- The Chat tab shows Quest Party chat (ui\chat.lua) in place of the list.
+	scrollBox:SetShown(not filter.chat)
+	scrollBar:SetShown(not filter.chat)
+	if filter.chat then
+		emptyText:Hide()
+		ns.ChatView:ShowDocked(ListTop(), LAYOUT.inset)
+		return
+	end
+	ns.ChatView:HideDocked()
 	local follow = ns.IsEnabled("chatOrder")
 		and (jumpToEnd or not scrollBox:HasScrollableExtent() or scrollBox:IsAtEnd())
 
@@ -600,6 +619,9 @@ local function FilterLabel(filter, compact)
 		local count = ns.Session:Count()
 		return count > 0 and (label .. " " .. count) or label
 	end
+	if filter.chat and ns.Chat.unread > 0 and ns.charDb.filter ~= filter.id then
+		return label .. " " .. ns.Chat.unread -- new messages not seen yet
+	end
 	return label
 end
 
@@ -631,14 +653,20 @@ local function UpdateFilter()
 		tab:SetHeight(LAYOUT.filterHeight + (selected and 1 or 0))
 	end
 	-- As wide as their labels, from the left (the Party count changes them).
-	local left = 0
+	-- Most tabs from the left; align = "right" ones from the right end.
+	local left, right = 0, 0
 	for _, filter in ipairs(ns.Tabs) do
 		local tab = filterTabs[filter.id]
 		local width = math.max(LAYOUT.tabMinWidth, math.ceil(tab.label:GetStringWidth()) + 2 * LAYOUT.tabPad)
 		tab:SetWidth(width)
 		tab:ClearAllPoints()
-		tab:SetPoint("TOPLEFT", left, 0)
-		left = left + width + LAYOUT.filterGap
+		if filter.align == "right" then
+			tab:SetPoint("TOPRIGHT", -right, 0)
+			right = right + width + LAYOUT.filterGap
+		else
+			tab:SetPoint("TOPLEFT", left, 0)
+			left = left + width + LAYOUT.filterGap
+		end
 	end
 end
 
@@ -687,6 +715,12 @@ local function UpdateEmulatorButton()
 end
 
 function Panel:SelectFilter(id)
+	-- The Chat tab while chat is popped out docks it back (ui\chat.lua).
+	local filter = ns.FilterById[id]
+	if filter and filter.chat and ns.ChatView:IsPopped() then
+		ns.ChatView:SetPopped(false)
+		return
+	end
 	ns.charDb.filter = id
 	UpdateFilter()
 	if PlaceUnderStrip and filterBar then
@@ -852,6 +886,34 @@ local function BuildHeader()
 		Panel:SetOneLine(not ns.charDb.oneLine)
 	end)
 	viewButton:SetPoint("RIGHT", optionsButton, "LEFT", -HEADER_BUTTON.gap, 0)
+
+	-- Minimize to the dock (ui\dock.lua): a bar, as a window's minimize has.
+	local minimize = CreateHeaderButton(function()
+		return L.DOCK_MINIMIZE, L.DOCK_MINIMIZE_TIP
+	end, function()
+		Panel:Minimize()
+	end)
+	minimize:SetPoint("RIGHT", viewButton, "LEFT", -HEADER_BUTTON.gap, 0)
+	local dash = minimize:CreateTexture(nil, "ARTWORK")
+	dash:SetSize(HEADER_BUTTON.barWidth, HEADER_BUTTON.barHeight)
+	dash:SetPoint("CENTER", 0, -4)
+	dash:SetColorTexture(unpack(HEADER_BUTTON.glyph))
+
+	-- Sounds on and off (the Sounds switch in Settings): a speaker.
+	-- Steps the volume down: loud, regular, soft, mute, then loud again.
+	soundButton = CreateHeaderButton(function()
+		local level = ns.VolumeLevels[ns.GetSlider("volume") or 2]
+		return L.SOUNDS_LEVEL:format(level and level.label or ""), L.SOUNDS_TIP
+	end, function()
+		local value = ns.GetSlider("volume") or 2
+		ns.SetSlider("volume", value == 0 and 3 or value - 1)
+	end)
+	soundButton:SetPoint("RIGHT", minimize, "LEFT", -HEADER_BUTTON.gap, 0)
+	soundButton.icon = soundButton:CreateTexture(nil, "ARTWORK")
+	soundButton.icon:SetPoint("TOPLEFT", 2, -2)
+	soundButton.icon:SetPoint("BOTTOMRIGHT", -2, 2)
+	UpdateSoundButton()
+
 	viewButton.bars = {}
 	for index, offset in ipairs(HEADER_BUTTON.barOffsets) do
 		local bar = viewButton:CreateTexture(nil, "ARTWORK")
@@ -1267,6 +1329,9 @@ local function BuildChannel(content, y)
 	name:SetPoint("TOPRIGHT", -(2 * SETTINGS.buttonWidth + 14), -y)
 	name:SetAutoFocus(false)
 	name:SetMaxLetters(30)
+	name.Instructions = name:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	name.Instructions:SetPoint("LEFT", 2, 0)
+	name.Instructions:SetText(L.CHANNEL_HINT)
 	local join = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
 	join:SetSize(SETTINGS.buttonWidth, 22)
 	join:SetPoint("LEFT", name, "RIGHT", 6, 0)
@@ -1281,6 +1346,23 @@ local function BuildChannel(content, y)
 	status:SetJustifyH("LEFT")
 	status:SetWordWrap(true)
 	optionsView.connection = { name = name, join = join, disconnect = disconnect, status = status }
+	-- Letters and numbers only: anything else typed or pasted is taken out
+	-- as it goes in, and the status line says why.
+	name:SetScript("OnTextChanged", function(self, byUser)
+		local text = self:GetText()
+		self.Instructions:SetShown(text == "")
+		if not byUser then
+			return
+		end
+		local clean = ns.CleanChannelName(text)
+		if clean ~= text then
+			local cursor = self:GetCursorPosition() - (#text - #clean)
+			self:SetText(clean)
+			self:SetCursorPosition(math.max(0, cursor))
+			status:SetText(L.CHANNEL_LETTERS_ONLY)
+			status:SetTextColor(1, 0.82, 0)
+		end
+	end)
 	local function Connect()
 		local ok, errorMessage = ns.Session:Connect(name:GetText())
 		name:ClearFocus()
@@ -1315,11 +1397,26 @@ local function BuildSlider(content, width, slider, y)
 	bar:SetMinMaxValues(slider.min, slider.max)
 	bar:SetValueStep(slider.step)
 	bar:SetObeyStepOnDrag(true)
+	-- How its value reads: a label from its list, or its format.
+	local function Reads(number)
+		local list = slider.labels and ns[slider.labels]
+		if list and list[number] then
+			return list[number].label
+		end
+		return (slider.format or "%s"):format(number)
+	end
 	bar:SetValue(ns.GetSlider(slider.id))
-	value:SetText(slider.format:format(ns.GetSlider(slider.id)))
+	value:SetText(Reads(ns.GetSlider(slider.id)))
 	bar:SetScript("OnValueChanged", function(_, moved, byUser)
 		if byUser then
-			value:SetText(slider.format:format(ns.SetSlider(slider.id, moved)))
+			value:SetText(Reads(ns.SetSlider(slider.id, moved)))
+		end
+	end)
+	-- Kept in step when the value changes elsewhere (the speaker).
+	Bus:On("SLIDER_CHANGED", function(id, number)
+		if id == slider.id and bar:GetValue() ~= number then
+			bar:SetValue(number)
+			value:SetText(Reads(number))
 		end
 	end)
 	SettingsTip(bar, slider.label, slider.tip)
@@ -1535,6 +1632,7 @@ local function Build()
 	frame:SetScript("OnHide", function()
 		ns.charDb.shown = false
 	end)
+	BuildShrink()
 	C_Timer.NewTicker(LAYOUT.refreshSeconds, function()
 		Panel:Refresh()
 	end)
@@ -1547,7 +1645,10 @@ local function Build()
 	UpdateFilter()
 	PlaceUnderStrip()
 	UpdateEmulatorButton()
-	frame:SetShown(ns.charDb.shown)
+	frame:SetShown(ns.charDb.shown and not ns.charDb.docked)
+	if ns.charDb.docked then
+		C_Timer.After(0, function() ns.Dock:Show() end)
+	end
 	Panel:Refresh(true)
 	-- Again on the next frame: the first pass runs before the list has its real size,
 	-- and the scroll position it sets does not survive the first layout.
@@ -1563,9 +1664,80 @@ function Panel:GetFrame()
 end
 
 function Panel:Toggle()
-	if frame then
-		frame:SetShown(not frame:IsShown())
+	if not frame then return end
+	if ns.charDb.docked then
+		self:Restore()
+		return
 	end
+	frame:SetShown(not frame:IsShown())
+end
+
+-- ========= Minimized to the dock ============================================
+-- The panel shrinks and fades toward the dock's edge (ui\dock.lua), and grows
+-- back out of it to where it was. Moving it while open is remembered as usual,
+-- so it comes back to the latest spot.
+local SHRINK = { scale = 0.08, seconds = 0.28 }
+local shrink, shrinkMove, shrinkScale, growing
+
+-- Points the shrink at the dock: from the panel's middle to the dock's edge.
+local function AimShrink()
+	local dockX, dockY = ns.Dock:Point()
+	local x, y = frame:GetCenter()
+	local scale = frame:GetEffectiveScale() / UIParent:GetEffectiveScale()
+	shrinkMove:SetOffset((dockX - x * scale) / scale, (dockY - y * scale) / scale)
+end
+
+BuildShrink = function()
+	shrink = frame:CreateAnimationGroup()
+	shrinkScale = shrink:CreateAnimation("Scale")
+	if shrinkScale.SetScaleFrom then
+		shrinkScale:SetScaleFrom(1, 1)
+		shrinkScale:SetScaleTo(SHRINK.scale, SHRINK.scale)
+	else
+		shrinkScale:SetFromScale(1, 1)
+		shrinkScale:SetToScale(SHRINK.scale, SHRINK.scale)
+	end
+	shrinkScale:SetDuration(SHRINK.seconds)
+	shrinkScale:SetSmoothing("IN")
+	shrinkMove = shrink:CreateAnimation("Translation")
+	shrinkMove:SetDuration(SHRINK.seconds)
+	shrinkMove:SetSmoothing("IN")
+	local fade = shrink:CreateAnimation("Alpha")
+	fade:SetFromAlpha(1)
+	fade:SetToAlpha(0)
+	fade:SetDuration(SHRINK.seconds)
+	shrink:SetScript("OnFinished", function()
+		if not growing then
+			frame:Hide()
+		end
+		growing = false
+	end)
+end
+
+function Panel:Minimize()
+	if not frame or not frame:IsShown() or shrink:IsPlaying() then return end
+	SavePosition()
+	ns.charDb.docked = true
+	self:ShowOptions(false)
+	ns.Dock:Show()
+	AimShrink()
+	growing = false
+	shrink:Play()
+end
+
+-- Opens the panel out of the dock, on a tab when one is given.
+function Panel:Restore(tab)
+	if not frame then return end
+	ns.charDb.docked = false
+	ns.Dock:Hide()
+	RestorePosition()
+	frame:Show()
+	if tab and ns.FilterById[tab] then
+		self:SelectFilter(tab)
+	end
+	AimShrink()
+	growing = true
+	shrink:Play(true) -- the shrink, backwards: it grows out of the dock
 end
 
 Bus:On("READY", Build)
@@ -1585,6 +1757,12 @@ Bus:On("STORE_CHANGED", function()
 		ns.Confetti:SetHost(frame)
 		Panel:Refresh()
 	end)
+end)
+
+Bus:On("CHAT_CHANGED", function()
+	if frame then
+		UpdateFilter() -- the Chat tab's count of new messages
+	end
 end)
 
 Bus:On("PEERS_CHANGED", function()
@@ -1620,5 +1798,11 @@ Bus:On("SLIDER_CHANGED", function(id)
 		LayoutGutter()
 		PlaceUnderStrip()
 		Panel:Refresh()
+	end
+end)
+
+Bus:On("SLIDER_CHANGED", function(id)
+	if id == "volume" then
+		UpdateSoundButton()
 	end
 end)

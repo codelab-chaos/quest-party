@@ -47,9 +47,22 @@ function Session:RefreshConnection()
 	end
 end
 
+-- What a channel name may be: letters and numbers only, up to 30 of them,
+-- and not only numbers (a number is how the game names a joined channel).
+local CHANNEL_MAX = 30
+
+-- The name with everything but letters and numbers taken out, cut to fit.
+function ns.CleanChannelName(text)
+	return (tostring(text or ""):gsub("[^%a%d]", "")):sub(1, CHANNEL_MAX)
+end
+
+function ns.ValidChannelName(name)
+	return type(name) == "string" and name:match("^[%a%d]+$") ~= nil and #name <= CHANNEL_MAX and not name:match("^%d+$")
+end
+
 function Session:Connect(value)
 	local name = type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
-	if name == "" or #name > 30 or name:find("[%s%c|]") or name:match("^%d+$") then
+	if not ns.ValidChannelName(name) then
 		return false, L.CHANNEL_INVALID_NAME
 	end
 	local config = ns.db.connection

@@ -1469,12 +1469,21 @@ end)
 
 test("invalid channel names do not change the saved connection or join anything", function()
 	local w = Harness.new()
-	for _, name in ipairs({ "", "   ", "123", "two words", string.rep("a", 31), "name|cffff00" }) do
+	for _, name in ipairs({ "", "   ", "123", "two words", string.rep("a", 31), "name|cffff00", "qp-party", "quest_friends", "café" }) do
 		equal(w.ns.Session:Connect(name), false)
 	end
 	equal(#w.joins, 0)
 	equal(w.ns.db.connection.name, "")
 	equal(w.ns.db.connection.enabled, false)
+end)
+
+test("a channel name is letters and numbers only: typing anything else takes it out", function()
+	local w = Harness.new()
+	equal(w.ns.CleanChannelName("Quest Friends-2!"), "QuestFriends2")
+	equal(w.ns.CleanChannelName(string.rep("ab", 20)), string.rep("ab", 15))
+	equal(w.ns.ValidChannelName("QuestFriends2"), true)
+	equal(w.ns.ValidChannelName("2024"), false)
+	equal(w.ns.ValidChannelName("qp-party"), false)
 end)
 
 test("selecting an already joined channel does not duplicate joins or chat subscriptions", function()
@@ -1986,6 +1995,284 @@ test("a test run: choose a scenario, GO starts it, Clear on go wipes first, STOP
 	equal(w.ns.Emulator.script, "evening")
 	runner:Stop()
 	equal(runner:Running(), false)
+end)
+
+-- ========= Quest Party chat (decals) =======================================
+test("images, a saying and an effect go out as one short message, and show once the server sends it back", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	equal(w.ns.Chat:Send({ 134071 }, "gz"), false) -- no channel yet
+	w:share()
+	local ok, problem = w.ns.Chat:Send({}, nil)
+	equal(problem, w.ns.L.CHAT_PICK) -- nothing chosen
+	equal(w.ns.Chat:Send({}, "not a saying"), false)
+	equal(w.ns.Chat:Send({ 134071 }, "gz", "no such effect"), false)
+	ok, problem = w.ns.Chat:Send({}, "gz", "rain")
+	equal(problem, w.ns.L.CHAT_EFFECT_NEEDS_IMAGE)
+	equal(w.ns.Chat:Send({ 134071, 134072, 134073, 134074 }, "gz", "fireworks"), true)
+	local sent = sentOfKind(w, "S")
+	equal(#sent, 1)
+	equal(sent[1].fields.i, 134071)
+	equal(sent[1].fields.i3, 134073) -- three at most
+	equal(sent[1].fields.k, "gz")
+	equal(sent[1].fields.e, "fireworks")
+	equal(#w.ns.Chat:Messages(), 0) -- not until it has made the trip
+	local played = {}
+	w.ns.Bus:On("CHAT_PLAY", function(message) played[#played + 1] = message end)
+	w:event("CHAT_MSG_ADDON", "QuestParty", sent[1].message.text, "CHANNEL", "Tester-TestRealm", "", 0, 5, "QuestFriends")
+	local message = w.ns.Chat:Messages()[1]
+	equal(message.player, "Tester")
+	equal(#message.icons, 3)
+	equal(message.saying, "gz")
+	equal(message.effect, "fireworks")
+	equal(message.fresh, true) -- pops in when first drawn
+	equal(played[1], message) -- its effect plays where chat is shown
+	equal(w.ns.Chat:Send({ 134071 }, nil), true) -- an image alone
+	equal(w.ns.Chat:Send({}, "hi"), true) -- a saying alone
+end)
+
+test("what friends send is only ever an image number and a known saying", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	w:hear("S", { i = 133000, k = "ty", c = "MAGE" }, "Friend")
+	w:hear("S", { i = "|Tevil|t", k = "|cffff0000words" }, "Friend") -- neither is usable
+	w:hear("S", { i = 1.5 }, "Friend")
+	w:hear("S", { k = "danceparty" }, "Friend") -- a saying this version does not know
+	w:hear("S", { i = 133001, k = "a newer saying" }, "Friend") -- the image still shows
+	w:hear("D", { i = 133002 }, "Friend") -- kinds from earlier builds are not read
+	w:hear("T", { x = "free text" }, "Friend")
+	w:hear("S", { i = 133003, e = "|cffevil" }, "Friend") -- not an effect: the image alone
+	local messages = w.ns.Chat:VisibleMessages()
+	equal(#messages, 3)
+	equal(messages[1].saying, "ty")
+	equal(messages[1].class, "MAGE")
+	equal(messages[2].icons[1], 133001)
+	equal(messages[2].saying, nil)
+	equal(messages[3].effect, nil)
+end)
+
+test("a saying with an effect does it on every screen", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	local effects = {}
+	w.ns.Bus:On("CHAT_EFFECT", function(effect, player) effects[#effects + 1] = effect .. ":" .. player end)
+	w:share()
+	w:hear("S", { k = "cheer" }, "Friend")
+	equal(effects[1], "confetti:Friend")
+end)
+
+test("a spammer is timed out here: hidden for a while, with one notice, longer each time", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	local rules = w.ns.ChatRules
+	for _ = 1, rules.burst + 3 do
+		w:hear("S", { k = "lol" }, "Spammer")
+	end
+	local shown, notices = 0, 0
+	for _, message in ipairs(w.ns.Chat:Messages()) do
+		if message.system then notices = notices + 1 else shown = shown + 1 end
+	end
+	equal(shown, rules.burst)
+	equal(notices, 1) -- said once, not for every dropped message
+	equal(w.ns.Chat:TimeoutLeft("Spammer"), rules.timeoutSeconds)
+	w:advance(rules.burstSeconds) -- the burst has passed, but the timeout has not
+	w:hear("S", { k = "lol" }, "Spammer")
+	equal(#w.ns.Chat:Messages(), rules.burst + 1)
+	w:advance(rules.timeoutSeconds)
+	w:hear("S", { k = "hi" }, "Spammer") -- served their time
+	equal(#w.ns.Chat:Messages(), rules.burst + 2)
+	for _ = 1, rules.burst do
+		w:hear("S", { k = "lol" }, "Spammer")
+	end
+	equal(w.ns.Chat:TimeoutLeft("Spammer"), rules.timeoutSeconds * 2) -- again soon: doubled
+	equal(w.ns.Chat:TimeoutLeft("Friend"), 0) -- others are not affected
+	local again = Harness.new(w.ns.db)
+	for _, message in ipairs(again.ns.Chat:Messages()) do
+		equal(message.system, nil) -- notices are not kept across a reload
+	end
+end)
+
+test("your own chat times out too: past the burst nothing goes out until the time is up", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	local rules = w.ns.ChatRules
+	for _ = 1, rules.burst do
+		equal(w.ns.Chat:Send({}, "hi"), true)
+	end
+	local ok, problem = w.ns.Chat:Send({}, "hi")
+	equal(ok, false)
+	equal(problem, w.ns.L.CHAT_TIMEOUT:format(rules.timeoutSeconds))
+	local sent = #sentOfKind(w, "S")
+	w:advance(rules.timeoutSeconds - 1)
+	equal(w.ns.Chat:Send({}, "hi"), false) -- still timed out
+	equal(#sentOfKind(w, "S"), sent)
+	w:advance(1)
+	equal(w.ns.Chat:TimeoutLeft(), 0)
+	equal(w.ns.Chat:Send({}, "hi"), true)
+	w:advance(rules.timeoutForgetSeconds + 1) -- a long quiet spell: the next one is short again
+	for _ = 1, rules.burst do w.ns.Chat:Send({}, "hi") end
+	w.ns.Chat:Send({}, "hi")
+	equal(w.ns.Chat:TimeoutLeft(), rules.timeoutSeconds)
+end)
+
+test("presets: built-in ones first, then the player's own, saved once each and kept", function()
+	local w = Harness.new()
+	w.env.GetFileIDFromPath = function(path) return path:find("BattleShout") and 2001 or nil end
+	local presets = w.ns.Chat:Presets()
+	equal(presets[1].builtIn, true)
+	equal(presets[1].icons[1], 2001)
+	equal(presets[1].saying, "hi")
+	equal(#presets[2].icons, 0) -- icons the game does not know: the saying alone
+	equal(presets[2].effect, nil) -- and no effect without images
+	local builtIn = #presets
+	equal(w.ns.Chat:SavePreset({ 133000, 133001 }, "gz", "rain"), true)
+	local ok, problem = w.ns.Chat:SavePreset({ 133000, 133001 }, "gz", "rain")
+	equal(problem, w.ns.L.CHAT_PRESET_KNOWN)
+	equal(w.ns.Chat:SavePreset({}, nil), false)
+	presets = w.ns.Chat:Presets()
+	equal(#presets, builtIn + 1)
+	equal(presets[#presets].own, 1)
+	local again = Harness.new(w.ns.db)
+	equal(again.ns.db.chatPresets[1].saying, "gz") -- kept across a reload
+	equal(again.ns.db.chatPresets[1].effect, "rain")
+	again.ns.Chat:DeletePreset(1)
+	equal(#again.ns.db.chatPresets, 0)
+end)
+
+test("muting: a muted player's messages and effects do not show, and the ignore list mutes too", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	local effects = 0
+	w.ns.Bus:On("CHAT_EFFECT", function() effects = effects + 1 end)
+	w:share()
+	w:hear("S", { k = "hi" }, "Friend")
+	equal(w.ns.Chat:ToggleMute("Friend"), true)
+	equal(#w.ns.Chat:VisibleMessages(), 0) -- what they said before is hidden too
+	w:hear("S", { k = "cheer" }, "Friend")
+	w:hear("S", { i = 133000 }, "Friend")
+	equal(effects, 0)
+	equal(w.ns.Chat:ToggleMute("Friend"), false)
+	equal(#w.ns.Chat:VisibleMessages(), 1)
+	equal(w.ns.Chat:ToggleMute("Tester"), false) -- not yourself
+	w.env.C_FriendList = { IsIgnored = function(name) return name == "Troll" end }
+	w:hear("S", { k = "hi" }, "Troll")
+	equal(#w.ns.Chat:VisibleMessages(), 1)
+	equal(w.ns.Chat:IsMuted("Troll"), true)
+end)
+
+test("typing a word suggests sayings and images for it; the word itself is never sent", function()
+	local w = Harness.new()
+	w.env.GetFileIDFromPath = function(path) return path:find("Gem") and (#path * 100) or nil end
+	local chat = w.ns.Chat
+	equal(chat:Suggest("gr")[1].id, "gz") -- "Gratz!"
+	equal(chat:Suggest("GRATZ")[1].kind, "saying")
+	equal(#chat:Suggest("rai"), 0) -- effects are not built by typing: they are the strip's
+	local gems = chat:Suggest("gem")
+	assert(#gems > 0, "gems suggested")
+	for _, entry in ipairs(gems) do equal(entry.kind, "image") end
+	equal(#chat:Suggest(""), #w.ns.Sayings) -- an empty word: every saying
+	equal(#chat:Suggest("zzzq"), 0)
+	equal(#chat:Suggest("e", 3), 3) -- at most the limit
+	local before = #w.sent
+	chat:Suggest("hello there")
+	equal(#w.sent, before)
+end)
+
+test("the effects strip: preset effects, empty and worded, sent in one click", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w.env.GetFileIDFromPath = function(path) return #path * 10 end
+	local presets = w.ns.Chat:EffectPresets()
+	equal(#presets, #w.ns.EffectPresets)
+	local empty, worded
+	for _, preset in ipairs(presets) do
+		if preset.saying then worded = worded or preset else empty = empty or preset end
+	end
+	assert(empty and worded, "both kinds are there")
+	equal(w.ns.Chat:SendEffectPreset(worded.id), false) -- no channel yet
+	w:share()
+	equal(w.ns.Chat:SendEffectPreset(worded.id), true)
+	local sent = sentOfKind(w, "S")
+	equal(sent[1].fields.e, worded.effect)
+	equal(sent[1].fields.k, worded.saying)
+	equal(w.ns.Chat:SendEffectPreset("nope"), false)
+end)
+
+test("a worded effect turns some of its particles into its words, rockets included", function()
+	local w = Harness.new()
+	local seed = 3
+	local function random() seed = (seed * 1103515245 + 12345) % 2147483648 return seed / 2147483648 end
+	local list = w.ns.Particles.Spawn(w.ns.ChatEffectById.rain, { 11 }, 300, 200, random, "Gratz!")
+	local words = 0
+	for _, particle in ipairs(list) do
+		if particle.text then
+			words = words + 1
+			equal(particle.text, "Gratz!")
+			equal(particle.icon, nil)
+		end
+	end
+	assert(words > 0 and words <= w.ns.ParticleRules.maxWords, "some words: " .. words)
+	local rockets = w.ns.Particles.Spawn(w.ns.ChatEffectById.fireworks, { 11 }, 300, 200, random, "Gratz!")
+	local time, sparkWords = 0, 0
+	while time < 3 do
+		w.ns.Particles.Step(rockets, 0.05, 200, random)
+		time = time + 0.05
+	end
+	for _, particle in ipairs(rockets) do
+		if particle.text then sparkWords = sparkWords + 1 end
+	end
+	assert(sparkWords > 0, "the rockets burst into words")
+end)
+
+test("every effect starts particles from its images, moves them, and they all end", function()
+	local w = Harness.new()
+	local seed = 7
+	local function random() seed = (seed * 1103515245 + 12345) % 2147483648 return seed / 2147483648 end
+	for _, effect in ipairs(w.ns.ChatEffects) do
+		local list = w.ns.Particles.Spawn(effect, { 11, 22 }, 300, 200, random)
+		assert(#list > 0, effect.id .. " starts with nothing")
+		for _, particle in ipairs(list) do
+			assert(particle.icon == 11 or particle.icon == 22, effect.id .. " used another image")
+		end
+		local left, time, popped = #list, 0, false
+		while left > 0 and time < 20 do
+			local before = #list
+			left = w.ns.Particles.Step(list, 0.05, 200, random)
+			popped = popped or #list > before
+			time = time + 0.05
+		end
+		equal(left, 0) -- everything ends
+		if effect.pattern == "fireworks" then
+			equal(popped, true) -- rockets pop into sparks
+		end
+	end
+	equal(#w.ns.Particles.Spawn(w.ns.ChatEffectById.rain, {}, 300, 200, random), 0) -- no images, nothing
+end)
+
+test("sounds play at the volume set: loud, regular, soft, or not at all on mute", function()
+	local w = Harness.new({ switches = { chatSounds = false } }) -- an old switch is cleaned away
+	local played = {}
+	w.env.PlaySound = function(kit, channel, _, _, _, volume) played[#played + 1] = { kit = kit, volume = volume } end
+	equal(w.ns.db.switches.chatSounds, nil)
+	equal(w.ns.GetSlider("volume"), 2) -- regular
+	w.ns.PlaySound(74702)
+	equal(played[1].kit, 74702)
+	equal(played[1].volume, w.ns.VolumeLevels[2].volume)
+	w.ns.SetSlider("volume", 3)
+	w.ns.PlaySound(74702)
+	equal(played[2].volume, 1)
+	w.ns.SetSlider("volume", 0)
+	equal(w.ns.PlaySound(74702), false)
+	equal(#played, 2) -- mute plays nothing
+	equal(w.ns.SetSlider("volume", 7), 3) -- kept in range
+end)
+
+test("the image picker searches our catalog by path and tags; paths the game does not know are dropped", function()
+	local w = Harness.new()
+	local ids = { ["Interface\\Icons\\INV_Misc_Gem_Ruby_01"] = 1001, ["Interface\\Icons\\INV_Misc_Gem_01"] = 1002, ["Interface\\Icons\\XP_Icon"] = 1003 }
+	w.env.GetFileIDFromPath = function(path) return ids[path] end
+	equal(#w.ns.Chat:Search(""), 3)
+	local found = w.ns.Chat:Search("gem ruby")
+	equal(#found, 1)
+	equal(found[1], 1001)
+	equal(#w.ns.Chat:Search("GEM"), 2)
+	equal(w.ns.Chat:Search("ding")[1], 1003) -- a tag
 end)
 
 -- ========= Recorded sessions ================================================
@@ -2561,6 +2848,17 @@ test("pretend players wear your gear, so a card fills like a real player's", fun
 	equal(worn[16] ~= nil, true)
 end)
 
+test("in the sandbox, what you send goes out marked as you, and shows in its chat", function()
+	local w = sandbox()
+	w.ns.Bus:Fire("READY")
+	w.ns.Sharing.loopback = true
+	equal(w.ns.Chat:Send({ 134071 }, "gz"), true)
+	w:advance(1)
+	local messages = w.ns.Chat:Messages()
+	equal(#messages, 1)
+	equal(messages[1].player, "Tester")
+end)
+
 test("the same seed makes the same party", function()
 	local w = sandbox()
 	local first = w.ns.SandboxParty.Make(42, 5)
@@ -2626,7 +2924,7 @@ test("in loopback a party of 20 plays for an hour without the network, and every
 	equal(w.ns.Session:Count(), 0)
 end)
 
-test("two recorded players play back together as 0.2.3 clients", function()
+test("two recorded players play back together as 0.3.5 clients", function()
 	local w = sandbox()
 	w.ns.Bus:Fire("READY")
 	w.ns.Sharing.loopback = true
@@ -2634,11 +2932,11 @@ test("two recorded players play back together as 0.2.3 clients", function()
 	w:advance(10)
 	local warrior = w.ns.Session.peers["Replay Warrior"]
 	equal(warrior ~= nil, true)
-	equal(warrior.version, "0.2.3")
+	equal(warrior.version, "0.3.5")
 	equal(warrior.race, "Scourge")
 	equal(warrior.maxXP, 12900)
 	equal(w.ns.Session.peers["Replay Paladin"] ~= nil, true)
-	-- 0.2.3 sends profession skill-ups only, and tags a turn-in's XP.
+	-- 0.3.5 sends profession skill-ups only, and tags a turn-in's XP.
 	for _, entry in ipairs(w.ns.Store:GetFeed(true)) do
 		assert(not (entry.type == "skill" and entry.player == "Replay Warrior"), "a weapon skill-up came through")
 	end
@@ -2749,7 +3047,7 @@ test("a player's card: level, XP, session XP, their quests, shared ones marked, 
 	w.quests[1] = { questID = 356, title = "Rear Guard Patrol", objectives = {
 		{ text = "Wandering Spirit slain: 3/8", numFulfilled = 3, numRequired = 8 },
 	} }
-	w:hear("H", { c = "WARRIOR", l = 14, x = 500, m = 9000, r = "Orc", g = 2, v = "0.2.3" }, "Friend")
+	w:hear("H", { c = "WARRIOR", l = 14, x = 500, m = 9000, r = "Orc", g = 2, v = "0.3.5" }, "Friend")
 	w:hear("E", { t = "xp", c = "WARRIOR", xp = 120, level = 14, currentXP = 620, maxXP = 9000 }, "Friend")
 	w:hear("Q", { id = 356, quest = "Rear Guard Patrol", o1 = "Wandering Spirit", h1 = 5, n1 = 8 }, "Friend")
 	w:hear("G", { c = "WARRIOR", s16 = "25:0:0" }, "Friend")
@@ -2771,7 +3069,7 @@ test("a player's card: level, XP, session XP, their quests, shared ones marked, 
 	equal(info[3].lines[2].value, "27")
 	equal(card.level, 14)
 	equal(card.here, true)
-	equal(card.version, "0.2.3")
+	equal(card.version, "0.3.5")
 	equal(card.xp.need, 9000)
 	equal(card.sessionXP, 120)
 	equal(card.todayXP, 120)

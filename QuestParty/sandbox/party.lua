@@ -230,6 +230,32 @@ function events.gearChange(persona, actions)
 	actions[#actions + 1] = { send = "gear" }
 end
 
+-- A saying in Quest Party chat (data\chat.lua, Sayings), sometimes with an image.
+function events.say(persona, actions)
+	local sayings = ns.Sayings or {}
+	if #sayings > 0 then
+		local icons = ns.Chat and ns.Chat:Search("") or {}
+		local icon = #icons > 0 and persona.random.chance(0.5) and persona.random.pick(icons) or nil
+		actions[#actions + 1] = { send = "say", icons = { icon }, saying = persona.random.pick(sayings).id }
+	end
+end
+
+-- Images in Quest Party chat, from the image picker's icons: one to three,
+-- and now and then with an effect (data\effects.lua) that plays them.
+function events.decal(persona, actions)
+	local icons = ns.Chat and ns.Chat:Search("") or {}
+	if #icons == 0 then
+		return
+	end
+	local picked = {}
+	for _ = 1, persona.random.int(1, 3) do
+		picked[#picked + 1] = persona.random.pick(icons)
+	end
+	local effects = ns.ChatEffects or {}
+	local effect = #effects > 0 and persona.random.chance(0.5) and persona.random.pick(effects).id or nil
+	actions[#actions + 1] = { send = "say", icons = picked, effect = effect }
+end
+
 function events.discovery(persona, actions)
 	local zone = persona.random.pick(ZonesFor(persona.level))
 	if zone.name ~= persona.zone then

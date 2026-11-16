@@ -90,6 +90,8 @@ local function Act(persona, actions)
 			Sharing().SendQuest(action.quest, persona.class, persona.name)
 		elseif action.send == "hello" then
 			SendHello(persona, ns.Protocol.Kinds.PRESENCE)
+		elseif action.send == "say" then
+			Sharing().SendSay(action.icons, action.saying, action.effect, persona.class, persona.name)
 		elseif action.send == "gear" then
 			persona.gearPending = true -- goes out under the gear rule (Advance)
 		end

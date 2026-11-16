@@ -20,6 +20,7 @@ Protocol.Kinds = {
 	PRESENCE = "P", -- the hello's fields again, every few minutes. Never answered.
 	GEAR = "G", -- equipped items, by slot: one slot when it changes, the whole set when asked.
 	REQUEST = "R", -- "tell me how you stand", to one player (to). Answered on the channel.
+	SAY = "S", -- Quest Party chat: up to three icons' file IDs (i, i2, i3), a saying's id (k) and an effect's id (e), c the sender's class.
 }
 
 local function Escape(value)

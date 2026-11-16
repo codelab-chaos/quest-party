@@ -98,3 +98,125 @@ Celebration-type sounds in Forever's sound list, to try in game:
 │ /run                │ UI_GARRISON_COMMAND_TABLE_FOLLOWER_LEVEL_UP: a level-up flourish.                       │
 │ PlaySound(46893)    │                                                                                         │
 └─────────────────────┴─────────────────────────────────────────────────────────────────────────────────────────┘
+
+## What the Forever client gives us (researched 2026-11-15)
+
+Source: Blizzard UI source, `origin/forever` ref (API docs in `Blizzard_APIDocumentationGenerated`, plus Blizzard addons as working examples). Nothing here was tested in game yet.
+
+How to read the flags:
+- `SecretArguments = "AllowedWhenUntainted"`: an addon can call it with normal values, but not with secret values. Almost every API carries this; it is fine for us.
+- `HasRestrictions = true`: the call is gated (secure code, a hardware event like a click, or blocked in some contexts). Only call it from a button click, and test.
+- `SecretWhenUnitIdentityRestricted` / `SecretInChatMessagingLockdown`: the result can come back as a secret value we cannot read. Check `C_Secrets.ShouldUnitIdentityBeSecret(unit)` and `C_ChatInfo.InChatMessagingLockdown()` first and degrade quietly.
+- `IsProtectedFunction`: only frame methods (Show, SetPoint, etc.) on protected frames. None of the fun APIs below are protected.
+
+Good news for our channel: `CHAT_MSG_ADDON` has no secret or lockdown flag, and `SendAddonMessage` only refuses secret arguments. Our ID-only messages are not affected.
+
+### Best bets
+
+1. **3D creature with a chosen animation** (`ModelScene` actor `SetModelByCreatureDisplayID` + `SetAnimation`, or `PlayerModel:SetCreature` + `FreezeAnimation`). A dying/dead creature on kill rows, a dancing party member in chat. All unrestricted.
+2. **Creature heads as flat images** (`SetPortraitTextureFromCreatureDisplayID(texture, displayID)`). Works for a creature known only by display ID, no target needed. Perfect for feed rows and "last killed" on the player card.
+3. **Spell visual kits on a model** (`actor:SetSpellVisualKit(id, oneShot)`). Blizzard's shop uses kit 259750 as a "fanfare" celebration. Real game particles, far richer than our icon engine.
+4. **Local text to speech of pre-made sayings** (`C_VoiceChat.SpeakText`). Speaks a saying from each client's own data, so it stays moderation safe.
+5. **Map waypoint "meet here"** (`C_Map.SetUserWaypoint` + `C_SuperTrack.SetSuperTrackedUserWaypoint`). Send mapID + x,y as numbers; the receiver gets the gold pin and the on-screen arrow.
+6. **Big screen banner** (`RaidWarningUtil.AddMessage`) plus `FlashClientIcon()` and `READY_CHECK`/`RAID_WARNING` sounds for party-wide moments.
+7. **Atlas stamps** (`Texture:SetAtlas`, `CreateAtlasMarkup`): quest !/?, boss and rare dragons, achievement shields, class and race icons, waypoint pins. No files to ship.
+8. **Emote buttons** (`C_ChatInfo.PerformEmote("DANCE")`), restricted, so only from a click. A "dance with me" chat effect that makes your own character dance.
+
+### Sounds
+
+- **PlaySound(soundKitID, channel, forceNoDuplicates, runFinishCallback, priority, volumeOverride)** in the `Sound` system, plus `PlaySoundWithOptions(params)`, `StopSound(handle)`, `C_Sound.IsPlaying(handle)`, event `SOUNDKIT_FINISHED`. Usable, unrestricted. `volumeOverride` lets a celebration be quieter than default.
+- **Own .ogg files**: `PlaySoundFile` is not documented on forever and no Blizzard code calls it. Treat shipping our own audio as unconfirmed; test `/run PlaySoundFile("Interface\\AddOns\\QuestParty\\x.ogg")` before planning on it. Stick to SOUNDKIT ids.
+- **Fun SOUNDKIT candidates** (from `SoundKitConstants.lua`):
+  - Cheers and fanfares: `UI_MISSION_SUCCESS_CHEERS` 74702 (crowd cheer), `UI_WORLDQUEST_COMPLETE` 73277, `UI_GARRISON_MISSION_COMPLETE_MISSION_SUCCESS` 43502, `CATALOG_SHOP_UI_PURCHASE_CELEBRATION` 304902, `CATALOG_SHOP_UI_PURCHASE_BUNDLE_FANFARE_START` 339650, `HOUSING_MARKET_PURCHASE_CELEBRATION` 325723, `TRADING_POST_UI_PURCHASE_CELEBRATION` 218231.
+  - Level up and unlocks: `UI_GARRISON_COMMAND_TABLE_FOLLOWER_LEVEL_UP` 46893, `UI_ADVENTURES_ADVENTURER_LEVEL_UP` 167127, `UI_HERO_TALENTS_UNLOCKED` 283863, `UI_72_ARTIFACT_FORGE_FINAL_TRAIT_UNLOCKED` 83682.
+  - Quest: `UI_AUTO_QUEST_COMPLETE` 23404, `IG_QUEST_LIST_COMPLETE` 878, `HOUSING_ENDEAVORS_ACTIVITY_COMPLETE` 325764.
+  - Coins and loot: `LOOT_WINDOW_COIN_SOUND` 120, `TRADING_POST_UI_COLLECTING_COINS` 218228, `UI_GARRISON_COMMAND_TABLE_CHEST_UNLOCK_GOLD_SUCCESS` 44332, `UI_EPICLOOT_TOAST` 31578, `UI_LEGENDARY_LOOT_TOAST` 63971.
+  - Horns, bells, alerts: `RAID_WARNING` 8959, `READY_CHECK` 8960, `ALARM_CLOCK_WARNING_1/2/3` 18871/12867/12889, `MAP_PING` 3175, `UI_BNET_TOAST` 18019.
+  - Silly: `FISHING_REEL_IN` 3407, `UI_GARRISON_MISSION_COMPLETE_MISSION_FAIL_STINGER` 43503 (a "wah wah" for wipes).
+- Idea: give each effect a default sound and let the sender pick a "sound id" slot from our own curated list, so new sounds are just data.
+
+### Textures and art
+
+- **Atlases**: `C_Texture.GetAtlasInfo(name)` (returns size and tex coords, nil if missing), `Texture:SetAtlas`, inline markup `|A:atlas:h:w|a` and helper `CreateAtlasMarkup(name, w, h)`. Unrestricted. Validate every atlas id in our data with `GetAtlasInfo` at load and drop missing ones.
+- **Stamp candidates** (all used by Blizzard code on forever): `QuestNormal`, `QuestTurnin`, `Waypoint-MapPin-Tracked`, `Waypoint-MapPin-Untracked`, `VignetteKill`, `VignetteKillElite`, `vignettekillboss`, `UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged`, `UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Star`, `ui-achievement-shield-1`/`-2`, `UI-Achievement-Shield-NoPoints`, `BonusLoot-Chest`, `LootToast-MoreAwesome`, `Toast-Frame`, `Toast-Flash`, `questlog-questtypeicon-daily`, `questlog-questtypeicon-delves`, `groupfinder-icon-class-<class>`, `classicon-<class>`, `raceicon128-<race>-<sex>`.
+- **Raid target icons**: `Interface\TargetingFrame\UI-RaidTargetingIcon_1..8` (see `ICON_LIST` in `ChatFrameConstants.lua`). Usable as chat icons with `|T...|t`.
+- **Portraits**: `SetPortraitTexture(texture, unit, disableMasking)` for any unit token (party1, target), round masked by default. Party heads can show live faces.
+- Ideas: a "stamp" chat piece that slams a boss dragon frame or achievement shield onto the message; party heads framed with the rare/elite dragon when that player is "on fire".
+
+### Models (3D creatures, players, heads)
+
+- **Widgets**: `PlayerModel` / `DressUpModel` / `CinematicModel` (CharacterModelBase) and `ModelScene` with actors (`ModelScene:CreateActor()`). All methods are unrestricted (`AllowedWhenUntainted` only).
+- **Show a creature**:
+  - `PlayerModel:SetCreature(creatureID, displayID)` by creature (NPC) id.
+  - `PlayerModel:SetDisplayInfo(displayID)` by display id.
+  - `actor:SetModelByCreatureDisplayID(displayID)` on a ModelScene actor (returns success).
+  - `PlayerModel:GetDisplayInfo()` returns the display id after `SetCreature`, so creature id to display id is probably possible live (needs the creature in the client cache; verify in game).
+  - `PlayerModel:SetUnit(unit)` shows a real unit (party member), but is `RequiresDeclassifiedUnitIdentity`, so it can fail where identities are secret.
+- **Play an animation**:
+  - `PlayerModel:SetAnimation(animID, variation)`, `actor:SetAnimation(animID, variation, speed, offsetSeconds)`.
+  - Ids are the standard animation data ids. Blizzard code uses 0 = Stand and 6 = Dead (pet journal shows dead pets with `SetAnimation(6, -1)`); 1 = Death (the falling over) by the usual table; 618 = MountSelfIdle. Emote ids (dance, cheer, wave) come from the same table, so we ship a small `animations` data table and test each.
+  - **Freeze on a frame**: `PlayerModel:FreezeAnimation(animID, variation, frame)`. For a ModelScene actor, `actor:SetAnimation(id, 0, 0, offset)` (speed 0) freezes, as Blizzard's Azerite UI does, and `ModelScene:SetPaused(true)` pauses the scene. So "play Death once, then hold Dead (6)" works.
+  - `actor:PlayAnimationKit(kitID, isLooping)` / `StopAnimationKit()` for scripted animation kits.
+- **Spell visuals on a model**: `actor:SetSpellVisualKit(kitID, oneShot)` and `CinematicModel:SetSpellVisualKit`. Blizzard's shop celebration uses creature 27823 with kit 259750 ("fanfare", `Blizzard_CatalogShop_Constants.lua`). `TryOn(itemLink or appearanceID)` dresses a DressUpModel.
+- **Heads as images**:
+  - `SetPortraitTexture(texture, unit)` for target or mouseover at kill time.
+  - `SetPortraitTextureFromCreatureDisplayID(texture, displayID)`: a round head for any display id, no target needed (Encounter Journal uses it for boss heads). This is the main tool for heads.
+  - 3D head: `PlayerModel:SetPortraitZoom(0.6)` (quest NPC frame and guild news use this) or `SetCamDistanceScale`, on a small model frame.
+- **Getting ids from a kill**:
+  - `PARTY_KILL` (attackerGUID, targetGUID) and `UNIT_DIED` (unitGUID) events. Both are `SecretWhenUnitIdentityRestricted`.
+  - `C_CreatureInfo.GetCreatureID(guid)` turns a GUID into a creature id. `UnitCreatureID(unit)`, `UnitGUID(unit)`, `UnitCreatureType(unit)` and `UnitCreatureFamily(unit)` work on target/mouseover/nameplates. All return secrets when identity is restricted, and a secret GUID cannot be passed to GetCreatureID (untainted only).
+  - `COMBAT_LOG_EVENT_UNFILTERED` is `HasRestrictions`, and `C_CombatLog.IsCombatLogRestricted()` exists. Do not build on the combat log.
+  - `C_CreatureInfo.GetCreatureTypeIDs()/GetCreatureTypeInfo(id)` and `GetCreatureFamilyIDs()/GetCreatureFamilyInfo(id)` list types (Beast, Undead, ...) and families with names and icons, unrestricted.
+- **What to ship versus read live**: read the creature id from the kill (target GUID at `PARTY_KILL`, or `UnitCreatureID("target")`), and send only that number. Each receiver resolves it: `SetCreature(id)` then `GetDisplayInfo()` for the display id, then the portrait or model. Ship a small fallback table of display ids per creature type (one beast, one undead, one humanoid, and so on) for when the creature is not cached or the id was secret. Also ship the animation id table and a short list of spell visual kits we tested.
+- Ideas:
+  - Kill rows in the feed: a round creature head, and on hover a tiny 3D model playing Death then holding Dead.
+  - A "victory dance" chat effect: the sender's own character (via `SetUnit` on their party token, or a race model fallback) dancing for 3 seconds.
+  - "Last killed" on the player card as a head stamp.
+  - A rare kill celebration: the rare's model with the fanfare spell visual.
+  - Note: models are heavy. Pool one or two model frames and reuse them, never one per chat line.
+
+### Animations
+
+- **AnimationGroups** with Alpha, Scale, Translation, Rotation, Path and FlipBook. `SetFlipBookRows/Columns/Frames/FrameWidth/FrameHeight` on FlipBook animations (sprite sheets). Unrestricted.
+- **C_ScriptedAnimations.GetAllScriptedAnimationEffects()**: Blizzard's projectile effect list (trajectories Straight, CurveLeft/Right, behaviors like TargetShake, `UIParentShake`). The controller is Blizzard UI code, so treat it as "maybe"; reading the list is fine.
+- Ideas: flipbook sparkles and explosions from Blizzard atlases as new effect particles; a "shake" effect on a chat bubble; icons that fly along a curve from the sender's party head to yours.
+
+### Emotes
+
+- **C_ChatInfo.PerformEmote(token, target)** (the old `DoEmote` is now only a deprecated wrapper and loads only if `loadDeprecationFallbacks` is on). `HasRestrictions`, so call it only from a click. `EmoteList` in `ChatEmoteConstants.lua` lists emotes with animations (WAVE, BOW, DANCE, APPLAUD, CHEER...).
+- **CHAT_MSG_TEXT_EMOTE** is `SecretInChatMessagingLockdown`, so its text can be secret.
+- Ideas: a "/dance with me" chat piece with a Dance button; clicking it makes the receiver's own character dance (their own click, so it is allowed). Animate the sender's party head when they emote.
+
+### Map
+
+- **C_Map.GetPlayerMapPosition(mapID, "player")**: only works for the player and party members. `C_Map.GetBestMapForUnit("player")` for the map id.
+- **C_Map.SetUserWaypoint(UiMapPoint)**, `CanSetUserWaypointOnMap(mapID)`, `GetUserWaypointHyperlink()`, plus `C_SuperTrack.SetSuperTrackedUserWaypoint(true)`. Unrestricted. Note this replaces the receiver's own waypoint, so only set it on their click.
+- **Pings**: `C_Ping.SendMacroPing` and all of `C_PingSecure` are `HasRestrictions`. Use our own pin instead.
+- **Vignettes**: `C_VignetteInfo.GetVignettes()`, `GetVignetteInfo(guid)`, `GetVignettePosition(guid, mapID)` show nearby rares and treasures.
+- Ideas: "meet here" chat piece (mapID + x + y as numbers) with a "Set waypoint" button; "rare spotted" shared from the vignette list with a map stamp.
+
+### Screen and UI feedback
+
+- **RaidWarningUtil.AddMessage(text, colorInfo, displayTime)**: the big center screen text (`RaidNotice_AddMessage` is now a deprecated wrapper). Text comes from our own data, so it is safe.
+- **UIErrorsFrame:AddMessage(text, r, g, b)**: small top-of-screen line.
+- **AlertFrame:AddQueuedAlertFrameSubSystem(template, setUp, maxAlerts, maxQueue)** / `AddSimpleAlertFrameSubSystem`: real toasts (the achievement toast slide). We can register our own toast template.
+- **FlashClientIcon(briefly)**: flashes the taskbar icon (Blizzard does it on ready check). Unrestricted.
+- **VisualAlertType** enum (MarchingAnts, Flash in colors) exists, but no addon-facing call was found.
+- Ideas: a party toast "Mira finished The Missing Diplomat"; flash the taskbar when someone sends you a "help" piece while you are alt-tabbed; a raid-warning style banner for party milestones.
+
+### Social and party
+
+- **RandomRoll(min, max)**: unrestricted. A "roll off" chat piece; read results from `CHAT_MSG_SYSTEM`.
+- **C_PartyInfo.DoReadyCheck()**: `HasRestrictions`, so only from a leader's click. `READY_CHECK` events and the sound are fine.
+- **Raid markers**: `SetRaidTarget(unit, index)`, `PlaceRaidMarker`, `ClearRaidMarker`, `RemoveRaidTargets` are all `HasRestrictions`. `GetRaidTargetIndex` returns secrets. Use the icons as art only.
+- **Events worth a celebration**: `QUEST_TURNED_IN`, `PLAYER_LEVEL_UP`, `ACHIEVEMENT_EARNED`, `CRITERIA_EARNED`, `QUEST_LOG_CRITERIA_UPDATE`, `PARTY_KILL`.
+- **SendChatMessage** is `HasRestrictions` and `RestrictedForMacroChatMessages`, which matches what we saw (we do not use it).
+- Ideas: auto-celebrate level ups for the whole channel (a level-up sound plus fireworks over that player's party head); a ready check style "everyone at the quest giver?" check made only from our own messages.
+
+### Other surprises
+
+- **Text to speech**: `C_VoiceChat.SpeakText(voiceID, text, rate, volume, overlap)`, `GetTtsVoices()`, `StopSpeakingText()`. Not flagged restricted, and allowed when tainted. Our sayings are local data, so speaking them is moderation safe. Must be opt-in per player, off by default.
+- **Screenshot()**: unrestricted. A "group photo" piece that counts down 3, 2, 1 on everyone's screen and each client takes its own screenshot.
+- **Toys**: `UseToy` exists but it is used from Blizzard secure buttons; assume it needs a click. `C_ToyBoxInfo` only manages filters and fanfare.
+- **C_DeathAlert.HardcoreDeaths**: hardcore only, not useful here.
+- **Camera**: only `GetCameraFOVDefaults` and `GetUICameraInfo` are documented; no fun camera control for addons.

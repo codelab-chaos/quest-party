@@ -2,6 +2,8 @@
 -- at small widths.
 --   tab       shown as a tab, in this order; the others are views kept for use
 --             elsewhere (and tests)
+--   align     "right" puts the tab at the right end of the row
+--   chat      the tab shows Quest Party chat (ui\chat.lua) in place of the list
 --   members   show one roster card per party member
 --   progress  a card kind to show as two-line progress rows, one per unfinished objective
 --   tracker   a card kind to show in full, grouped across the party: one tall row per
@@ -20,6 +22,7 @@ ns.Filters = {
 	-- The party and their quests, together: a roster card each, then every quest
 	-- in full with who is on it.
 	{ id = "party", label = L.FILTER_PARTY, shortLabel = L.FILTER_PARTY_SHORT, members = true, tracker = "quest", tab = true },
+	{ id = "chat", label = L.FILTER_CHAT, shortLabel = L.FILTER_CHAT, chat = true, tab = true, align = "right" },
 }
 
 ns.QuestTab = "party"

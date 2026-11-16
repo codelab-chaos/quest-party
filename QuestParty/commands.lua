@@ -66,6 +66,7 @@ local function PrintHelp()
 		ns.Print(L.CMD_HELP_LISTEN)
 		ns.Print(L.CMD_HELP_STATS)
 		ns.Print(L.CMD_HELP_REPLAY)
+		ns.Print(L.CMD_HELP_LAB)
 		ns.Print(L.CMD_HELP_TEST)
 		ns.Print(L.CMD_HELP_TESTLOC)
 	end
@@ -155,6 +156,10 @@ local commands = {
 			end
 			ns.Print(player .. ": " .. table.concat(parts, ", "))
 		end
+	end,
+	-- The prototype lab (ui\lab.lua): try what the game offers, in debug mode.
+	lab = function()
+		ns.Lab:Toggle()
 	end,
 	replay = function()
 		if not ns.IsDebug() then

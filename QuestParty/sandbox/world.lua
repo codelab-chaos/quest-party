@@ -56,6 +56,8 @@ ns.SandboxWorld = {
 			discovery = 3,
 			newQuest = 6,
 			gearChange = 4, -- a slot swapped for another item, or emptied
+			decal = 6, -- an icon sent to Quest Party chat
+			say = 10, -- a board button pressed in Quest Party chat
 		},
 		levelCap = {
 			kill = 40,
@@ -66,6 +68,8 @@ ns.SandboxWorld = {
 			discovery = 0.5,
 			newQuest = 3,
 			gearChange = 2,
+			decal = 4,
+			say = 6,
 		},
 	},
 	maxLevel = 60,
