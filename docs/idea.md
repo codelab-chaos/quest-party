@@ -78,3 +78,23 @@ Two routes, which stack:
 For the hover: level, creature type, family and elite or rare can be read from the target at the same moment as its ID, and travel with it. With only a name table, the details would come from the table.
 
 Cost to watch: a 3D model per visible kill row is heavier than an icon. Try it on a screenful of rows before settling on it. Fallbacks: the creature type icon when there is a type but no model, then the XP icon.
+
+
+--- 
+Celebration-type sounds in Forever's sound list, to try in game:
+
+┌─────────────────────┬─────────────────────────────────────────────────────────────────────────────────────────┐
+│    Paste in chat    │                                       What it is                                        │
+├─────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────┤
+│ /run                │ UI_MISSION_SUCCESS_CHEERS: a crowd cheering, from garrison mission success. The closest │
+│ PlaySound(74702)    │  to "hooray".                                                                           │
+├─────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────┤
+│ /run                │ UI_WORLDQUEST_COMPLETE: a short victory fanfare.                                        │
+│ PlaySound(73277)    │                                                                                         │
+├─────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────┤
+│ /run                │ UI_AUTO_QUEST_COMPLETE: the quest-complete chime.                                       │
+│ PlaySound(23404)    │                                                                                         │
+├─────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────┤
+│ /run                │ UI_GARRISON_COMMAND_TABLE_FOLLOWER_LEVEL_UP: a level-up flourish.                       │
+│ PlaySound(46893)    │                                                                                         │
+└─────────────────────┴─────────────────────────────────────────────────────────────────────────────────────────┘
