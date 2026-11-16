@@ -8,21 +8,24 @@ and profession gains without losing ongoing progress in a stream of chat.
   reloads, even without a channel connection. Your own quests refresh from your
   quest log; cached cards stay visible and turn gray after five minutes without
   an update.
-- **Filter tabs** let you focus on quests, XP, achievements, professions, or the party view.
+- **Two tabs, Feed and Party**, with a row of icons along the bottom of the panel (Leveling,
+  Discovery, Kills, Achievements, Deaths, Professions, Quests) to hide or show
+  those rows in your feed. They only change what you see; friends still get your updates.
 - **XP updates** show the amount gained, your current level, and the percentage
-  remaining to the next level, with a progress bar. Control these with
-  **Leveling** in Options. XP from kills gets its own row only with **Kills** on,
-  naming what was killed: "Kills Riverpaw Gnoll for 65 XP".
+  remaining to the next level, with a progress bar. XP from kills gets its own
+  row naming what was killed: "Kills Riverpaw Gnoll for 65 XP", sent to the
+  party in batches per creature so grinding does not flood the channel.
 - **Party XP bars** above the tabs: one bar per other player sharing on your
   channel, stacked, each in its own color, with their name, level and how far
   they have to go. Bars move as they gain XP, and a player at the level cap shows
   as max level. Hover a bar for their XP and last gain.
 - **Level-ups** lead with "DING!!" and drop confetti over the panel, for anyone on
-  your channel. Turn the confetti off with **Level-up confetti** in Options.
+  your channel. Turn the confetti off with **Level-up confetti** in Settings.
 - **Deaths** show where someone died and at what level.
 - **Detailed and compact views** fit the way you like to track your adventures.
-- **Customizable output** lets you choose event categories, include your own
-  progress, and optionally show updates in your local chat window.
+- **What makes Quest Party work is always shared**: quests, leveling, kills,
+  discoveries, deaths, professions and achievements. Your gear is the one
+  thing you choose to share (**Share my gear** in Settings).
 
 <p>
   <img src="docs/imgbarn/all-tab-1-1.png" alt="The All tab, with quest cards, XP and other progress in one feed" height="451">
@@ -32,7 +35,7 @@ and profession gains without losing ongoing progress in a stream of chat.
 
 Quest Party is being built for social questing, so friends can follow each
 other's adventures even when they are in different places. Create or join a
-channel in Options, and everyone on it who runs Quest Party sees each other's
+channel in Settings, and everyone on it who runs Quest Party sees each other's
 progress: your quests, levels, discoveries and the rest are posted to the
 channel as you make them, and theirs show in your feed and as their quest cards.
 When someone joins, everyone already there tells them where their quests stand,
@@ -44,7 +47,7 @@ to each other, so nothing is posted in the channel's chat.
 Every update also carries a short description written by the sender. When a
 friend runs a newer Quest Party that sends something your version does not
 know yet, you still see it, as a plain card with that description, under
-**Other updates** in Options. `/qp share`
+**Other updates** in Settings. `/qp share`
 says how much has been sent and received.
 
 ## Installation
@@ -81,15 +84,17 @@ if the app does not show the expected installation or addon.
 
 ## Getting started
 
-Use the tabs beneath the title to choose a feed. The view button switches between
-detailed quest cards and compact rows; **O** opens Options for event categories,
-chat output, **Include self**, channel setup, and **Clear**. The emulator toggle
-also appears in Options when debug mode is enabled. Type `/qp` again to hide or
+Use the tabs beneath the title to choose Feed or Party, and the icons along the bottom
+of the panel to hide or show kinds of rows. The view button switches between detailed
+quest cards and compact rows; the gear opens Settings for the channel, what you
+share, the party, display and **Clear**. In debug mode Settings also has test
+runs: choose a scenario, tick **Clear on go** to start from an empty panel, then
+**GO** and **STOP**. Type `/qp` again to hide or
 show the panel.
 
 Feed history and quest cards are saved across reloads. **Clear** removes that
 saved history, the quest cards, and the player list; settings and channel
-configuration are kept. Both the Options button and `/qp clear` explain this in
+configuration are kept. Both the Settings button and `/qp clear` explain this in
 a confirmation dialog before deleting anything. Choose **Cancel** or press Escape
 to keep the saved state.
 
@@ -109,17 +114,17 @@ Arguments in square brackets are optional.
 | `/qp icon [name-or-id]` | Set the title icon using an icon name, texture path, or numeric file ID. Omit the argument to restore the default icon. |
 | `/qp debug [on/off]` | Enable or disable debug mode; omit the argument to toggle it. |
 
-Available switches: `quests`, `questDetails`, `kills`, `levels`, `discovery`,
-`professions`, `achievements`, `deaths`, `otherUpdates`, `confetti`, `chatEcho`, `chatOrder`, and `showSelf`.
+Available switches: `shareGear`, `partyHeads`, `rememberPlayers`, `otherUpdates`,
+`confetti`, `chatEcho`, `chatOrder`, and `showSelf`.
 
 For example, `/qp set showSelf off` turns off **Include self**,
-`/qp set levels off` disables XP and level-up updates, and
+`/qp set shareGear off` stops sharing your gear, and
 `/qp set chatOrder off` puts the newest entries at the top.
 
 ### Debug commands
 
-Enable debug mode with `/qp debug on` to use these commands. The emulator toggle
-is also available in Options while debug mode is enabled.
+Enable debug mode with `/qp debug on` to use these commands. Test runs (a
+scenario, Clear on go, GO and STOP) are also in Settings while debug mode is enabled.
 
 | Command | What it does |
 | --- | --- |
@@ -157,7 +162,7 @@ such limit.
 | Command | What it does |
 | --- | --- |
 | `/qps party [count] [seed] [speed]` | Start a made-up party: `count` players from `seed` (the same seed makes the same party), at `speed` (10 plays an hour in six minutes). Over the channel, at most 4. |
-| `/qps replay [name\|all] [speed]` | Play back real recorded players, all together by default: two players from one evening of leveling, brought up to what 0.3.0 sends, in time with each other. `scripts/make-recordings.py` builds them from a saved message log. |
+| `/qps replay [name\|all] [speed]` | Play back real recorded players, all together by default: two players from one evening of leveling, brought up to what 0.2.3 sends, in time with each other. `scripts/make-recordings.py` builds them from a saved message log. |
 | `/qps loopback on` | Read the pretend players' messages straight back, with no network, for parties of 20, 50 or 100. `off` sends them over the channel again. |
 | `/qps measure` | What the run costs: this addon's memory, messages, read time and what is saved. |
 | `/qps burst [count]` | Send a quick burst past the queue and report the game's answers, to measure the send budget. Nothing reads these messages. |
@@ -218,10 +223,10 @@ pairing, local chat output, debug tools and transport throttling. They do not
 run the game's frame renderer or prove live server API behavior.
 
 Before tagging a public release, smoke-test in WoW: `/reload`, open and close
-Options, change each filter, resize the panel, switch row views, enable
-`/qp debug on`, and use the emu-on/off button in Options to preview a sample party.
-Then run `/qp debug off` and confirm the emulator stops and its
-button disappears. Channel sharing needs two characters on the same channel:
+Settings, change each tab and gutter icon, resize the panel, switch row views,
+enable `/qp debug on`, and run the Sample party test run from Settings.
+Then run `/qp debug off` and confirm the run stops and the Debug section
+disappears. Channel sharing needs two characters on the same channel:
 make progress on one, check it shows on the other, and check `/qp share` on both.
 The tests cannot prove the server carries addon messages on a custom channel.
 Check for Lua errors with `/console scriptErrors 1` before reloading.
@@ -234,7 +239,7 @@ it holds and, with `--write`, removes the message log, the feed, friends' quest
 cards or players not seen for a number of days, keeping a `.bak` copy. In game,
 Options has Forget players and Forget cards.
 
-Local source installs start in debug mode, making the emulator button available
+Local source installs start in debug mode, making the test runs available
 after every reload. `/qp debug off` hides it until the next reload. Packaged ZIPs
 disable this development default; users can still opt in with `/qp debug on`.
 

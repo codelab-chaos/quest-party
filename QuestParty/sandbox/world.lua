@@ -55,6 +55,7 @@ ns.SandboxWorld = {
 			skill = 8,
 			discovery = 3,
 			newQuest = 6,
+			gearChange = 4, -- a slot swapped for another item, or emptied
 		},
 		levelCap = {
 			kill = 40,
@@ -64,6 +65,7 @@ ns.SandboxWorld = {
 			skill = 4,
 			discovery = 0.5,
 			newQuest = 3,
+			gearChange = 2,
 		},
 	},
 	maxLevel = 60,

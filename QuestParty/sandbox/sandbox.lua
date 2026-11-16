@@ -77,6 +77,8 @@ local function SendQuests(persona)
 end
 
 local function SendGear(persona)
+	persona.gearSentAt = Sandbox.clock
+	persona.gearPending = nil
 	Sharing().SendGear(persona.gear or {}, persona.class, persona.name)
 end
 
@@ -88,6 +90,8 @@ local function Act(persona, actions)
 			Sharing().SendQuest(action.quest, persona.class, persona.name)
 		elseif action.send == "hello" then
 			SendHello(persona, ns.Protocol.Kinds.PRESENCE)
+		elseif action.send == "gear" then
+			persona.gearPending = true -- goes out under the gear rule (Advance)
 		end
 	end
 end
@@ -165,6 +169,11 @@ local function Advance(persona)
 		Act(persona, ns.SandboxParty.Step(persona))
 		persona.nextAt = persona.nextAt + ns.SandboxParty.NextGap(persona)
 	end
+	-- Gear changed: the whole set, at most once in the gear wait, as a real
+	-- player's goes (comms\sharing.lua).
+	if persona.gearPending and Sandbox.clock >= (persona.gearSentAt or -math.huge) + Sandbox:GearWait() then
+		SendGear(persona)
+	end
 	if Sandbox.clock >= persona.nextPresence then
 		persona.nextPresence = Sandbox.clock + PRESENCE_SECONDS
 		SendHello(persona, ns.Protocol.Kinds.PRESENCE)
@@ -197,6 +206,15 @@ local function Add(persona, arriveAt)
 	persona.nextAt = arriveAt + (persona.recording and 0 or ns.SandboxParty.NextGap(persona))
 end
 
+-- The gear wait, in pretend seconds: a scenario's gearSeconds (real seconds,
+-- so a test run shows it soon), or the real rule's wait in pretend time.
+function Sandbox:GearWait()
+	if self.gearSeconds then
+		return self.gearSeconds * self.speed
+	end
+	return ns.Timing.gearSeconds
+end
+
 local function Begin(speed)
 	Sandbox.speed = math.max(0.1, tonumber(speed) or Sandbox.speed or 1)
 	Sandbox.clock = 0
@@ -213,6 +231,20 @@ end
 
 -- Starts a made-up party: count players from seed, at a speed.
 -- Returns false and why when it cannot run.
+-- Pretend players wear your equipped items (wearMine, on by default): every
+-- slot you have filled is your real item, so their cards look like a real
+-- player's; slots you have empty keep the world's starter items.
+Sandbox.wearMine = true
+
+local function WearMine(persona)
+	for _, slot in ipairs(ns.EquipmentSlotIds) do
+		local item = ns.ShortItem(GetInventoryItemLink("player", slot))
+		if item ~= "" then
+			persona.gear[slot] = item
+		end
+	end
+end
+
 function Sandbox:StartParty(count, seed, speed)
 	count = math.max(1, math.min(200, tonumber(count) or 5))
 	seed = tonumber(seed) or 1
@@ -229,6 +261,9 @@ function Sandbox:StartParty(count, seed, speed)
 	local world = ns.SandboxWorld
 	local arrival = 0
 	for _, persona in ipairs(ns.SandboxParty.Make(seed, count)) do
+		if self.wearMine then
+			WearMine(persona)
+		end
 		local random = persona.random
 		persona.leaveAt = arrival + random.int(world.session.min, world.session.max) * 60
 		Add(persona, arrival)

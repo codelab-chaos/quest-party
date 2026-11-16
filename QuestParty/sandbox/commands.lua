@@ -20,6 +20,7 @@ end
 
 local commands = {
 	party = function(count, seed, speed)
+		Sandbox.gearSeconds = nil -- the real gear wait, in pretend time
 		Report(Sandbox:StartParty(count, seed, speed))
 	end,
 	replay = function(name, speed)

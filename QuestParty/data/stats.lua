@@ -4,6 +4,7 @@
 --   from   the feed type that adds to it
 --   sum    a data field to add up; without one, each entry counts 1
 --   when   a data field that must be filled for the entry to count
+--   count  a data field saying how many the entry stands for (a batch), else 1
 --   label  how /qp stats says it, with the number in place of %s
 local _, ns = ...
 local L = ns.L
@@ -13,7 +14,7 @@ ns.StatDays = 7
 
 ns.StatKinds = {
 	{ id = "xp", from = "xp", sum = "xp", label = L.STAT_XP },
-	{ id = "kills", from = "xp", when = "mob", label = L.STAT_KILLS },
+	{ id = "kills", from = "xp", when = "mob", count = "gains", label = L.STAT_KILLS },
 	{ id = "quests", from = "quest_complete", label = L.STAT_QUESTS },
 	{ id = "levels", from = "level", label = L.STAT_LEVELS },
 	{ id = "skillups", from = "skill", label = L.STAT_SKILLUPS },

@@ -17,14 +17,26 @@ local LAYOUT = {
 	maxHeight = 1000,
 	gripSize = 16,
 	headerHeight = 30,
-	filterHeight = 22,
-	filterGap = 2,
+	filterHeight = 18,
+	filterGap = 3,
+	tabMinWidth = 64, -- tabs fit their labels, at least this wide
+	tabPad = 14, -- either side of a tab's label
+	-- The filter row: a row of icons along the bottom of the panel, under the
+	-- feed (the code calls it the gutter). Sizes at a scale of 1; the Filter icon
+	-- size slider scales them.
+	gutterIcon = 22,
+	gutterIconGap = 4,
+	gutterRowGap = 4, -- between the feed and the row
+	gutterOffAlpha = 0.35, -- an icon whose rows are hidden
+	gutterEdge = 1, -- the border around each icon
+	gutterIconInset = 2, -- the icon inside its border
 	inset = 8,
 	rowSpacing = 2,
 	pulseSeconds = 0.9,
 	pulseMemory = 400,
 	staleAlpha = 0.45,
 	optionHeight = 22,
+
 	scrollBarWidth = 12,
 	refreshSeconds = 30,
 	-- The party's XP bars, stacked above the tabs. Past xpBarMax players the
@@ -41,20 +53,17 @@ local LAYOUT = {
 local COLORS = {
 	panel = { 0.05, 0.04, 0.08, 0.92 },
 	border = { 0.80, 0.65, 0.20, 1 },
-	options = { 0.04, 0.08, 0.15, 0.98 },
-	optionsBorder = { 0.35, 0.65, 0.95, 1 },
-	optionsHeader = { 0.12, 0.24, 0.40, 1 },
+	gutterOff = { 0.35, 0.35, 0.35, 0.6 }, -- a gutter icon's border when its rows are hidden
 	row = { 1, 1, 1, 0.05 },
 	rowHighlight = { 0.45, 0.20, 0.75, 0.45 }, -- a level-up
 	rowHighlightQuest = { 0.70, 0.52, 0.12, 0.42 }, -- a quest handed in
 	rowCard = { 0.20, 0.45, 0.75, 0.18 },
-	tab = { 1, 1, 1, 0.08 },
-	tabSelected = { 0.80, 0.65, 0.20, 0.45 },
+	tab = { 0.10, 0.09, 0.13, 1 },
+	tabSelected = { 0.42, 0.33, 0.10, 1 },
+	tabEdge = { 0.80, 0.65, 0.20, 1 }, -- the selected tab's outline and the line under the tabs
 	bar = { 0.25, 0.75, 0.30, 1 },
 	barBack = { 0, 0, 0, 0.5 },
 	pulse = { 1, 0.85, 0.35, 0.55 },
-	emulatorOn = { 0.10, 0.48, 0.16, 1 },
-	emulatorOff = { 0.52, 0.12, 0.10, 1 },
 	-- The party's XP bars. Each player keeps the same color from this list,
 	-- picked from their name, so a bar is easy to follow as others come and go.
 	xpBars = {
@@ -97,6 +106,25 @@ local ROW_STYLES = {
 	},
 }
 
+-- The Settings window.
+local SETTINGS = {
+	width = 480,
+	height = 560,
+	titleHeight = 32, -- the title, then a gold rule under it
+	headingHeight = 26, -- a section's title and its rule
+	sectionGap = 12,
+	rowHeight = 26, -- a row of switches
+	checkSize = 24,
+	buttonWidth = 96,
+	sliderHeight = 30,
+	scenarioWidth = 230, -- the scenario dropdown
+	goWidth = 70,
+	sliderLeft = 140, -- the bar, after its label
+	sliderRight = 50, -- room for its value
+	dataButtonWidth = 120,
+	rule = { 0.80, 0.65, 0.20, 0.45 },
+}
+
 -- Styling for the view and options buttons in the title bar.
 local HEADER_BUTTON = {
 	size = 20,
@@ -106,6 +134,8 @@ local HEADER_BUTTON = {
 	fill = { 0.10, 0.09, 0.14, 1 },
 	fillLit = { 0.42, 0.33, 0.10, 1 },
 	glyph = { 1.00, 0.82, 0.00, 1 },
+	optionsIcon = "Interface\\WorldMap\\GEAR_64GREY", -- a gear, tinted with glyph
+	iconInset = 2,
 	-- The view icon's bars, as offsets from the center of the button.
 	barWidth = 10,
 	barHeight = 2,
@@ -180,8 +210,8 @@ local BACKDROP = {
 }
 
 local frame, scrollBox, scrollBar, listView, emptyText, optionsView, optionsButton, viewButton, titleIcon
-local filterBar, xpStrip
-local PlaceList
+local filterBar, xpStrip, gutter
+local PlaceList, PlaceUnderStrip
 local xpBars = {} -- the bar frames, reused
 local xpBarsShown = 0
 local filterTabs = {}
@@ -462,6 +492,34 @@ end
 -- Height of the visible list area, from the layout data.
 -- Distance from the top of the window to the top of the list.
 -- How tall the XP bars above the tabs are, with the gap under them.
+-- The filter row's icon size and the gap between icons, at the slider's scale.
+local function GutterSizes()
+	local scale = ns.GetSlider("gutterScale") or 1
+	local function Scaled(value)
+		return math.floor(value * scale + 0.5)
+	end
+	return Scaled(LAYOUT.gutterIcon), Scaled(LAYOUT.gutterIconGap)
+end
+
+-- The filter row shows on tabs that show the feed.
+local function GutterShown()
+	local filter = ns.FilterById[ns.charDb.filter]
+	return filter ~= nil and filter.feed ~= nil
+end
+
+-- How much room the filter row takes above the list, when it shows.
+local function GutterHeight()
+	if not GutterShown() then
+		return 0
+	end
+	return (GutterSizes()) + LAYOUT.gutterRowGap
+end
+
+-- Where the tabs and the list start.
+local function ContentLeft()
+	return LAYOUT.inset
+end
+
 local function StripHeight()
 	if xpBarsShown == 0 then
 		return 0
@@ -475,7 +533,7 @@ end
 
 local function ListHeight()
 	local height = frame:GetHeight() or LAYOUT.height
-	return height - ListTop() - LAYOUT.inset
+	return height - ListTop() - LAYOUT.inset - GutterHeight()
 end
 
 -- Empty space to leave above the rows so that a list too short to fill the view sits
@@ -497,7 +555,7 @@ local focusQuest
 -- In chat order new rows and updated cards land at the bottom, so the list follows the bottom
 -- unless the player has scrolled up to read. jumpToEnd forces it, for a fresh view.
 function Panel:Refresh(jumpToEnd)
-	if not frame or not frame:IsShown() or optionsView:IsShown() then
+	if not frame or not frame:IsShown() then
 		return
 	end
 	local filter = ns.FilterById[ns.charDb.filter] or ns.Filters[1]
@@ -545,28 +603,46 @@ local function FilterLabel(filter, compact)
 	return label
 end
 
+local function UpdateGutter()
+	if not gutter then
+		return
+	end
+	for _, button in ipairs(gutter.buttons) do
+		local hidden = ns.charDb.hidden[button.filter.id] == true
+		button.icon:SetDesaturated(hidden)
+		button.icon:SetAlpha(hidden and LAYOUT.gutterOffAlpha or 1)
+		button:SetBackdropBorderColor(unpack(hidden and COLORS.gutterOff or COLORS.border))
+	end
+end
+
 local function UpdateFilter()
-	for _, filter in ipairs(ns.Filters) do
+	UpdateGutter()
+	for _, filter in ipairs(ns.Tabs) do
 		local tab = filterTabs[filter.id]
 		local selected = filter.id == ns.charDb.filter
 		tab.background:SetColorTexture(unpack(selected and COLORS.tabSelected or COLORS.tab))
-		tab.label:SetFontObject(selected and "GameFontNormalSmall" or "GameFontHighlightSmall")
+		tab.label:SetFontObject(selected and "GameFontNormalSmall" or "GameFontDisableSmall")
 		tab.label:SetText(FilterLabel(filter))
-		if tab.label:GetStringWidth() > tab:GetWidth() - 8 then
-			tab.label:SetText(FilterLabel(filter, true))
+		-- The selected tab is outlined and open at the bottom, over the line
+		-- under the tabs, so it reads as joined to the feed below it.
+		for _, edge in ipairs(tab.edges) do
+			edge:SetShown(selected)
 		end
+		tab:SetHeight(LAYOUT.filterHeight + (selected and 1 or 0))
+	end
+	-- As wide as their labels, from the left (the Party count changes them).
+	local left = 0
+	for _, filter in ipairs(ns.Tabs) do
+		local tab = filterTabs[filter.id]
+		local width = math.max(LAYOUT.tabMinWidth, math.ceil(tab.label:GetStringWidth()) + 2 * LAYOUT.tabPad)
+		tab:SetWidth(width)
+		tab:ClearAllPoints()
+		tab:SetPoint("TOPLEFT", left, 0)
+		left = left + width + LAYOUT.filterGap
 	end
 end
 
 local function LayoutFilter()
-	local count = #ns.Filters
-	local width = math.max(1, (filterBar:GetWidth() - (count - 1) * LAYOUT.filterGap) / count)
-	for index, filter in ipairs(ns.Filters) do
-		local tab = filterTabs[filter.id]
-		tab:SetSize(width, LAYOUT.filterHeight)
-		tab:ClearAllPoints()
-		tab:SetPoint("TOPLEFT", (index - 1) * (width + LAYOUT.filterGap), 0)
-	end
 	UpdateFilter()
 end
 
@@ -592,17 +668,30 @@ local function UpdateConnectionOptions(resetName)
 	end
 end
 
+-- The Debug section: shown only in debug mode, with GO and STOP set by
+-- whether a scenario is running.
 local function UpdateEmulatorButton()
-	if not optionsView or not optionsView.emulator then return end
-	local button = optionsView.emulator
-	button:SetShown(ns.IsDebug())
-	button.fill:SetColorTexture(unpack(ns.Emulator.running and COLORS.emulatorOn or COLORS.emulatorOff))
-	button.label:SetText(ns.Emulator.running and L.EMULATOR_ON or L.EMULATOR_OFF)
+	local controls = optionsView and optionsView.debug
+	if not controls then return end
+	local debug = ns.IsDebug()
+	for _, part in ipairs(controls.parts) do
+		part:SetShown(debug)
+	end
+	local running = ns.ScenarioRunner:Running()
+	controls.go:SetEnabled(not running)
+	controls.stop:SetEnabled(running)
+	controls.status:SetText(running and L.SCENARIO_RUNNING:format(ns.ScenarioRunner:Selected().label) or L.SCENARIO_IDLE)
+	if controls.cycle then
+		controls.cycle:SetText(ns.ScenarioRunner:Selected().label)
+	end
 end
 
 function Panel:SelectFilter(id)
 	ns.charDb.filter = id
 	UpdateFilter()
+	if PlaceUnderStrip and filterBar then
+		PlaceUnderStrip() -- the filter row shows on feed tabs only
+	end
 	self:ShowOptions(false)
 	self:Refresh(true)
 end
@@ -623,11 +712,9 @@ function Panel:SetOneLine(oneLine)
 end
 
 -- Swaps the list for the feature switches and back.
+-- Settings is its own window, over the game; the feed stays as it is.
 function Panel:ShowOptions(show)
-	filterBar:SetShown(not show)
 	optionsView:SetShown(show)
-	scrollBox:SetShown(not show)
-	scrollBar:SetShown(not show)
 	optionsButton.lit = show
 	optionsButton:UpdateFill()
 	if show then
@@ -637,8 +724,6 @@ function Panel:ShowOptions(show)
 		for _, check in ipairs(optionsView.checks) do
 			check:SetChecked(ns.IsEnabled(check.settingId))
 		end
-	else
-		self:Refresh(true)
 	end
 end
 
@@ -715,10 +800,19 @@ local function CreateHeaderButton(tooltip, onClick)
 end
 
 -- A letter drawn in the middle of a header button.
-local function AddGlyph(button, text)
-	local glyph = button:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-	glyph:SetPoint("CENTER", 0, 0)
-	glyph:SetText(text)
+-- An icon drawn in the button's glyph color. The game's icon art is mid-grey,
+-- so a tint alone comes out dimmer than the solid glyphs beside it; a second
+-- copy blended additively on top brings it up to their brightness.
+local function AddIcon(button, file)
+	for layer, blend in ipairs({ "BLEND", "ADD" }) do
+		local icon = button:CreateTexture(nil, "ARTWORK", nil, layer)
+		icon:SetPoint("TOPLEFT", HEADER_BUTTON.iconInset, -HEADER_BUTTON.iconInset)
+		icon:SetPoint("BOTTOMRIGHT", -HEADER_BUTTON.iconInset, HEADER_BUTTON.iconInset)
+		icon:SetTexture(file)
+		icon:SetDesaturated(true)
+		icon:SetVertexColor(unpack(HEADER_BUTTON.glyph))
+		icon:SetBlendMode(blend)
+	end
 end
 
 local function BuildHeader()
@@ -741,12 +835,12 @@ local function BuildHeader()
 
 	-- Opens the options. It stays lit while they are open.
 	optionsButton = CreateHeaderButton(function()
-		return optionsView:IsShown() and L.OPTIONS_BACK or L.OPTIONS
+		return L.OPTIONS
 	end, function()
 		Panel:ShowOptions(not optionsView:IsShown())
 	end)
 	optionsButton:SetPoint("RIGHT", close, "LEFT", -HEADER_BUTTON.gap, 0)
-	AddGlyph(optionsButton, L.OPTIONS_ICON)
+	AddIcon(optionsButton, HEADER_BUTTON.optionsIcon)
 
 	-- Shows the current view: three bars for detailed rows, one for compact.
 	viewButton = CreateHeaderButton(function()
@@ -784,21 +878,85 @@ local function BuildHeader()
 	end)
 end
 
--- All filters stay visible on one row, directly below the title bar.
+-- The filter row: an icon per kind of row (data\filters.lua, GutterFilters),
+-- to show or hide it in your feed. Placed by PlaceUnderStrip.
+local function BuildGutter()
+	gutter = CreateFrame("Frame", nil, frame)
+	gutter:SetClipsChildren(true) -- icons past the right edge are cut off; widen the panel to see them
+	local back = gutter:CreateTexture(nil, "BACKGROUND")
+	back:SetAllPoints()
+	back:SetColorTexture(unpack(COLORS.row))
+	gutter.buttons = {}
+	for index, filter in ipairs(ns.GutterFilters) do
+		local button = CreateFrame("Button", nil, gutter, "BackdropTemplate")
+		button:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = LAYOUT.gutterEdge })
+		button:SetBackdropColor(0, 0, 0, 0.6)
+		button.icon = button:CreateTexture(nil, "ARTWORK")
+		local inset = LAYOUT.gutterIconInset
+		button.icon:SetPoint("TOPLEFT", inset, -inset)
+		button.icon:SetPoint("BOTTOMRIGHT", -inset, inset)
+		button.icon:SetTexture(filter.icon)
+		button.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		button:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+		button.filter = filter
+		button:SetScript("OnClick", function()
+			ns.charDb.hidden[filter.id] = (not ns.charDb.hidden[filter.id]) or nil
+			UpdateGutter()
+			Panel:Refresh()
+		end)
+		button:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:SetText(filter.label)
+			GameTooltip:AddLine(ns.charDb.hidden[filter.id] and L.GUTTER_HIDDEN or L.GUTTER_SHOWN, 1, 1, 1, true)
+			GameTooltip:AddLine(L.GUTTER_NOTE, 0.7, 0.7, 0.7, true)
+			GameTooltip:Show()
+		end)
+		button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		gutter.buttons[index] = button
+	end
+end
+
+-- Sizes the filter row and its icons to the slider's scale, left to right.
+local function LayoutGutter()
+	local icon, gap = GutterSizes()
+	gutter:SetHeight(icon)
+	for index, button in ipairs(gutter.buttons) do
+		button:SetSize(icon, icon)
+		button:ClearAllPoints()
+		button:SetPoint("LEFT", (index - 1) * (icon + gap), 0)
+	end
+end
+
+-- The tabs stay on one row, below the title bar.
 local function BuildFilter()
+	BuildGutter()
+	LayoutGutter()
 	filterBar = CreateFrame("Frame", nil, frame)
 	filterBar:SetHeight(LAYOUT.filterHeight)
-	filterBar:SetPoint("TOPLEFT", LAYOUT.inset, -LAYOUT.headerHeight)
+	filterBar:SetPoint("TOPLEFT", ContentLeft(), -LAYOUT.headerHeight)
 	filterBar:SetPoint("TOPRIGHT", -LAYOUT.inset, -LAYOUT.headerHeight)
-	for _, filter in ipairs(ns.Filters) do
+	-- A line under the tabs; the selected tab covers it.
+	local line = filterBar:CreateTexture(nil, "BACKGROUND")
+	line:SetHeight(1)
+	line:SetPoint("BOTTOMLEFT")
+	line:SetPoint("BOTTOMRIGHT")
+	line:SetColorTexture(unpack(COLORS.tabEdge))
+	for _, filter in ipairs(ns.Tabs) do
 		local tab = CreateFrame("Button", nil, filterBar)
 		tab.background = tab:CreateTexture(nil, "BACKGROUND")
 		tab.background:SetAllPoints()
+		tab.edges = {}
+		for _, side in ipairs({ { "TOPLEFT", "TOPRIGHT", true }, { "TOPLEFT", "BOTTOMLEFT" }, { "TOPRIGHT", "BOTTOMRIGHT" } }) do
+			local edge = tab:CreateTexture(nil, "BORDER")
+			edge:SetColorTexture(unpack(COLORS.tabEdge))
+			edge:SetPoint(side[1])
+			edge:SetPoint(side[2])
+			if side[3] then edge:SetHeight(1) else edge:SetWidth(1) end
+			tab.edges[#tab.edges + 1] = edge
+		end
 		tab.label = tab:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-		tab.label:SetPoint("LEFT", 4, 0)
-		tab.label:SetPoint("RIGHT", -4, 0)
+		tab.label:SetPoint("CENTER", 0, 0)
 		tab.label:SetWordWrap(false)
-		tab.label:SetJustifyH("CENTER")
 		tab:SetHighlightTexture("Interface\\Buttons\\WHITE8x8")
 		tab:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.12)
 		tab:SetScript("OnClick", function()
@@ -895,9 +1053,13 @@ local function CreateXpBar()
 	bar.text = fill:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	bar.text:SetPoint("RIGHT", -3, 0)
 	bar.text:SetShadowOffset(1, -1)
+	-- The level, in the middle of the bar.
+	bar.level = fill:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	bar.level:SetPoint("CENTER")
+	bar.level:SetShadowOffset(1, -1)
 	bar.name = fill:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	bar.name:SetPoint("LEFT", 3, 0)
-	bar.name:SetPoint("RIGHT", bar.text, "LEFT", -6, 0)
+	bar.name:SetPoint("RIGHT", bar.level, "LEFT", -6, 0)
 	bar.name:SetJustifyH("LEFT")
 	bar.name:SetWordWrap(false)
 	bar.name:SetShadowOffset(1, -1)
@@ -908,12 +1070,18 @@ local function CreateXpBar()
 	return bar
 end
 
--- Puts the tabs and the list under however many bars there are.
-local function PlaceUnderStrip()
+-- Puts the tabs and the list under however many bars there are, and the
+-- filter row (on feed tabs) along the bottom.
+PlaceUnderStrip = function()
 	local top = LAYOUT.headerHeight + StripHeight()
 	filterBar:ClearAllPoints()
-	filterBar:SetPoint("TOPLEFT", LAYOUT.inset, -top)
+	filterBar:SetPoint("TOPLEFT", ContentLeft(), -top)
 	filterBar:SetPoint("TOPRIGHT", -LAYOUT.inset, -top)
+	-- The filter row sits along the bottom, clear of the resize grip.
+	gutter:ClearAllPoints()
+	gutter:SetPoint("BOTTOMLEFT", LAYOUT.inset, LAYOUT.inset)
+	gutter:SetPoint("BOTTOMRIGHT", -(LAYOUT.inset + LAYOUT.gripSize + 2), LAYOUT.inset)
+	gutter:SetShown(GutterShown())
 	if scrollBox then
 		PlaceList()
 	end
@@ -946,6 +1114,7 @@ function Panel:UpdateXpBars()
 			fill:SetValue(0)
 		end
 		bar.name:SetText(entry.name)
+		bar.level:SetText(entry.levelText)
 		bar.text:SetText(entry.text)
 		bar:ClearAllPoints()
 		local top = (index - 1) * (LAYOUT.xpBarHeight + LAYOUT.xpBarGap)
@@ -976,8 +1145,8 @@ end
 
 function PlaceList()
 	scrollBox:ClearAllPoints()
-	scrollBox:SetPoint("TOPLEFT", LAYOUT.inset, -ListTop())
-	scrollBox:SetPoint("BOTTOMRIGHT", -(LAYOUT.inset + LAYOUT.scrollBarWidth + 4), LAYOUT.inset)
+	scrollBox:SetPoint("TOPLEFT", ContentLeft(), -ListTop())
+	scrollBox:SetPoint("BOTTOMRIGHT", -(LAYOUT.inset + LAYOUT.scrollBarWidth + 4), LAYOUT.inset + GutterHeight())
 end
 
 local function BuildList()
@@ -1005,144 +1174,111 @@ local function BuildList()
 end
 
 -- Channel setup, feed controls and one check box per feature switch.
-local function BuildOptions()
-	optionsView = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-	optionsView:SetPoint("TOPLEFT", filterBar, "TOPLEFT")
-	optionsView:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -LAYOUT.inset, LAYOUT.inset)
+-- Settings: a window of its own, in Quest Party's colors. The channel first,
+-- then a section for each group of switches (data\settings.lua), saved data,
+-- and in debug mode the emulator.
+local function SettingsTip(owner, title, line)
+	owner:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText(title)
+		if line then
+			GameTooltip:AddLine(type(line) == "function" and line() or line, 1, 1, 1, true)
+		end
+		GameTooltip:Show()
+	end)
+	owner:SetScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
+local function BuildSettingsWindow()
+	-- Dragged by its title, closed with its button or Escape.
+	optionsView = CreateFrame("Frame", ns.Globals.frame("Settings"), UIParent, "BackdropTemplate")
+	optionsView:SetSize(SETTINGS.width, SETTINGS.height)
+	optionsView:SetPoint("CENTER")
+	optionsView:SetFrameStrata("DIALOG")
+	optionsView:SetToplevel(true)
+	optionsView:SetClampedToScreen(true)
+	optionsView:EnableMouse(true)
+	optionsView:SetMovable(true)
+	optionsView:RegisterForDrag("LeftButton")
+	optionsView:SetScript("OnDragStart", optionsView.StartMoving)
+	optionsView:SetScript("OnDragStop", optionsView.StopMovingOrSizing)
+	optionsView:SetScript("OnHide", function()
+		optionsButton.lit = false
+		optionsButton:UpdateFill()
+	end)
+	tinsert(UISpecialFrames, optionsView:GetName())
 	optionsView:SetBackdrop(BACKDROP)
-	optionsView:SetBackdropColor(unpack(COLORS.options))
-	optionsView:SetBackdropBorderColor(unpack(COLORS.optionsBorder))
+	optionsView:SetBackdropColor(unpack(COLORS.panel))
+	optionsView:SetBackdropBorderColor(unpack(COLORS.border))
 	optionsView:Hide()
 	optionsView.checks = {}
 
-	-- Use the filter row for an unmistakable options heading and a way back.
-	local heading = optionsView:CreateTexture(nil, "BACKGROUND")
-	heading:SetPoint("TOPLEFT", 3, -3)
-	heading:SetPoint("TOPRIGHT", -3, -3)
-	heading:SetHeight(LAYOUT.filterHeight)
-	heading:SetColorTexture(unpack(COLORS.optionsHeader))
-
-	local back = CreateFrame("Button", nil, optionsView, "UIPanelButtonTemplate")
-	back:SetSize(100, LAYOUT.filterHeight)
-	back:SetPoint("TOPRIGHT", -4, -3)
-	back:SetText(L.OPTIONS_BACK)
-	back:SetScript("OnClick", function()
+	local close = CreateFrame("Button", nil, optionsView, "UIPanelCloseButton")
+	close:SetPoint("TOPRIGHT", 1, 1)
+	close:SetScript("OnClick", function()
 		Panel:ShowOptions(false)
 	end)
+	local icon = optionsView:CreateTexture(nil, "ARTWORK")
+	icon:SetSize(HEADER_BUTTON.size, HEADER_BUTTON.size)
+	icon:SetPoint("TOPLEFT", LAYOUT.inset, -HEADER_BUTTON.top)
+	icon:SetTexture(HEADER_BUTTON.optionsIcon)
+	icon:SetDesaturated(true)
+	icon:SetVertexColor(unpack(HEADER_BUTTON.glyph))
+	local title = optionsView:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+	title:SetPoint("LEFT", icon, "RIGHT", 6, 0)
+	title:SetText(L.OPTIONS_TITLE:format(ns.version))
+	local rule = optionsView:CreateTexture(nil, "ARTWORK")
+	rule:SetHeight(1)
+	rule:SetPoint("TOPLEFT", LAYOUT.inset, -SETTINGS.titleHeight)
+	rule:SetPoint("TOPRIGHT", -LAYOUT.inset, -SETTINGS.titleHeight)
+	rule:SetColorTexture(unpack(SETTINGS.rule))
 
-	local title = optionsView:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-	title:SetPoint("TOPLEFT", 10, -7)
-	title:SetPoint("TOPRIGHT", back, "TOPLEFT", -6, -4)
-	title:SetJustifyH("LEFT")
-	title:SetWordWrap(false)
-	title:SetText(L.OPTIONS)
+	local scroll = CreateFrame("ScrollFrame", nil, optionsView, "ScrollFrameTemplate")
+	scroll:SetPoint("TOPLEFT", LAYOUT.inset + 4, -(SETTINGS.titleHeight + 8))
+	scroll:SetPoint("BOTTOMRIGHT", -30, LAYOUT.inset + 4)
+	scroll.ScrollBar:ClearAllPoints()
+	scroll.ScrollBar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 8, -14)
+	scroll.ScrollBar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 8, 14)
+	local content = CreateFrame("Frame", nil, scroll)
+	local width = SETTINGS.width - 2 * LAYOUT.inset - 4 - 30
+	content:SetWidth(width)
+	scroll:SetScrollChild(content)
+	return content, width
+end
 
-	local contentTop = LAYOUT.filterHeight + 6
-	local optionsScroll = CreateFrame("ScrollFrame", nil, optionsView, "ScrollFrameTemplate")
-	optionsScroll:SetPoint("TOPLEFT", 6, -contentTop)
-	optionsScroll:SetPoint("BOTTOMRIGHT", -28, 8)
-	optionsScroll.ScrollBar:ClearAllPoints()
-	optionsScroll.ScrollBar:SetPoint("TOPLEFT", optionsScroll, "TOPRIGHT", 6, -2)
-	optionsScroll.ScrollBar:SetPoint("BOTTOMLEFT", optionsScroll, "BOTTOMRIGHT", 6, 2)
-	local content = CreateFrame("Frame", nil, optionsScroll)
-	-- Two rows of actions: clearing and the emulator, then forgetting.
-	local actionsHeight = 2 * LAYOUT.optionHeight + 12
-	content:SetSize(1, actionsHeight + 112 + #ns.Settings * LAYOUT.optionHeight)
-	optionsScroll:SetScrollChild(content)
-	local function ResizeOptions(self)
-		content:SetWidth(self:GetWidth())
-	end
-	optionsScroll:HookScript("OnSizeChanged", ResizeOptions)
-	optionsScroll:HookScript("OnShow", ResizeOptions)
-	ResizeOptions(optionsScroll)
+-- A section's title over a thin gold line. Returns the y below it.
+local function SettingsHeading(content, text, y)
+	local label = content:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+	label:SetPoint("TOPLEFT", 2, -y)
+	label:SetText(text)
+	local line = content:CreateTexture(nil, "ARTWORK")
+	line:SetHeight(1)
+	line:SetPoint("TOPLEFT", 2, -(y + 17))
+	line:SetPoint("TOPRIGHT", -2, -(y + 17))
+	line:SetColorTexture(unpack(SETTINGS.rule))
+	return y + SETTINGS.headingHeight, label, line
+end
 
-	local clear = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
-	clear:SetSize(70, LAYOUT.optionHeight)
-	clear:SetPoint("TOPLEFT", 4, 0)
-	clear:SetText(L.CLEAR)
-	clear:SetScript("OnClick", function()
-		ns.ConfirmClear()
-	end)
-	clear:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:SetText(L.CLEAR)
-		GameTooltip:AddLine(L.CLEAR_TIP, 1, 1, 1, true)
-		GameTooltip:Show()
-	end)
-	clear:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-	-- Forgetting what is saved about others: each button says how much it holds.
-	local forgets = {
-		{ what = "players", label = L.FORGET_PLAYERS, tip = L.FORGET_PLAYERS_TIP, count = "members" },
-		{ what = "cards", label = L.FORGET_CARDS, tip = L.FORGET_CARDS_TIP, count = "cards" },
-	}
-	for index, forget in ipairs(forgets) do
-		local button = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
-		button:SetSize(110, LAYOUT.optionHeight)
-		button:SetPoint("TOPLEFT", 4 + (index - 1) * 114, -(LAYOUT.optionHeight + 6))
-		button:SetText(forget.label)
-		button:SetScript("OnClick", function()
-			ns.Store:Prune(forget.what)
-			ns.Print(L.FORGOT:format(forget.label))
-		end)
-		button:SetScript("OnEnter", function(self)
-			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-			GameTooltip:SetText(forget.label)
-			GameTooltip:AddLine(forget.tip, 1, 1, 1, true)
-			GameTooltip:AddLine(L.FORGET_HOLDS:format(ns.Store:Counts()[forget.count]), 0.8, 0.8, 0.8)
-			GameTooltip:Show()
-		end)
-		button:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	end
-
-	local emulator = CreateFrame("Button", nil, content)
-	emulator:SetSize(70, LAYOUT.optionHeight)
-	emulator:SetPoint("TOPRIGHT", -4, 0)
-	local edge = emulator:CreateTexture(nil, "BACKGROUND")
-	edge:SetAllPoints()
-	edge:SetColorTexture(unpack(HEADER_BUTTON.edge))
-	emulator.fill = emulator:CreateTexture(nil, "BORDER")
-	emulator.fill:SetPoint("TOPLEFT", 1, -1)
-	emulator.fill:SetPoint("BOTTOMRIGHT", -1, 1)
-	emulator.label = emulator:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-	emulator.label:SetPoint("CENTER")
-	emulator:SetScript("OnClick", function()
-		ns.Emulator:Toggle()
-		UpdateEmulatorButton()
-	end)
-	emulator:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip:SetText(ns.Emulator.running and L.EMULATOR_ON or L.EMULATOR_OFF)
-		GameTooltip:AddLine(L.EMULATOR_TIP, 1, 1, 1, true)
-		GameTooltip:Show()
-	end)
-	emulator:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	optionsView.emulator = emulator
-	UpdateEmulatorButton()
-
-	local channelLabel = content:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-	channelLabel:SetPoint("TOPLEFT", 4, -actionsHeight - 2)
-	channelLabel:SetText(L.CHANNEL_LABEL)
+local function BuildChannel(content, y)
+	y = SettingsHeading(content, L.CHANNEL_LABEL, y)
 	local name = CreateFrame("EditBox", nil, content, "InputBoxTemplate")
 	name:SetHeight(22)
-	name:SetPoint("TOPLEFT", 8, -actionsHeight - 20)
-	name:SetPoint("TOPRIGHT", -4, -actionsHeight - 20)
+	name:SetPoint("TOPLEFT", 8, -y)
+	name:SetPoint("TOPRIGHT", -(2 * SETTINGS.buttonWidth + 14), -y)
 	name:SetAutoFocus(false)
 	name:SetMaxLetters(30)
 	local join = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
-	join:SetSize(88, 22)
-	join:SetPoint("TOPLEFT", 4, -actionsHeight - 47)
+	join:SetSize(SETTINGS.buttonWidth, 22)
+	join:SetPoint("LEFT", name, "RIGHT", 6, 0)
 	join:SetText(L.CHANNEL_CONNECT)
 	local disconnect = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
-	disconnect:SetSize(76, 22)
-	disconnect:SetPoint("TOPRIGHT", -4, -actionsHeight - 47)
+	disconnect:SetSize(SETTINGS.buttonWidth, 22)
+	disconnect:SetPoint("LEFT", join, "RIGHT", 4, 0)
 	disconnect:SetText(L.CHANNEL_DISCONNECT)
 	local status = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-	status:SetPoint("TOPLEFT", 4, -actionsHeight - 75)
-	status:SetPoint("TOPRIGHT", -4, -actionsHeight - 75)
-	status:SetHeight(30)
+	status:SetPoint("TOPLEFT", 4, -(y + 28))
+	status:SetPoint("TOPRIGHT", -4, -(y + 28))
 	status:SetJustifyH("LEFT")
-	status:SetJustifyV("TOP")
 	status:SetWordWrap(true)
 	optionsView.connection = { name = name, join = join, disconnect = disconnect, status = status }
 	local function Connect()
@@ -1162,28 +1298,180 @@ local function BuildOptions()
 		UpdateConnectionOptions(true)
 	end)
 	UpdateConnectionOptions(true)
+	return y + 50
+end
 
-	for index, setting in ipairs(ns.Settings) do
-		local check = CreateFrame("CheckButton", nil, content, "UICheckButtonTemplate")
-		check:SetSize(LAYOUT.optionHeight, LAYOUT.optionHeight)
-		check:SetPoint("TOPLEFT", 0, -actionsHeight - 112 - (index - 1) * LAYOUT.optionHeight)
-		check.settingId = setting.id
-		check.Text:SetFontObject("GameFontHighlight")
-		check.Text:SetText(setting.label)
-		check:SetScript("OnClick", function(self)
-			ns.SetEnabled(setting.id, self:GetChecked())
-		end)
-		check:SetScript("OnEnter", function(self)
-			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-			GameTooltip:SetText(setting.label)
-			GameTooltip:AddLine(setting.tip, 1, 1, 1, true)
-			GameTooltip:Show()
-		end)
-		check:SetScript("OnLeave", function()
-			GameTooltip:Hide()
-		end)
-		optionsView.checks[index] = check
+-- One slider: its label, the bar, and its value beside it.
+local function BuildSlider(content, width, slider, y)
+	local label = content:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+	label:SetPoint("TOPLEFT", 6, -(y + 6))
+	label:SetText(slider.label)
+	local value = content:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+	value:SetPoint("TOPRIGHT", -4, -(y + 6))
+	local bar = CreateFrame("Slider", nil, content, "UISliderTemplate")
+	bar:SetPoint("TOPLEFT", SETTINGS.sliderLeft, -(y + 4))
+	bar:SetPoint("TOPRIGHT", -SETTINGS.sliderRight, -(y + 4))
+	bar:SetHeight(17)
+	bar:SetMinMaxValues(slider.min, slider.max)
+	bar:SetValueStep(slider.step)
+	bar:SetObeyStepOnDrag(true)
+	bar:SetValue(ns.GetSlider(slider.id))
+	value:SetText(slider.format:format(ns.GetSlider(slider.id)))
+	bar:SetScript("OnValueChanged", function(_, moved, byUser)
+		if byUser then
+			value:SetText(slider.format:format(ns.SetSlider(slider.id, moved)))
+		end
+	end)
+	SettingsTip(bar, slider.label, slider.tip)
+	return y + SETTINGS.sliderHeight
+end
+
+-- A group's switches, in two columns, then its sliders.
+local function BuildSwitches(content, width, group, y)
+	y = SettingsHeading(content, group.label, y)
+	local column = (width - 4) / 2
+	local index = 0
+	for _, setting in ipairs(ns.Settings) do
+		if setting.group == group.id then
+			local check = CreateFrame("CheckButton", nil, content, "UICheckButtonTemplate")
+			check:SetSize(SETTINGS.checkSize, SETTINGS.checkSize)
+			check:SetPoint("TOPLEFT", 2 + (index % 2) * column, -(y + math.floor(index / 2) * SETTINGS.rowHeight))
+			check.settingId = setting.id
+			check.Text:SetFontObject("GameFontHighlight")
+			check.Text:SetText(setting.label)
+			check:SetScript("OnClick", function(self)
+				ns.SetEnabled(setting.id, self:GetChecked())
+			end)
+			SettingsTip(check, setting.label, setting.tip)
+			optionsView.checks[#optionsView.checks + 1] = check
+			index = index + 1
+		end
 	end
+	y = y + math.ceil(index / 2) * SETTINGS.rowHeight
+	for _, slider in ipairs(ns.SettingSliders) do
+		if slider.group == group.id then
+			y = BuildSlider(content, width, slider, y)
+		end
+	end
+	return y + SETTINGS.sectionGap
+end
+
+-- Clearing and forgetting: each forget button says how much it holds.
+local function BuildData(content, y)
+	y = SettingsHeading(content, L.SET_GROUP_DATA, y)
+	local actions = {
+		{ label = L.CLEAR, tip = L.CLEAR_TIP, run = function() ns.ConfirmClear() end },
+		{ label = L.FORGET_PLAYERS, tip = L.FORGET_PLAYERS_TIP, what = "players", count = "members" },
+		{ label = L.FORGET_CARDS, tip = L.FORGET_CARDS_TIP, what = "cards", count = "cards" },
+	}
+	local previous
+	for _, action in ipairs(actions) do
+		local button = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+		button:SetSize(SETTINGS.dataButtonWidth, 22)
+		if previous then
+			button:SetPoint("LEFT", previous, "RIGHT", 6, 0)
+		else
+			button:SetPoint("TOPLEFT", 4, -y)
+		end
+		button:SetText(action.label)
+		button:SetScript("OnClick", action.run or function()
+			ns.Store:Prune(action.what)
+			ns.Print(L.FORGOT:format(action.label))
+		end)
+		SettingsTip(button, action.label, function()
+			if not action.count then
+				return action.tip
+			end
+			return action.tip .. "\n" .. L.FORGET_HOLDS:format(ns.Store:Counts()[action.count])
+		end)
+		previous = button
+	end
+	return y + 22 + SETTINGS.sectionGap
+end
+
+-- Test runs, in debug mode only: a scenario to choose (emulator\scenarios.lua,
+-- or the sandbox's), Clear on go, and GO and STOP.
+local function ScenarioChooser(content)
+	local runner = ns.ScenarioRunner
+	local ok, dropdown = pcall(CreateFrame, "DropdownButton", nil, content, "WowStyle1DropdownTemplate")
+	if ok and dropdown and dropdown.SetupMenu then
+		dropdown:SetupMenu(function(_, root)
+			for _, scenario in ipairs(ns.Scenarios) do
+				root:CreateRadio(scenario.label, function(id) return runner:Selected().id == id end, function(id) runner:Select(id) end, scenario.id)
+			end
+		end)
+		return dropdown
+	end
+	-- Without the game's menus: a button that steps through the scenarios.
+	local cycle = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+	cycle:SetScript("OnClick", function()
+		local list, current = ns.Scenarios, runner:Selected()
+		for index, scenario in ipairs(list) do
+			if scenario == current then
+				runner:Select(list[index % #list + 1].id)
+				break
+			end
+		end
+		UpdateEmulatorButton()
+	end)
+	return cycle, true
+end
+
+local function BuildDebug(content, y)
+	local _, label, line = SettingsHeading(content, L.SET_GROUP_DEBUG, y)
+	y = y + SETTINGS.headingHeight
+	local chooser, isCycle = ScenarioChooser(content)
+	chooser:SetSize(SETTINGS.scenarioWidth, 24)
+	chooser:SetPoint("TOPLEFT", 4, -y)
+	local clear = CreateFrame("CheckButton", nil, content, "UICheckButtonTemplate")
+	clear:SetSize(SETTINGS.checkSize, SETTINGS.checkSize)
+	clear:SetPoint("LEFT", chooser, "RIGHT", 10, 0)
+	clear.Text:SetFontObject("GameFontHighlight")
+	clear.Text:SetText(L.SCENARIO_CLEAR)
+	clear:SetChecked(ns.charDb.scenarioClear ~= false)
+	clear:SetScript("OnClick", function(self) ns.charDb.scenarioClear = self:GetChecked() and true or false end)
+	SettingsTip(clear, L.SCENARIO_CLEAR, L.SCENARIO_CLEAR_TIP)
+	y = y + 32
+	local go = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+	go:SetSize(SETTINGS.goWidth, 24)
+	go:SetPoint("TOPLEFT", 4, -y)
+	go:SetText(L.SCENARIO_GO)
+	go:SetScript("OnClick", function()
+		local started, problem = ns.ScenarioRunner:Go(ns.charDb.scenarioClear ~= false)
+		if not started then
+			ns.Print(problem or L.SCENARIO_IDLE)
+		end
+		UpdateEmulatorButton()
+	end)
+	local stop = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+	stop:SetSize(SETTINGS.goWidth, 24)
+	stop:SetPoint("LEFT", go, "RIGHT", 6, 0)
+	stop:SetText(L.SCENARIO_STOP)
+	stop:SetScript("OnClick", function()
+		ns.ScenarioRunner:Stop()
+		UpdateEmulatorButton()
+	end)
+	local status = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	status:SetPoint("LEFT", stop, "RIGHT", 10, 0)
+	status:SetPoint("RIGHT", -4, 0)
+	status:SetJustifyH("LEFT")
+	optionsView.debug = {
+		go = go, stop = stop, status = status, cycle = isCycle and chooser or nil,
+		parts = { label, line, chooser, clear, go, stop, status },
+	}
+	UpdateEmulatorButton()
+	return y + 24 + SETTINGS.sectionGap
+end
+
+local function BuildOptions()
+	local content, width = BuildSettingsWindow()
+	local y = BuildChannel(content, 0)
+	for _, group in ipairs(ns.SettingGroups) do
+		y = BuildSwitches(content, width, group, y)
+	end
+	y = BuildData(content, y)
+	y = BuildDebug(content, y)
+	content:SetHeight(y)
 end
 
 local function SaveSize()
@@ -1224,6 +1512,7 @@ local function Build()
 	frame:SetBackdropColor(unpack(COLORS.panel))
 	frame:SetBackdropBorderColor(unpack(COLORS.border))
 	frame:SetFrameStrata("MEDIUM")
+	frame:SetToplevel(true) -- a click brings it in front of other windows
 	frame:SetMovable(true)
 	frame:SetClampedToScreen(true)
 	frame:EnableMouse(true)
@@ -1250,11 +1539,13 @@ local function Build()
 		Panel:Refresh()
 	end)
 
-	-- A saved filter that no longer exists falls back to the first one.
-	if not ns.FilterById[ns.charDb.filter] then
-		ns.charDb.filter = ns.Filters[1].id
+	-- A saved filter that is no longer a tab falls back to the first tab.
+	local saved = ns.FilterById[ns.charDb.filter]
+	if not (saved and saved.tab) then
+		ns.charDb.filter = ns.Tabs[1].id
 	end
 	UpdateFilter()
+	PlaceUnderStrip()
 	UpdateEmulatorButton()
 	frame:SetShown(ns.charDb.shown)
 	Panel:Refresh(true)
@@ -1321,4 +1612,13 @@ end)
 
 Bus:On("CONNECTION_CHANGED", function()
 	UpdateConnectionOptions(false)
+end)
+
+-- The Filter icon size slider: resize the filter row and move the list.
+Bus:On("SLIDER_CHANGED", function(id)
+	if id == "gutterScale" and gutter then
+		LayoutGutter()
+		PlaceUnderStrip()
+		Panel:Refresh()
+	end
 end)

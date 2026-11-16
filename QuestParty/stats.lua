@@ -54,7 +54,7 @@ function Stats:Record(entry)
 	local day = math.floor((entry.time or GetServerTime()) / SECONDS_PER_DAY)
 	for _, kind in ipairs(ns.StatKinds) do
 		if kind.from == entry.type and (not kind.when or Filled(entry.data[kind.when])) then
-			local amount = 1
+			local amount = kind.count and tonumber(entry.data[kind.count]) or 1
 			if kind.sum then
 				amount = entry.data[kind.sum]
 			end

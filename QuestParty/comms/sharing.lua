@@ -44,7 +44,7 @@
 -- someone new says hello, so the newcomer's panel fills in at once. A QUEST
 -- message replaces whatever was known about that quest, so a lost or repeated
 -- one does no harm.
-local addonName, ns = ...
+local _, ns = ...
 local Bus = ns.Bus
 local L = ns.L
 local Protocol = ns.Protocol
@@ -116,7 +116,7 @@ local function MyFields()
 	-- cap the game reports nothing more to gain (m is 0).
 	local _, race = UnitRace("player")
 	return {
-		v = C_AddOns.GetAddOnMetadata(addonName, "Version") or "?",
+		v = ns.version,
 		c = class or "",
 		l = UnitLevel("player") or 0,
 		z = GetRealZoneText() or "",
@@ -197,6 +197,27 @@ local function Clean(value)
 	return value
 end
 
+-- Welcomes are always on, so how often they appear is limited: once per
+-- player in welcomeSeconds, and welcomeBurst at most in welcomeBurstSeconds.
+local welcomed = {} -- [name] = when they were last welcomed
+local welcomes = {} -- when the latest welcomes were, oldest first
+
+function Sharing:MayWelcome(name)
+	local now, timing = GetTime(), ns.Timing
+	if welcomed[name] and now - welcomed[name] < timing.welcomeSeconds then
+		return false
+	end
+	while welcomes[1] and now - welcomes[1] >= timing.welcomeBurstSeconds do
+		table.remove(welcomes, 1)
+	end
+	if #welcomes >= timing.welcomeBurst then
+		return false
+	end
+	welcomed[name] = now
+	welcomes[#welcomes + 1] = now
+	return true
+end
+
 local function AddPeer(name, fields, virtual)
 	local peers = Session().peers
 	local peer = peers[name]
@@ -232,8 +253,10 @@ local function AddPeer(name, fields, virtual)
 		peer.arrived = GetTime()
 		ns.Print(L.PEER_JOINED:format(ns.ColorName(name, peer.class), tostring(peer.version or "?")))
 		-- A welcome in the feed (see data\feed-types.lua, joined). Only ours to show:
-		-- it is not sent anywhere.
-		Bus:Fire("ENTRY_RECEIVED", { type = "joined", player = name, class = peer.class, data = { version = peer.version }, emulated = virtual or nil })
+		-- it is not sent anywhere. Rate limited, so coming and going cannot flood it.
+		if Sharing:MayWelcome(name) then
+			Bus:Fire("ENTRY_RECEIVED", { type = "joined", player = name, class = peer.class, data = { version = peer.version }, emulated = virtual or nil })
+		end
 	end
 	Bus:Fire("PEERS_CHANGED", peer)
 end
@@ -362,7 +385,58 @@ local function LatestKey(entry)
 	return table.concat(parts, ":")
 end
 
+-- XP from kills, held back and added up per creature (ns.Timing.kill*), so
+-- grinding sends one message a creature, not one a kill. gains says how many
+-- kills it stands for.
+local killBatches = {} -- [mob] = { data, started, timer }
+
+local function SendKills(mob)
+	local batch = killBatches[mob]
+	if not batch then
+		return
+	end
+	killBatches[mob] = nil
+	if batch.timer then
+		batch.timer:Cancel()
+	end
+	local _, class = UnitClass("player")
+	SendEntry(EntryFields("xp", class, batch.data))
+end
+
+local function BatchKill(data)
+	local mob, now = data.mob, GetTime()
+	local batch = killBatches[mob]
+	if batch then
+		local xp = (batch.data.xp or 0) + (data.xp or 0)
+		local gains = (batch.data.gains or 1) + 1
+		for key, value in pairs(data) do
+			batch.data[key] = value -- the latest level and XP for the bars
+		end
+		batch.data.xp, batch.data.gains = xp, gains
+		batch.timer:Cancel()
+	else
+		batch = { data = {}, started = now }
+		for key, value in pairs(data) do
+			batch.data[key] = value
+		end
+		killBatches[mob] = batch
+	end
+	local timing = ns.Timing
+	local wait = math.min(timing.killQuietSeconds, timing.killLongestSeconds - (now - batch.started))
+	if wait <= 0 then
+		SendKills(mob)
+		return
+	end
+	batch.timer = C_Timer.NewTimer(wait, function()
+		SendKills(mob)
+	end)
+end
+
 Bus:On("ENTRY_OUTGOING", function(entry)
+	if entry.type == "xp" and type(entry.data.mob) == "string" and entry.data.mob ~= "" then
+		BatchKill(entry.data)
+		return
+	end
 	local _, class = UnitClass("player")
 	SendEntry(EntryFields(entry.type, class, entry.data), LatestKey(entry))
 end)
@@ -393,7 +467,9 @@ local GEAR_SLOTS_PER_MESSAGE = 7
 
 -- gear is { [slot number] = "item:enchant:suffix" or "" }. slots, when given,
 -- are the only ones to send; otherwise every slot in ns.EquipmentSlots.
-local function SendGear(gear, class, as, slots)
+-- changed: slots that changed since the last set, sent even when empty now,
+-- so taking something off is heard.
+local function SendGear(gear, class, as, slots, changed)
 	local list = {}
 	for _, slot in ipairs(slots or ns.EquipmentSlotIds) do
 		list[#list + 1] = slot
@@ -405,7 +481,7 @@ local function SendGear(gear, class, as, slots)
 			local slot = list[index]
 			fields["s" .. slot] = gear[slot] or ""
 			keyParts[#keyParts + 1] = slot
-			worn = worn or fields["s" .. slot] ~= ""
+			worn = worn or fields["s" .. slot] ~= "" or (changed ~= nil and changed[slot] == true)
 		end
 		-- In a whole set, a message of nothing but empty slots says nothing new.
 		if worn then
@@ -441,13 +517,35 @@ local function StateQuests()
 	end)
 end
 
--- Our own gear, one slot at a time as it changes (collectors\gear.lua).
-Bus:On("GEAR_CHANGED", function(slot, item)
+-- Our own gear, the whole set when it changes (collectors\gear.lua), at most
+-- once in ns.Timing.gearSeconds: the first change goes at once, later ones
+-- wait for the time to be up and go out together, as one set.
+local gearSentAt, gearTimer
+local gearChanged = {} -- slots changed since the last set went out
+
+local function SendMyGear()
+	gearTimer = nil
 	if Session().state ~= "connected" or not ns.IsEnabled("shareGear") then
 		return
 	end
+	gearSentAt = GetTime()
 	local _, class = UnitClass("player")
-	SendGear({ [slot] = item }, class, nil, { slot })
+	local changed = gearChanged
+	gearChanged = {}
+	SendGear(ns.Gear:Snapshot(), class, nil, nil, changed)
+end
+
+Bus:On("GEAR_CHANGED", function(slot)
+	gearChanged[slot] = true
+	if gearTimer or Session().state ~= "connected" or not ns.IsEnabled("shareGear") then
+		return -- already waiting to send, or nowhere to send it
+	end
+	local wait = gearSentAt and (gearSentAt + ns.Timing.gearSeconds - GetTime()) or 0
+	if wait <= 0 then
+		SendMyGear()
+	else
+		gearTimer = C_Timer.NewTimer(wait, SendMyGear)
+	end
 end)
 
 -- The emulator's pretend players (emulator\emulator.lua) use the same

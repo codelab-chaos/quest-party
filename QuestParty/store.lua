@@ -173,6 +173,11 @@ local function TouchMember(entry, def)
 			end
 		end
 	end
+	local set = def.memberSet
+	if set and entry.data[set.key] ~= nil and entry.data[set.value] ~= nil then
+		member[set.field] = member[set.field] or {}
+		member[set.field][entry.data[set.key]] = entry.data[set.value]
+	end
 	-- XP gained, worked out from what is heard: no messages of its own.
 	if def.experience and type(entry.data.xp) == "number" and entry.data.xp > 0 then
 		member.sessionXP = (member.sessionXP or 0) + entry.data.xp
@@ -400,7 +405,12 @@ local function Merge(entry, def)
 		return false
 	end
 	local rule = def.merge
-	local previous, data = row.data, entry.data
+	-- A copy: the entry itself goes on to other listeners (stats count each
+	-- gain), so the run's totals must not be written onto it.
+	local previous, data = row.data, {}
+	for key, value in pairs(entry.data) do
+		data[key] = value
+	end
 	if rule.first then
 		local first = previous[rule.first]
 		if first == nil then
@@ -414,7 +424,8 @@ local function Merge(entry, def)
 		end
 	end
 	if rule.count then
-		data[rule.count] = (previous[rule.count] or 1) + 1
+		-- An entry can stand for several already (a batch of kills).
+		data[rule.count] = (previous[rule.count] or 1) + (tonumber(entry.data[rule.count]) or 1)
 	end
 	row.data = data
 	row.class = entry.class or row.class
@@ -553,7 +564,7 @@ function Store:Counts()
 	return { feed = #db.feed, cards = cards, members = members }
 end
 
--- Pruning, from Options or a command: forgets what is asked for.
+-- Pruning, from Settings or a command: forgets what is asked for.
 --   what  "players" (not here now), "cards" (friends' quest cards), "feed"
 function Store:Prune(what)
 	if what == "players" then

@@ -420,7 +420,7 @@ What makes it work:
 Benefits over an emulator inside the addon: real isolation (separate memory,
 saved state, reloads), the real code path end to end, and the sandbox's code can
 be a different build from yours, so a new version can talk to the one before
-it. Only builds that know `as` can be the sandbox, so 0.3.0 onward, not 0.2.0 or older.
+it. Only builds that know `as` can be the sandbox, so 0.2.3 onward, not 0.2.0 or older.
 
 Costs: both copies share your character's send budget, so a fast replay must
 stay under the throttle; and nobody else should see sandbox traffic, so other
@@ -699,3 +699,23 @@ buttons) and the sandbox itself.
 
 1. Chat visible in the channel (A and B), or Quest Party-only (C)?
 2. Chat in its own tab, mixed into the feed, or both?
+
+## Next: more to share, on request (agreed 2026-11-15)
+
+What makes Quest Party work (quests, leveling, kills, discoveries, deaths,
+professions, achievements) is always shared; gear is the one choice. Next, more
+for the player card, sent only when someone opens it (like gear), so a big
+channel stays quiet:
+
+- **Reputation**: standings, for "who is close to exalted with...".
+- **Known recipes**: "who can craft this?". The game only lists recipes while
+  the profession window is open, so they are remembered from then.
+- **Location**: zone and map position, sent throttled while moving. Sensitive:
+  decide whether it is a Share my choice, default off.
+- **Talents**: spec and role.
+- **Rested XP**: can ride on the XP numbers already sent.
+- **Played time**: for the Info tab.
+- **Gold or coin moved**: sensitive, default off; ties into Coincremental
+  Engineering later.
+
+Not doing: looking for group.

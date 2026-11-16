@@ -123,23 +123,29 @@ local function TheirQuests(name)
 	return quests
 end
 
--- Quests on both of your logs: matched by quest number, or by name for
--- quests heard without one.
-local function InCommon(theirs)
+-- Marks their quests that are on your log too with how far you are (mine),
+-- matched by quest number, or by name for quests heard without one. Those
+-- come first, newest first within each.
+local function MarkShared(theirs)
 	local mine = {}
 	local ok, snapshot = pcall(function() return ns.Collectors:GetQuestSnapshot() end)
 	for _, quest in ipairs(ok and snapshot or {}) do
 		mine[quest.questID or quest.quest] = quest
 		mine[quest.quest] = quest
 	end
-	local common = {}
 	for _, quest in ipairs(theirs) do
 		local own = (quest.questID and mine[quest.questID]) or mine[quest.quest]
 		if own then
-			common[#common + 1] = { quest = quest.quest, mine = Progress(own.objectives) or "-", theirs = quest.progress or "-" }
+			quest.mine = Progress(own.objectives) or "-"
 		end
 	end
-	return common
+	table.sort(theirs, function(a, b)
+		if (a.mine ~= nil) ~= (b.mine ~= nil) then
+			return a.mine ~= nil
+		end
+		return (a.time or 0) > (b.time or 0)
+	end)
+	return theirs
 end
 
 local function ItemId(short)
@@ -162,6 +168,122 @@ local function Gear(member)
 		}
 	end
 	return slots
+end
+
+-- How a stat key reads: ours (data\slots.lua, GearStatOrder), the game's
+-- own name for it, or the key itself.
+local function StatLabel(key)
+	for _, stat in ipairs(ns.GearStatOrder) do
+		if stat.key == key then
+			return stat.label
+		end
+	end
+	local own = _G[key]
+	if type(own) == "string" and own ~= "" then
+		return own:sub(1, 1):upper() .. own:sub(2) -- "damage per second" reads as a label
+	end
+	return key
+end
+
+-- Stats as lines in order: the known ones first, then the rest by name.
+local function StatLines(stats)
+	local lines, used = {}, {}
+	for _, stat in ipairs(ns.GearStatOrder) do
+		local value = stats[stat.key]
+		if type(value) == "number" and value ~= 0 then
+			lines[#lines + 1] = { label = stat.label, value = value }
+		end
+		used[stat.key] = true
+	end
+	local rest = {}
+	for key, value in pairs(stats) do
+		if not used[key] and type(value) == "number" and value ~= 0 then
+			rest[#rest + 1] = { label = StatLabel(key), value = value }
+		end
+	end
+	table.sort(rest, function(a, b) return a.label < b.label end)
+	for _, line in ipairs(rest) do
+		lines[#lines + 1] = line
+	end
+	return lines
+end
+
+-- One equipped item on a player's card: its name, quality, item level,
+-- the level it needs and its stats as lines. loading while the game has not
+-- loaded it yet; nil for an empty slot.
+function PartyModel:SlotDetails(name, slotId)
+	local member = ns.Store:GetMember(name)
+	local itemString = member and member.gear and ns.ItemString(member.gear[slotId])
+	if not itemString then
+		return nil
+	end
+	local slot = ns.EquipmentSlotById[slotId]
+	local item = ns.ReadItem(itemString)
+	if not item then
+		return { loading = true, slotLabel = slot and slot.label }
+	end
+	return {
+		name = item.name,
+		link = item.link,
+		quality = item.quality,
+		level = item.level,
+		required = item.required,
+		slotLabel = slot and slot.label,
+		lines = StatLines(item.stats),
+	}
+end
+
+-- A player's stats added up over every item known on their card. loading
+-- says some item has not loaded yet, so the sums will grow.
+function PartyModel:GearTotals(name)
+	local member = ns.Store:GetMember(name)
+	local totals, loading = {}, false
+	for _, slotId in ipairs(ns.EquipmentSlotIds) do
+		local itemString = member and member.gear and ns.ItemString(member.gear[slotId])
+		if itemString then
+			local item = ns.ReadItem(itemString)
+			if item then
+				for key, value in pairs(item.stats) do
+					if type(value) == "number" then
+						totals[key] = (totals[key] or 0) + value
+					end
+				end
+			else
+				loading = true
+			end
+		end
+	end
+	return { lines = StatLines(totals), loading = loading }
+end
+
+-- The Info tab: sections of label and value lines, in order. Add a section
+-- here and the card shows it.
+local function Info(card, member)
+	local about = {}
+	if card.zone then
+		about[#about + 1] = { label = L.INFO_ZONE, value = card.zone }
+	end
+	about[#about + 1] = { label = L.INFO_SEEN, value = card.here and L.CARD_ONLINE or L.CARD_AS_OF:format(ns.Ago(card.seenAgo or 0)) }
+	if card.version then
+		about[#about + 1] = { label = L.INFO_VERSION, value = card.version }
+	end
+	local experience = {}
+	if card.xp then
+		experience[#experience + 1] = { label = L.INFO_LEVEL, value = card.xp.text }
+	end
+	experience[#experience + 1] = { label = L.INFO_XP_SESSION, value = ns.Comma(card.sessionXP) }
+	experience[#experience + 1] = { label = L.INFO_XP_TODAY, value = ns.Comma(card.todayXP) }
+	experience[#experience + 1] = { label = L.INFO_XP_WEEK, value = ns.Comma(card.weekXP) }
+	local professions = {}
+	for skill, level in pairs(member.skills or {}) do
+		professions[#professions + 1] = { label = skill, value = tostring(level) }
+	end
+	table.sort(professions, function(a, b) return a.label < b.label end)
+	return {
+		{ title = L.INFO_ABOUT, lines = about },
+		{ title = L.INFO_EXPERIENCE, lines = experience },
+		{ title = L.INFO_PROFESSIONS, lines = professions, empty = L.INFO_NONE_HEARD },
+	}
 end
 
 -- Everything one player's card shows. nil for someone not known at all.
@@ -193,8 +315,8 @@ function PartyModel:Card(name)
 	end
 	card.todayXP = member.xpDays and member.xpDays[today] or 0
 	card.weekXP = week
-	card.quests = TheirQuests(name)
-	card.inCommon = InCommon(card.quests)
+	card.quests = MarkShared(TheirQuests(name))
+	card.info = Info(card, member)
 	card.gear = Gear(member)
 	card.hasGear = member.gear ~= nil
 	card.gearAgo = member.gearTime and math.max(0, now - member.gearTime) or nil

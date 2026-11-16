@@ -226,15 +226,16 @@ function ViewModel:PartyBars()
 				lastXP = member.lastXP,
 				lastMob = member.lastMob,
 			}
-			local level = member.level or "?"
+			-- The level goes in the middle of the bar; text is what is left.
+			bar.levelText = tostring(member.level or "?")
 			if member.maxXP == 0 then
 				bar.maxLevel = true
-				bar.text = L.XPBAR_MAX:format(level)
+				bar.text = L.XPBAR_BAR_MAX
 			elseif member.maxXP and member.currentXP then
 				bar.have, bar.need = member.currentXP, member.maxXP
-				bar.text = L.XPBAR_TO_GO:format(level, 100 * (member.maxXP - member.currentXP) / member.maxXP)
+				bar.text = L.XPBAR_BAR_DONE:format(100 * member.currentXP / member.maxXP)
 			else
-				bar.text = L.XPBAR_LEVEL:format(level)
+				bar.text = ""
 			end
 			bars[#bars + 1] = bar
 		end
@@ -260,7 +261,9 @@ function ViewModel:Build(filterId)
 			timeline[#timeline + 1] = row
 		end
 	end
-	if filter.progress then
+	-- The gutter's filters hide kinds of rows from the feed views.
+	local kind = filter.progress and ns.CardKinds[filter.progress]
+	if filter.progress and not (filter.feed and kind and ns.GutterHides(kind.setting)) then
 		Add(ProgressRows(filter.progress, now))
 	end
 	if filter.tracker then
@@ -271,7 +274,10 @@ function ViewModel:Build(filterId)
 		-- before sequences existed (all 0) still tie-break oldest first.
 		local feed = ns.Store:GetFeed(filter.feed)
 		for i = #feed, 1, -1 do
-			timeline[#timeline + 1] = FeedRow(feed[i], now)
+			local entry = feed[i]
+			if not ns.GutterHides(ns.FeedCategory(entry, ns.FeedTypes[entry.type])) then
+				timeline[#timeline + 1] = FeedRow(entry, now)
+			end
 		end
 	end
 	for index, row in ipairs(timeline) do

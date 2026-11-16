@@ -20,6 +20,9 @@ ns.Globals = {
 -- Known as the files load, so commands and frames can be named for it.
 ns.sandbox = C_AddOns.GetAddOnMetadata(addonName, "X-Sandbox") == "true"
 
+-- This build's version, from its TOC: told to the channel and shown in Settings.
+ns.version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "?"
+
 function ns.IsSandbox()
 	return ns.sandbox == true
 end
@@ -32,6 +35,7 @@ end
 --   FEED_ADDED(entry, def)    the store accepted an entry as a new feed row
 --   CARD_UPDATED(record, def, entry)  a persistent card was created or moved forward
 --   SETTING_CHANGED(id, value) a feature switch was flipped
+--   SLIDER_CHANGED(id, value)  a slider in Settings moved
 --   ENTRY_OUTGOING(entry)     one of our own entries, to send to everyone we share with
 --   COMMS_RECEIVED(text, chatType, sender, channelId)  a raw addon message arrived
 --   COMMS_SENT(message)       the game took one of ours to send
@@ -153,12 +157,16 @@ end
 -- ========= Saved variables ==================================================
 local ACCOUNT_DEFAULTS = {
 	switches = {}, -- filled from data\settings.lua at startup
+	sliders = {}, -- likewise
 	debug = false,
 	connection = { name = "", enabled = false },
 }
 
 local CHARACTER_DEFAULTS = {
 	filter = "all",
+	hidden = {}, -- gutter filters turned off: [id] = true (data\filters.lua)
+	scenario = nil, -- the test run last chosen in Settings (emulator\scenarios.lua)
+	scenarioClear = true, -- Clear on go
 	shown = true,
 }
 
@@ -185,8 +193,31 @@ function ns.SetDebug(enabled)
 	Bus:Fire("DEBUG_CHANGED", ns.db.debug)
 end
 
+-- What has no switch (a welcome, quests, leveling and the rest of what makes
+-- Quest Party work) is always on.
 function ns.IsEnabled(id)
+	if id == nil or ns.AlwaysOn[id] then
+		return true
+	end
 	return ns.db.switches[id] == true
+end
+
+function ns.GetSlider(id)
+	local slider = ns.SliderById[id]
+	return ns.db.sliders[id] or (slider and slider.default)
+end
+
+-- Keeps the value in range and on a step. Returns it, or nil for no such slider.
+function ns.SetSlider(id, value)
+	local slider = ns.SliderById[id]
+	if not slider or type(value) ~= "number" then
+		return nil
+	end
+	value = slider.min + math.floor((value - slider.min) / slider.step + 0.5) * slider.step
+	value = math.max(slider.min, math.min(slider.max, value))
+	ns.db.sliders[id] = value
+	Bus:Fire("SLIDER_CHANGED", id, value)
+	return value
 end
 
 function ns.SetEnabled(id, value)
@@ -210,6 +241,9 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 		for _, setting in ipairs(ns.Settings) do
 			ACCOUNT_DEFAULTS.switches[setting.id] = setting.default
 		end
+		for _, slider in ipairs(ns.SettingSliders) do
+			ACCOUNT_DEFAULTS.sliders[slider.id] = slider.default
+		end
 		ApplyDefaults(QuestPartyDB, ACCOUNT_DEFAULTS)
 		-- Local source installs expose developer tools after every reload.
 		-- The packager sets X-Debug to false for distributed builds.
@@ -219,6 +253,12 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 		QuestPartyDB.settings = nil -- replaced by switches
 		-- Retired controls must not remain active through older saved preferences.
 		QuestPartyDB.switches.chatDetails = nil
+		-- Switches that are gone (welcomes, and what is always shared now).
+		for id in pairs(QuestPartyDB.switches) do
+			if not ns.SettingById[id] then
+				QuestPartyDB.switches[id] = nil
+			end
+		end
 		QuestPartyDB.switches.share = nil
 		QuestPartyDB.switches.emulatorShare = nil
 		QuestPartyDB.links = nil

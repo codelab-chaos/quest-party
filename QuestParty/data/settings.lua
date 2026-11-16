@@ -1,28 +1,54 @@
--- Feature switches, in display order. These follow Quest Tweet's categories.
--- Each feed type names one of these in its "setting" field (see data\feed-types.lua).
---   default  the value for a new install
 local _, ns = ...
 local L = ns.L
 
-ns.Settings = {
-	{ id = "quests", label = L.SET_QUESTS, tip = L.SET_QUESTS_TIP, default = true },
-	{ id = "questDetails", label = L.SET_QUEST_DETAILS, tip = L.SET_QUEST_DETAILS_TIP, default = true },
-	{ id = "kills", label = L.SET_KILLS, tip = L.SET_KILLS_TIP, default = false },
-	{ id = "levels", label = L.SET_LEVELS, tip = L.SET_LEVELS_TIP, default = true },
-	{ id = "discovery", label = L.SET_DISCOVERY, tip = L.SET_DISCOVERY_TIP, default = true },
-	{ id = "professions", label = L.SET_PROFESSIONS, tip = L.SET_PROFESSIONS_TIP, default = true },
-	{ id = "achievements", label = L.SET_ACHIEVEMENTS, tip = L.SET_ACHIEVEMENTS_TIP, default = true },
-	{ id = "deaths", label = L.SET_DEATHS, tip = L.SET_DEATHS_TIP, default = true },
-	{ id = "otherUpdates", label = L.SET_OTHER_UPDATES, tip = L.SET_OTHER_UPDATES_TIP, default = true },
-	{ id = "welcome", label = L.SET_WELCOME, tip = L.SET_WELCOME_TIP, default = true },
-	{ id = "shareGear", label = L.SET_SHARE_GEAR, tip = L.SET_SHARE_GEAR_TIP, default = true },
-	{ id = "partyHeads", label = L.SET_PARTY_HEADS, tip = L.SET_PARTY_HEADS_TIP, default = true },
-	{ id = "rememberPlayers", label = L.SET_REMEMBER, tip = L.SET_REMEMBER_TIP, default = true },
-	{ id = "confetti", label = L.SET_CONFETTI, tip = L.SET_CONFETTI_TIP, default = true },
-	{ id = "chatEcho", label = L.SET_CHAT_ECHO, tip = L.SET_CHAT_ECHO_TIP, default = true },
-	{ id = "chatOrder", label = L.SET_CHAT_ORDER, tip = L.SET_CHAT_ORDER_TIP, default = true },
-	{ id = "showSelf", label = L.SET_SHOW_SELF, tip = L.SET_SHOW_SELF_TIP, default = true },
+-- What makes Quest Party work: always collected and shared, with no switch.
+-- Feed types name these in their "setting" field like any switch, and
+-- ns.IsEnabled says they are on. Which of their rows you see is the gutter's
+-- job (data\filters.lua).
+ns.AlwaysOn = {
+	quests = true,
+	questDetails = true,
+	kills = true,
+	levels = true,
+	discovery = true,
+	professions = true,
+	achievements = true,
+	deaths = true,
 }
+
+-- Switches, in display order. Gear is the one thing you choose to share.
+--   group    the Settings section it is shown in (SettingGroups below)
+--   default  the value for a new install
+ns.Settings = {
+	{ id = "otherUpdates", group = "display", label = L.SET_OTHER_UPDATES, tip = L.SET_OTHER_UPDATES_TIP, default = true },
+	{ id = "shareGear", group = "share", label = L.SET_SHARE_GEAR, tip = L.SET_SHARE_GEAR_TIP, default = true },
+	{ id = "partyHeads", group = "party", label = L.SET_PARTY_HEADS, tip = L.SET_PARTY_HEADS_TIP, default = true },
+	{ id = "rememberPlayers", group = "party", label = L.SET_REMEMBER, tip = L.SET_REMEMBER_TIP, default = true },
+	{ id = "confetti", group = "display", label = L.SET_CONFETTI, tip = L.SET_CONFETTI_TIP, default = true },
+	{ id = "chatEcho", group = "display", label = L.SET_CHAT_ECHO, tip = L.SET_CHAT_ECHO_TIP, default = true },
+	{ id = "chatOrder", group = "display", label = L.SET_CHAT_ORDER, tip = L.SET_CHAT_ORDER_TIP, default = true },
+	{ id = "showSelf", group = "display", label = L.SET_SHOW_SELF, tip = L.SET_SHOW_SELF_TIP, default = true },
+}
+
+-- The sections of the Settings window that hold switches, in order.
+ns.SettingGroups = {
+	{ id = "share", label = L.SET_GROUP_SHARE },
+	{ id = "party", label = L.SET_GROUP_PARTY },
+	{ id = "display", label = L.SET_GROUP_DISPLAY },
+}
+
+-- Sliders, shown under their group's switches in Settings.
+--   min, max, step  its range
+--   default         the value for a new install
+--   format          how its value reads beside it
+ns.SettingSliders = {
+	{ id = "gutterScale", group = "display", label = L.SET_GUTTER_SCALE, tip = L.SET_GUTTER_SCALE_TIP, min = 0.75, max = 2, step = 0.05, default = 1.5, format = "%.2fx" },
+}
+
+ns.SliderById = {}
+for _, slider in ipairs(ns.SettingSliders) do
+	ns.SliderById[slider.id] = slider
+end
 
 ns.SettingById = {}
 for _, setting in ipairs(ns.Settings) do
@@ -40,6 +66,19 @@ ns.ProfessionCategories = {
 
 -- Cached cards remain available until cleared or closed by a quest update.
 ns.Timing = {
+	-- Welcomes are always on, so they are rate limited: one per player in this
+	-- many seconds, and at most welcomeBurst in welcomeBurstSeconds overall.
+	welcomeSeconds = 10 * 60,
+	-- XP from kills goes out in batches, one message per creature: sent once
+	-- this long passes with no more kills of it, or at the longest after
+	-- killLongestSeconds. Grinding with a big party would flood the channel.
+	killQuietSeconds = 8,
+	-- When your gear changes, the whole set goes out, at most this often;
+	-- changes in between wait and go out together.
+	gearSeconds = 3 * 60,
+	killLongestSeconds = 30,
+	welcomeBurst = 5,
+	welcomeBurstSeconds = 60,
 	staleSeconds = 5 * 60, -- then it is drawn grayed out
 	-- A friend's quest card without news goes after this; nil keeps cards
 	-- until cleared, as decided for 0.1.2 (to revisit: docs\side-quest.md, B5).

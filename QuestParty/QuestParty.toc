@@ -4,7 +4,7 @@
 ## Author: Wizwonk
 ## X-License: MIT
 ## X-Debug: true
-## Version: 0.3.0
+## Version: 0.2.3
 ## AllowLoadGameType: forever
 ## ExcludeLoadGameType: standard, classic
 ## Category: Quests
@@ -35,6 +35,7 @@ collectors\gear.lua
 emulator\script.lua
 emulator\recordings.lua
 emulator\emulator.lua
+emulator\scenarios.lua
 ui\view-model.lua
 ui\party-model.lua
 ui\confetti.lua

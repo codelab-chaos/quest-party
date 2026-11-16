@@ -7,14 +7,25 @@ CurseForge's changelog field using Markdown formatting.
 
 ### Added
 
+- Two tabs, Feed and Party, with a row of icons along the bottom of the panel: Leveling, Discovery, Kills, Achievements, Deaths, Professions and Quests. Click an icon to hide or show those rows in your feed. It only changes what you see; friends still get your updates.
+- Party shows everyone in the party and every quest in full with who is on it, in one tab (it was Quests and Party).
 - Party heads down the right of the panel: one for each player in the party, with their race portrait, a ring in their class color and their level, in the order they arrived. Players who logged off stay as greyed heads for up to a week, unless Remember players who left is off. Turn the heads off with Party heads.
-- Click a head for that player's card: Overview (level, zone, XP bar, XP this session, today and this week), Quests (their quests, and the ones you share, side by side) and Items (their equipped items, laid out as on the character window, with the game's tooltips and shift-click links).
-- Your equipped items are shared with the party, a slot at a time as they change. Turn it off with Share my gear.
-- A row in the feed when someone joins the party (Welcomes).
-- Options has Forget players and Forget cards, to free what is saved about others.
+- Click a head for that player's card, beside the panel: Equipped (their items, laid out as on the character window, with the game's tooltips and shift-click links; click one to see its item level and stats in the middle, or see their stats from all their gear added up), Quests (a row for each, the ones on your log too first, with how far you are) and Info (where they are, their XP this session, today and this week, their professions).
+- Your equipped items are shared with the party: the whole set with your hello, when someone asks, and when your gear changes (at most every 3 minutes, so changes in between go out together). Turn it off with Share my gear.
+- A row in the feed when someone joins the party.
+- Settings has Forget players and Forget cards, to free what is saved about others.
+
+### Fixed
+
+- /qp stats counted XP from kills more than once when kills of one creature were folded into one row.
 
 ### Changed
 
+- Welcomes are always shown, with no switch, and limited: one per player every 10 minutes, and at most 5 a minute, so players coming and going cannot flood the feed.
+- The XP, Achievements and Professions tabs are replaced by the icons along the bottom of the panel.
+- What makes Quest Party work is always shared, with no switch: quests and their objectives, leveling, kills, discoveries, deaths, professions and achievements. Hide their rows in your own feed with the icons along the bottom of the panel. Gear is the one thing you choose to share, under Share my in Settings.
+- XP from kills goes to the party in batches, one message per creature once you stop killing it for a few seconds (at most every 30 seconds), so grinding does not flood the channel. Friends' feeds and stats still count every kill.
+- Options is now Settings, a window of its own in Quest Party's colors, with sections for the channel, what you share, the party, display (with a Filter icon size slider) and saved data.
 - Players who say hello are answered once, after a short random wait, so a big party does not answer at the same moment. Everyone also says where they stand every five minutes, and a player not heard from for 16 minutes is taken to have left.
 - Messages about how things stand carry a number that only grows, so a late or repeated message never replaces newer news.
 - A player not seen for a week is forgotten.

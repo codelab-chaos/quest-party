@@ -2,7 +2,7 @@
 local _, ns = ...
 local L = ns.L
 
--- The Options button and slash command share the same destructive-action prompt.
+-- The Settings button and slash command share the same destructive-action prompt.
 local CONFIRM_CLEAR = ns.Globals.popup("CONFIRM_CLEAR")
 StaticPopupDialogs[CONFIRM_CLEAR] = {
 	text = L.CLEAR_CONFIRM,

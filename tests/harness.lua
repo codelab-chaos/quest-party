@@ -5,19 +5,15 @@ local Harness = {}
 -- packaging test checks the two agree).
 Harness.SANDBOX_MODULES = {
 	"sandbox/random.lua", "sandbox/world.lua", "sandbox/party.lua",
-	"sandbox/recording.lua", "sandbox/sandbox.lua", "sandbox/commands.lua",
+	"sandbox/recording.lua", "sandbox/sandbox.lua", "sandbox/commands.lua", "sandbox/scenarios.lua",
 }
 
 -- options.sandbox builds the sandbox (QuestPartySandbox) instead.
 function Harness.new(saved, character, debugBuild, serverTime, options)
 	options = options or {}
 	local addonName = options.sandbox and "QuestPartySandbox" or "QuestParty"
-	-- Welcome rows are off unless a test turns them on, so feeds count as before.
 	saved = saved or {}
 	saved.switches = saved.switches or {}
-	if saved.switches.welcome == nil then
-		saved.switches.welcome = false
-	end
 	local world = { now = serverTime or 10000, level = 20, xp = 0, xpMax = 1000, frames = {}, timers = {}, sent = {}, chat = {}, party = {}, quests = {}, questData = {}, questWatches = {}, channels = {}, joins = {}, leaves = {} }
 	local env = setmetatable({}, { __index = _G })
 	env._G = env
@@ -161,7 +157,7 @@ function Harness.new(saved, character, debugBuild, serverTime, options)
 		"core.lua", "locales/en-us.lua", "data/feed-types.lua", "data/filters.lua", "data/settings.lua", "data/slots.lua", "data/stats.lua",
 		"store.lua", "stats.lua", "resolver.lua", "comms/protocol.lua", "comms/origin.lua", "comms/transport.lua", "comms/session.lua", "comms/sharing.lua",
 		"collectors/patterns.lua", "collectors/samples.lua", "collectors/collectors.lua", "collectors/gear.lua",
-		"emulator/script.lua", "emulator/recordings.lua", "emulator/emulator.lua", "ui/view-model.lua", "ui/party-model.lua", "ui/confetti.lua", "ui/chat-echo.lua", "commands.lua",
+		"emulator/script.lua", "emulator/recordings.lua", "emulator/emulator.lua", "emulator/scenarios.lua", "ui/view-model.lua", "ui/party-model.lua", "ui/confetti.lua", "ui/chat-echo.lua", "commands.lua",
 	}
 	if options.sandbox then
 		for _, path in ipairs(Harness.SANDBOX_MODULES) do
@@ -177,6 +173,11 @@ function Harness.new(saved, character, debugBuild, serverTime, options)
 			chunk = assert(loadfile("QuestParty/" .. path, "t", env))
 		end
 		chunk(addonName, ns)
+	end
+	-- Welcome rows are always on in the addon; here they are off unless a test
+	-- asks for them (options.welcomes), so feeds count as before.
+	if not options.welcomes then
+		ns.Timing.welcomeBurst = 0
 	end
 	world.ns, world.env = ns, env
 	function world:event(event, ...)

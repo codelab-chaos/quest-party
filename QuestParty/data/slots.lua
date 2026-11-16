@@ -68,3 +68,36 @@ function ns.ItemString(short)
 	end
 	return ("item:%s:%s:0:0:0:0:%s"):format(item, enchant ~= "" and enchant or "0", suffix ~= "" and suffix or "0")
 end
+
+-- The stats the Equipped tab adds up, in this order: the game's stat keys
+-- (C_Item.GetItemStats) and how they read. Others an item has are listed
+-- after these, by the game's own name for them.
+ns.GearStatOrder = {
+	{ key = "ITEM_MOD_STRENGTH_SHORT", label = L.GEAR_STRENGTH },
+	{ key = "ITEM_MOD_AGILITY_SHORT", label = L.GEAR_AGILITY },
+	{ key = "ITEM_MOD_STAMINA_SHORT", label = L.GEAR_STAMINA },
+	{ key = "ITEM_MOD_INTELLECT_SHORT", label = L.GEAR_INTELLECT },
+	{ key = "ITEM_MOD_SPIRIT_SHORT", label = L.GEAR_SPIRIT },
+	{ key = "RESISTANCE0_NAME", label = L.GEAR_ARMOR },
+	{ key = "ITEM_MOD_DAMAGE_PER_SECOND_SHORT", label = L.GEAR_DPS },
+}
+
+-- What the game knows of an item: { name, link, quality, level, required,
+-- stats = { [stat key] = number } }, or nil while the client has not loaded
+-- it yet (GET_ITEM_INFO_RECEIVED says when it has).
+function ns.ReadItem(itemString)
+	if not itemString then
+		return nil
+	end
+	local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+	local getStats = (C_Item and C_Item.GetItemStats) or GetItemStats
+	if not getInfo then
+		return nil
+	end
+	local name, link, quality, level, required = getInfo(itemString)
+	if not name then
+		return nil
+	end
+	local stats = getStats and link and getStats(link) or {}
+	return { name = name, link = link, quality = quality, level = level, required = required, stats = stats or {} }
+end

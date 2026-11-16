@@ -27,6 +27,8 @@
 --   highlight draw the row with a celebration background: "level" or "quest"
 --             (see ui\panel.lua for their colors)
 --   member    maps roster fields to entry.data keys, so the entry updates the roster
+--   memberSet { field, key, value }: keeps the latest value per key in a roster
+--             table, such as each profession's level in member.skills
 --   feedOnlyIf  { field, setting }: an entry with that data field filled only
 --             becomes a feed row while that switch is on. It still updates the
 --             roster (member) either way
@@ -149,6 +151,7 @@ ns.FeedTypes = {
 		chat = L.CHAT_SKILL,
 		-- Skill-ups come one point at a time (Cooking 19, 20, 21...). A run of
 		-- them is one row that climbs, not a row per point: "Mining 10 > 19".
+		memberSet = { field = "skills", key = "skill", value = "level" },
 		merge = {
 			keys = { "skill" }, seconds = 10 * 60, field = "level", first = "from",
 			text = L.FEED_SKILL_RUN, detail = L.FEED_SKILL_RUN_DETAIL, detailOne = L.FEED_SKILL_RUN_DETAIL_ONE,
@@ -168,8 +171,8 @@ ns.FeedTypes = {
 	-- was. See resolver.lua.
 	-- A player arriving on the channel: their hello was heard. Only shown
 	-- here, never sent (comms\sharing.lua).
+	-- No switch: always on, rate limited (ns.Timing.welcome*).
 	joined = {
-		setting = "welcome",
 		filters = {},
 		icon = "Interface\\Icons\\Ability_Warrior_BattleShout",
 		text = L.FEED_JOINED,

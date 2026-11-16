@@ -212,6 +212,24 @@ function events.skill(persona, actions)
 	end
 end
 
+-- A slot swapped for another of the world's items for it, or emptied now and
+-- then. The whole set goes out under the same rule as a real player's
+-- (sandbox.lua, gear).
+function events.gearChange(persona, actions)
+	local slots = {}
+	for slot in pairs(World().gear) do
+		slots[#slots + 1] = slot
+	end
+	table.sort(slots) -- pairs has no order; the same seed must pick the same
+	local slot = persona.random.pick(slots)
+	if persona.gear[slot] and persona.random.chance(0.2) then
+		persona.gear[slot] = nil
+	else
+		persona.gear[slot] = ("%d:0:0"):format(persona.random.pick(World().gear[slot]))
+	end
+	actions[#actions + 1] = { send = "gear" }
+end
+
 function events.discovery(persona, actions)
 	local zone = persona.random.pick(ZonesFor(persona.level))
 	if zone.name ~= persona.zone then

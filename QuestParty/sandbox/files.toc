@@ -6,3 +6,4 @@ sandbox\party.lua
 sandbox\recording.lua
 sandbox\sandbox.lua
 sandbox\commands.lua
+sandbox\scenarios.lua
