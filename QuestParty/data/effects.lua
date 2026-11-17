@@ -36,8 +36,8 @@ ns.ChatEffects = {
 		turn = 4.5, spin = 3 },
 }
 
--- The effects strip in chat: preset messages, one click to send. Not built
--- by the player (yet). Each comes empty (images only) or worded (with a
+-- The effects in the KekChat button's list: preset messages, one click to
+-- send. Not built by the player (yet). Each comes empty (images only) or worded (with a
 -- saying, whose words fall as particles among the images).
 --   effect  an id above; icons, paths under Interface\Icons (ones the game
 --           does not know are left out); saying, an id from data\chat.lua
@@ -53,11 +53,6 @@ ns.EffectPresets = {
 	{ id = "storm", label = L.PRESET_STORM, effect = "swirl", icons = { "Spell_Nature_Lightning", "Spell_Frost_FrostBolt02" } },
 	{ id = "goodnight", label = L.PRESET_GOOD_NIGHT, effect = "swirl", icons = { "INV_Misc_Rune_01" }, saying = "gn" },
 }
-
--- The dock's puff: a small burst of an event's icon from its bar, while the
--- panel is minimized (ui\dock.lua). Not one of chat's effects.
-ns.DockPuff = { id = "puff", pattern = "burst", count = 10, stagger = 0.05, life = 0.9, fade = 0.5,
-	size = { 10, 16 }, speed = { 60, 140 }, gravity = 220, terminal = 300, spin = 5 }
 
 ns.ChatEffectById = {}
 for _, effect in ipairs(ns.ChatEffects) do

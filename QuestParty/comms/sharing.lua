@@ -115,7 +115,7 @@ local function MyFields()
 	-- Where XP stands, so a newcomer sees everyone's bar at once. At the level
 	-- cap the game reports nothing more to gain (m is 0).
 	local _, race = UnitRace("player")
-	return {
+	local fields = {
 		v = ns.version,
 		c = class or "",
 		l = UnitLevel("player") or 0,
@@ -125,6 +125,12 @@ local function MyFields()
 		r = race or "",
 		g = UnitSex("player") or 0,
 	}
+	-- Health and power, so a newcomer sees them at once (VITALS after that).
+	local vitals = ns.VitalsCollector and ns.VitalsCollector.reading
+	if vitals then
+		fields.h, fields.p, fields.t = vitals.h, vitals.p, vitals.t
+	end
+	return fields
 end
 
 -- The next n for a sender (this character, or a pretend player).
@@ -138,7 +144,7 @@ end
 Sharing.NextSequence = NextSequence
 
 -- Kinds that say how things stand, and so carry n.
-local STATEFUL = { [Kinds.HELLO] = true, [Kinds.ACK] = true, [Kinds.PRESENCE] = true, [Kinds.QUEST] = true, [Kinds.GEAR] = true }
+local STATEFUL = { [Kinds.HELLO] = true, [Kinds.ACK] = true, [Kinds.PRESENCE] = true, [Kinds.QUEST] = true, [Kinds.GEAR] = true, [Kinds.VITALS] = true }
 
 -- Sends one message to the channel. Returns false when there is no channel to
 -- send to, or the message is too long for the game to carry.
@@ -218,6 +224,19 @@ function Sharing:MayWelcome(name)
 	return true
 end
 
+-- Health and power from a message's h, p and t, or nil when it has none
+-- that make sense.
+local function Percent(value)
+	return type(value) == "number" and value >= 0 and value <= 100 and value or nil
+end
+
+local function ReadVitals(fields)
+	local h = Percent(fields.h)
+	if not h then return nil end
+	local t = type(fields.t) == "string" and fields.t:match("^[%u_]+$") and #fields.t <= 16 and fields.t or "MANA"
+	return { h = h, p = Percent(fields.p) or 0, t = t }
+end
+
 local function AddPeer(name, fields, virtual)
 	local peers = Session().peers
 	local peer = peers[name]
@@ -246,6 +265,10 @@ local function AddPeer(name, fields, virtual)
 	end
 	if type(fields.g) == "number" and fields.g > 0 then
 		peer.sex = fields.g
+	end
+	local vitals = ReadVitals(fields)
+	if vitals then
+		peer.vitals = vitals
 	end
 	peer.virtual = virtual or nil
 	peer.heard = GetTime()
@@ -667,6 +690,22 @@ handlers[Kinds.ENTRY] = function(sender, fields, virtual)
 	Bus:Fire("ENTRY_RECEIVED", { type = typeName, player = sender, class = class or Session().peers[sender].class, data = data, emulated = virtual or nil })
 end
 
+-- Health and power: the newest replaces what was known.
+handlers[Kinds.VITALS] = function(sender, fields, virtual)
+	local vitals = ReadVitals(fields)
+	if not vitals or not Fresh(sender, "vitals", fields.n) then
+		return
+	end
+	local peer = Session().peers[sender]
+	if not peer then
+		AddPeer(sender, {}, virtual)
+		peer = Session().peers[sender]
+	end
+	peer.vitals = vitals
+	peer.heard = GetTime()
+	Bus:Fire("VITALS_RECEIVED", sender, vitals)
+end
+
 -- Equipped items: each slot replaces what was known of it, unless older.
 -- Quest Party chat. An icon must be a whole number, a saying a plain id
 -- (letters, numbers, _); anything else is left out, and a message with
@@ -859,6 +898,31 @@ end)
 -- the panel yet: this is where it arrives (comms\origin.lua).
 Bus:On("COMMS_ECHOED", function(text, chatType, sender, channelId)
 	Dispatch(text, chatType, sender, channelId, true)
+end)
+
+-- ========= Our health and power =============================================
+-- Out when the stepped reading changes, at most once in ns.Timing.vitalsSeconds
+-- (vitals.lua): a change in between waits, and the latest goes when the time
+-- is up. The transport keeps only the newest under its key, too.
+local vitalsDebounce, vitalsTimer
+local function SendVitals(reading)
+	Send(Kinds.VITALS, { h = reading.h, p = reading.p, t = reading.t }, "vitals")
+end
+
+Bus:On("VITALS_CHANGED", function(reading)
+	vitalsDebounce = vitalsDebounce or ns.Vitals.NewDebounce(ns.Timing.vitalsSeconds)
+	local now = GetTime()
+	local ready = vitalsDebounce:Offer(reading, now)
+	if ready then
+		SendVitals(ready)
+	elseif vitalsDebounce:DueAt() and not vitalsTimer then
+		vitalsTimer = true
+		C_Timer.After(math.max(0, vitalsDebounce:DueAt() - now), function()
+			vitalsTimer = nil
+			local due = vitalsDebounce:Due(GetTime())
+			if due then SendVitals(due) end
+		end)
+	end
 end)
 
 -- ========= The connection ===================================================

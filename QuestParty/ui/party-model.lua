@@ -25,6 +25,22 @@ function PartyModel.RaceAtlas(race, sex)
 	return ("raceicon128-%s-%s"):format(RACE_ATLAS[name] or name, sex == 3 and "female" or "male")
 end
 
+-- How a player looks in a portrait: { atlas, class }. Yourself from the game,
+-- anyone else from what they told the party.
+function PartyModel:Portrait(name)
+	if name == UnitName("player") or (ns.IsMe(name) and not ns.IsSandbox()) then
+		local _, race = UnitRace("player")
+		local _, class = UnitClass("player")
+		return { atlas = PartyModel.RaceAtlas(race, UnitSex("player")), class = class }
+	end
+	local member = ns.Store:GetMember(name) or {}
+	local peer = ns.Session.peers[name]
+	return {
+		atlas = PartyModel.RaceAtlas((peer and peer.race) or member.race, (peer and peer.sex) or member.sex),
+		class = (peer and peer.class) or member.class,
+	}
+end
+
 local function Head(member, peer, now)
 	local level = (peer and peer.level) or member.level
 	return {
@@ -43,6 +59,8 @@ end
 -- One head per other player in the party: those here now, in the order they
 -- arrived, then (with Remember players who left on) those who left, the most
 -- recently seen first. Pretend players are shown in debug and the sandbox.
+-- The sandbox puts this character first, from the game itself, so its own
+-- card (quests, gear) can be tried on a real character.
 function PartyModel:Heads()
 	local heads, gone = {}, {}
 	if not ns.IsEnabled("partyHeads") then
@@ -67,6 +85,20 @@ function PartyModel:Heads()
 		end
 		return a.name < b.name
 	end)
+	if ns.IsSandbox() then
+		local name = UnitName("player")
+		if not seen[name] then
+			local _, class = UnitClass("player")
+			local _, race = UnitRace("player")
+			local me = {
+				class = class, level = UnitLevel("player"), zone = GetRealZoneText(),
+				race = race, sex = UnitSex("player"), arrived = 0,
+			}
+			table.insert(heads, 1, Head(ns.Store:GetMember(name) or { name = name }, me, now))
+			heads[1].name = name
+			seen[name] = true
+		end
+	end
 	if ns.IsEnabled("rememberPlayers") then
 		for _, member in ipairs(ns.Store:GetMembers()) do
 			if not seen[member.name] and not ns.IsMe(member.name) and (not member.emulated or pretendShown) then
@@ -304,7 +336,7 @@ function PartyModel:Card(name)
 	if maxXP == 0 then
 		card.xp = { have = 1, need = 1, text = L.XPBAR_MAX:format(head.level or "?") }
 	elseif currentXP and maxXP then
-		card.xp = { have = currentXP, need = maxXP, text = L.XPBAR_TO_GO:format(head.level or "?", 100 * (maxXP - currentXP) / maxXP) }
+		card.xp = { have = currentXP, need = maxXP, text = L.XPBAR_TO_GO:format(head.level or "?", math.ceil(100 * (maxXP - currentXP) / maxXP)) }
 	end
 	card.sessionXP = member.sessionXP or 0
 	local today, week = ns.Day(now), 0

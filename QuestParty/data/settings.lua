@@ -26,11 +26,13 @@ ns.Settings = {
 	{ id = "rememberPlayers", group = "party", label = L.SET_REMEMBER, tip = L.SET_REMEMBER_TIP, default = true },
 	{ id = "confetti", group = "display", label = L.SET_CONFETTI, tip = L.SET_CONFETTI_TIP, default = true },
 	{ id = "chatEffects", group = "display", label = L.SET_CHAT_EFFECTS, tip = L.SET_CHAT_EFFECTS_TIP, default = true },
-	{ id = "dockRight", group = "display", label = L.SET_DOCK_RIGHT, tip = L.SET_DOCK_RIGHT_TIP, default = false },
+	{ id = "dockRight", group = "display", label = L.SET_DOCK_RIGHT, tip = L.SET_DOCK_RIGHT_TIP, default = true },
 	{ id = "chatEcho", group = "display", label = L.SET_CHAT_ECHO, tip = L.SET_CHAT_ECHO_TIP, default = true },
 	{ id = "chatOrder", group = "display", label = L.SET_CHAT_ORDER, tip = L.SET_CHAT_ORDER_TIP, default = true },
-	{ id = "showSelf", group = "display", label = L.SET_SHOW_SELF, tip = L.SET_SHOW_SELF_TIP, default = true },
+	{ id = "showSelf", group = "display", label = L.SET_SHOW_SELF, tip = L.SET_SHOW_SELF_TIP, default = true, sandboxOn = true },
 }
+-- sandboxOn: in the sandbox build, always on, with no switch at all (not in
+-- Settings, not in /qps set). The sandbox's own events must always show.
 
 -- The sections of the Settings window that hold switches, in order.
 ns.SettingGroups = {
@@ -54,6 +56,7 @@ ns.VolumeLevels = {
 }
 
 ns.SettingSliders = {
+	{ id = "theme", group = "display", label = L.SET_THEME, tip = L.SET_THEME_TIP, min = 0, max = 3, step = 1, default = 0, labels = "Themes" },
 	{ id = "volume", group = "display", label = L.SET_VOLUME, tip = L.SET_VOLUME_TIP, min = 0, max = 3, step = 1, default = 2, labels = "VolumeLevels" },
 	{ id = "gutterScale", group = "display", label = L.SET_GUTTER_SCALE, tip = L.SET_GUTTER_SCALE_TIP, min = 0.75, max = 2, step = 0.05, default = 1.5, format = "%.2fx" },
 }
@@ -61,6 +64,12 @@ ns.SettingSliders = {
 ns.SliderById = {}
 for _, slider in ipairs(ns.SettingSliders) do
 	ns.SliderById[slider.id] = slider
+end
+
+-- Whether a switch exists in this build: a sandboxOn one does not in the
+-- sandbox.
+function ns.Switchable(setting)
+	return not (setting.sandboxOn and ns.IsSandbox())
 end
 
 ns.SettingById = {}
@@ -92,11 +101,26 @@ ns.Timing = {
 	killLongestSeconds = 30,
 	welcomeBurst = 5,
 	welcomeBurstSeconds = 60,
-	staleSeconds = 5 * 60, -- then it is drawn grayed out
 	-- A friend's quest card without news goes after this; nil keeps cards
 	-- until cleared, as decided for 0.1.2 (to revisit: docs\side-quest.md, B5).
 	cardSeconds = nil,
 	memberSeconds = 7 * 24 * 60 * 60, -- a player not seen goes after this
 	expireSeconds = 60 * 60, -- how often lifetimes are checked
 	xpDays = 7, -- days of XP kept for each player
+	-- Health and power go out in steps of this many percent (100, 95, 90...),
+	-- at most once in vitalsSeconds: a change in between waits and the latest
+	-- goes out when the time is up, so a fight is a steady trickle, not a
+	-- flood, and the last word is always right.
+	vitalsStep = 5,
+	vitalsSeconds = 1.5,
 }
+
+-- Colors of the power bars, by the game's power token (UnitPowerType).
+ns.PowerColors = {
+	MANA = { 0.20, 0.45, 0.95 },
+	RAGE = { 0.90, 0.18, 0.18 },
+	ENERGY = { 0.98, 0.84, 0.12 },
+	FOCUS = { 1.00, 0.52, 0.08 },
+	RUNIC_POWER = { 0.12, 0.80, 0.88 },
+}
+ns.HealthColor = { 0.18, 0.78, 0.28 }

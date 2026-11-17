@@ -12,17 +12,12 @@ ourselves. That is also what lets it do what normal chat cannot.
 Along the bottom of the chat, one row:
 
 ```
-[ready made] [images] [type to pick       ] [Send] [Save] [your saves]
+[images] [type to pick       ] [Send] [Save] [your saves]
 ```
 
 - **Images** opens the image picker (search, pages, arrows and Enter). Click
   up to three; click one again to take it out. Right-click the button clears
   them.
-- **The effects strip**, just above the bar: preset effects (`data\effects.lua`,
-  `EffectPresets`) as a row of tiles, paged with arrows. One click sends one.
-  Effects are not built by the player yet. Each comes **empty** (images only,
-  like Coin rain) or **worded** (with a saying, like Gratz rain: its words fall
-  as particles among the images); a worded tile shows a small gold "Aa".
 - **Type to pick:** a box that suggests, for the word typed, sayings
   ("gr" for Gratz!), effects ("rai" for Rain) and images whose names or tags
   hold it ("gem"). Space, Tab or Enter takes the highlighted one (an image is
@@ -31,15 +26,19 @@ Along the bottom of the chat, one row:
   empty box lists every saying. The typed word is never sent, and a word with
   no match is dropped, so this is a keyboard way to pick, not free text.
 - **Send** sends it all as one message: `S` with `i`, `i2`, `i3` (the icons'
-  file IDs) and `k` (the saying's id); an effect from the strip adds `e` (the
+  file IDs) and `k` (the saying's id); an effect from the KekChat button's list adds `e` (the
   effect's id). Every client,
   yours included once the server sends it back, shows the sender's name, the
   images popping in and the saying beside them, and plays the effect.
 - **Save** keeps the pair as one of your presets (account wide, up to
   `maxPresets`).
-- **Ready made** (a big up arrow, at the left end) lists the built-in presets
-  (`ChatPresets`, for anyone who does not want to make their own). Pick one
-  to load it, then Send.
+- **The KekChat button** (KekChat's name, a red button with a down arrow, top
+  left) drops down everything ready made: **Messages**, the built-in presets
+  (`ChatPresets`, for anyone who does not want to make their own), then
+  **Effects** (`data\effects.lua`, `EffectPresets`), each **empty** (images
+  only, like Coin rain) or **worded** (with a saying, like Gratz rain: its
+  words fall as particles among the images). Effects are not built by the
+  player yet. Clicking any of them sends it straight away.
 - **Your saves** (the book, at the right end, beside Save) lists the ones you
   saved. Pick one to load it; right-click one to remove it.
 

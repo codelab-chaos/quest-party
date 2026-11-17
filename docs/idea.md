@@ -220,3 +220,24 @@ Good news for our channel: `CHAT_MSG_ADDON` has no secret or lockdown flag, and 
 - **Toys**: `UseToy` exists but it is used from Blizzard secure buttons; assume it needs a click. `C_ToyBoxInfo` only manages filters and fanfare.
 - **C_DeathAlert.HardcoreDeaths**: hardcore only, not useful here.
 - **Camera**: only `GetCameraFOVDefaults` and `GetUICameraInfo` are documented; no fun camera control for addons.
+
+## Queued: the game's own big backdrops (asked 2026-11-16)
+
+Use the large painted backgrounds already in the client, fading into them
+or layering them behind or with our own scenes (docs/scenes.md). What the
+Forever UI source still references:
+
+- Dungeon finder backdrops: `Interface\LFGFrame\UI-LFG-BACKGROUND-<dungeon>`
+  (Deadmines and others), plus DUNGEONWALL, HEROIC, QUESTPAPER and
+  RANDOMDUNGEON.
+- Talent tree backgrounds per class and tree (`Interface\TalentFrame\...`,
+  such as MageFire).
+- Achievement parchment and wood (`Interface\AchievementFrame\...`).
+- Loading screens and world map art are in the game's files but barely
+  referenced by the UI code; whether an addon can draw them needs a lab test
+  (`/qps lab`) before planning on them.
+
+Idea to try: a card's scene cross-fades into the matching game backdrop (a
+dungeon's art when the event happened in that dungeon), or the backdrop sits
+faint behind the whole feed with the scenes over it.
+

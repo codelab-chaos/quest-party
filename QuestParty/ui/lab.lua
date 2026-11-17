@@ -19,6 +19,7 @@ local LAYOUT = {
 	model = 150,
 	head = 64,
 	stamp = 36,
+	dockArea = 320, -- the magnetic dock's mock feed panel, its height
 }
 
 -- What the lab tries, as data.
@@ -283,6 +284,58 @@ local function BuildEmote()
 	})
 end
 
+-- The magnetic event dock (ui\magnet-dock.lua) on a mock feed panel, with
+-- made-up events: fire one, a burst, or clear it, and move the mouse over
+-- the panel's right edge to pull the drawers out.
+local MOCK_EVENTS = {
+	{ icon = "Interface\\Icons\\XP_Icon", title = "Kills Defias Thug x4 for 200 XP", meta = "Orinion" },
+	{ icon = "Interface\\Icons\\Achievement_Level_10", title = "Reached level 24!", meta = "Hala" },
+	{ icon = "Interface\\Icons\\INV_Misc_Note_01", title = "Accepted: The Battleboars", meta = "Liowyn" },
+	{ icon = "Interface\\Icons\\Trade_BlackSmithing", title = "Blacksmithing 149 > 150", meta = "Bramwick" },
+	{ icon = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01", title = "Died in Tanaris", meta = "Corel" },
+	{ icon = "Interface\\Icons\\INV_Misc_Map_01", title = "Discovered: Ashenvale", meta = "Maeric" },
+	{ icon = "Interface\\Icons\\INV_Misc_Coin_02", title = "Completed: The Defias Brotherhood", meta = "Ulfdor" },
+	{ icon = "Interface\\Icons\\Achievement_Quests_Completed_01", title = "Earned: Quest for the Quest Giver", meta = "Halys" },
+}
+
+local function BuildDock()
+	Heading("Magnetic event dock", "move the mouse to the panel's right edge")
+	local area = CreateFrame("Frame", nil, content, "BackdropTemplate")
+	area:SetPoint("TOPLEFT", LAYOUT.pad, -y)
+	area:SetPoint("RIGHT", content, "RIGHT", -LAYOUT.pad, 0)
+	area:SetHeight(LAYOUT.dockArea)
+	area:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12, insets = { left = 3, right = 3, top = 3, bottom = 3 } })
+	area:SetBackdropColor(0.03, 0.03, 0.06, 1)
+	area:SetBackdropBorderColor(0.80, 0.65, 0.20, 0.6)
+	area:SetClipsChildren(true) -- drawers tuck under the panel's edge
+	local note = area:CreateFontString(nil, "ARTWORK", "GameFontDisable")
+	note:SetPoint("CENTER", -30, 0)
+	note:SetText("(the feed)")
+	local count = 0
+	local dock = ns.MagnetDock.Create(area, { side = "RIGHT", onClick = function(item)
+		Say("Restored: " .. item.title, true)
+	end })
+	dock:GetFrame():SetPoint("BOTTOMRIGHT", area, "BOTTOMRIGHT", -4, 8)
+	local function Fire()
+		count = count + 1
+		local mock = MOCK_EVENTS[(count - 1) % #MOCK_EVENTS + 1]
+		dock:Push({ id = count, icon = mock.icon, title = mock.title, meta = mock.meta })
+	end
+	y = y + LAYOUT.dockArea + LAYOUT.gap
+	Buttons({
+		{ "Event", Fire },
+		{ "Burst of 5", function() for _ = 1, 5 do Fire() end end },
+		{ "Fill 7 quietly", function()
+			for _ = 1, 7 do
+				count = count + 1
+				local mock = MOCK_EVENTS[(count - 1) % #MOCK_EVENTS + 1]
+				dock:Push({ id = count, icon = mock.icon, title = mock.title, meta = mock.meta }, true)
+			end
+		end },
+		{ "Clear", function() dock:Clear() end },
+	})
+end
+
 local function Build()
 	frame = CreateFrame("Frame", ns.Globals.frame("Lab"), UIParent, "BackdropTemplate")
 	frame:SetSize(LAYOUT.width, LAYOUT.height)
@@ -316,7 +369,7 @@ local function Build()
 	content:SetWidth(LAYOUT.width - 34)
 	scroll:SetScrollChild(content)
 
-	for _, section in ipairs({ BuildModel, BuildHead, BuildSpellKit, BuildSpeech, BuildWaypoint, BuildBanner, BuildStamps, BuildEmote }) do
+	for _, section in ipairs({ BuildDock, BuildModel, BuildHead, BuildSpellKit, BuildSpeech, BuildWaypoint, BuildBanner, BuildStamps, BuildEmote }) do
 		local ok, problem = pcall(section)
 		if not ok then
 			Heading("(a section could not be built)", tostring(problem))

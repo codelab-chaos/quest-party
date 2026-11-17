@@ -25,9 +25,11 @@ function ns.Origin(from, fromMe, as, sandbox, debug)
 			end
 			return nil
 		end
-		-- In the sandbox, this character's own Quest Party is another player.
+		-- In the sandbox, this character's own regular Quest Party (loaded
+		-- beside it, a developer's setup only) is not a friend: ignored. The
+		-- sandbox shows this character from its own tracking.
 		if sandbox then
-			return "peer", from
+			return nil
 		end
 		return "self"
 	end

@@ -136,21 +136,7 @@ local function ClassColor(class)
 end
 
 -- A portrait: the game's race art when it has it, or the class icon.
-local function SetPortrait(texture, data)
-	if data.atlas and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(data.atlas) then
-		texture:SetAtlas(data.atlas)
-		texture:SetTexCoord(0, 1, 0, 1)
-		return
-	end
-	texture:SetTexture("Interface\\TargetingFrame\\UI-Classes-Circles")
-	local coords = data.class and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[data.class]
-	if coords then
-		texture:SetTexCoord(unpack(coords))
-	else
-		texture:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-		texture:SetTexCoord(0, 1, 0, 1)
-	end
-end
+local SetPortrait = ns.Look.SetPortrait -- shared with KekChat (ui\look.lua)
 
 local function StatusLine(data)
 	if data.here then
@@ -177,15 +163,7 @@ local function ShowHeadTip(button)
 	GameTooltip:Show()
 end
 
-local CIRCLE = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
-
--- A texture cut to a circle filling its own bounds.
-local function Round(texture, parent)
-	local mask = parent:CreateMaskTexture()
-	mask:SetTexture(CIRCLE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-	mask:SetAllPoints(texture)
-	texture:AddMaskTexture(mask)
-end
+local Round = ns.Look.Round
 
 -- Moves a head toward where it should be (see Slide), a little each frame.
 local function SlideStep(button, elapsed)

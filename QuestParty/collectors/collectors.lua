@@ -24,6 +24,7 @@ local knownQuests, watchedQuests, progressSeen, pending = {}, {}, {}, {}
 local lastQuestUpdate
 local ready = false
 local experience, experienceQueued
+local levelTold -- the last level a level-up row was made for, so it is made once
 
 -- Text the game marks as secret (some combat states) cannot be read by addons.
 local function Readable(text)
@@ -40,13 +41,21 @@ end
 
 -- Shows the entry in our own panel and sends it out. A type whose feature switch
 -- is off is neither shown nor sent.
--- The sandbox build collects nothing: its feed is its pretend players'.
+-- The sandbox build shows everything of this character's in its own panel,
+-- as a real client does, but sends none of it: its messages are its pretend
+-- players'.
+
 local function Emit(typeName, data)
 	local def = ns.FeedTypes[typeName]
-	if ns.IsSandbox() or not def or not ns.IsEnabled(def.setting) then
+	if not def or not ns.IsEnabled(def.setting) then
 		return
 	end
-	Bus:Fire("ENTRY_OUTGOING", { type = typeName, data = Copy(data) })
+	if not ns.IsSandbox() then
+		Bus:Fire("ENTRY_OUTGOING", { type = typeName, data = Copy(data) })
+	end
+	-- Into this player's own feed, exactly as anyone else's entry arrives:
+	-- your own events show and behave like everyone's (always, in the
+	-- sandbox: Include self is hard-coded on there).
 	if ns.IsEnabled("showSelf") then
 		local _, class = UnitClass("player")
 		Bus:Fire("ENTRY_RECEIVED", { type = typeName, player = UnitName("player"), class = class, data = Copy(data) })
@@ -358,8 +367,18 @@ function handlers.CHAT_MSG_SKILL(text)
 	end
 end
 
-function handlers.PLAYER_LEVEL_UP(level)
+-- A level-up row, once per level. Two things can tell of one: the game's
+-- level-up event, and the XP reading after it (which sees the level go up).
+-- In combat the event's level can be a value addons cannot read, so either
+-- may be the one that knows; whichever comes first makes the row.
+local function TellLevel(level)
+	if not ReadableNumber(level) or (levelTold and level <= levelTold) then return end
+	levelTold = level
 	Emit("level", { level = level })
+end
+
+function handlers.PLAYER_LEVEL_UP(level)
+	TellLevel(level)
 end
 
 function handlers.PLAYER_XP_UPDATE(unit)
@@ -374,6 +393,9 @@ function handlers.PLAYER_XP_UPDATE(unit)
 		local previous = experience
 		experience = current
 		if not previous or current.level < previous.level then return end
+		if current.level > previous.level then
+			TellLevel(current.level)
+		end
 		if current.level == previous.level then
 			if current.currentXP <= previous.currentXP then return end
 			current.xp = current.currentXP - previous.currentXP
@@ -433,11 +455,15 @@ function Collectors:RunTest()
 end
 
 Bus:On("READY", function()
+	-- The sandbox ignores this character's regular Quest Party now (comms\
+	-- origin.lua). What it saved from it before, under the full name the
+	-- channel carries ("Bagoe Bones", not the game's "Bagoe"), goes.
 	if ns.IsSandbox() then
-		return
+		ns.Store:ForgetOtherSelves(UnitName("player"))
 	end
 	ready = true
 	experience = ReadExperience() -- establish a baseline without replaying old gains
+	levelTold = experience and experience.level -- the level we start at is not news
 	RepairSavedQuests()
 	HydrateOwnQuests()
 	local frame = CreateFrame("Frame")

@@ -585,6 +585,43 @@ function Store:Prune(what)
 	Bus:Fire("STORE_CHANGED")
 end
 
+-- Forgets everything held under exactly this name: cards, feed rows and the
+-- player. Returns how many cards and rows went.
+function Store:ForgetName(name)
+	local cards, rows = 0, 0
+	for key, record in pairs(db.cards) do
+		if record.player == name then
+			db.cards[key] = nil
+			cards = cards + 1
+		end
+	end
+	for index = #db.feed, 1, -1 do
+		if db.feed[index].player == name then
+			table.remove(db.feed, index)
+			rows = rows + 1
+		end
+	end
+	db.members[name] = nil
+	if cards + rows > 0 then
+		Bus:Fire("STORE_CHANGED")
+	end
+	return cards, rows
+end
+
+-- Forgets every name that is this character but not the one given: the
+-- sandbox's leftovers from hearing this character's regular Quest Party.
+function Store:ForgetOtherSelves(keep)
+	local names = {}
+	for name in pairs(db.members) do names[name] = true end
+	for _, record in pairs(db.cards) do names[record.player] = true end
+	for _, entry in ipairs(db.feed) do names[entry.player] = true end
+	for name in pairs(names) do
+		if name ~= keep and ns.IsMe(name) then
+			self:ForgetName(name)
+		end
+	end
+end
+
 function Store:GetMembers()
 	local result = {}
 	for _, member in pairs(db.members) do

@@ -9,6 +9,11 @@
 #   scripts/deploy.sh            copy the addon
 #   scripts/deploy.sh --sandbox  copy the sandbox build, QuestPartySandbox
 #   scripts/deploy.sh --dry-run  show what would change, copy nothing
+#   scripts/deploy.sh --force    copy the regular addon from a branch other than main
+#
+# The regular install (QuestParty) is what you play with: it takes only the
+# main branch, so work in progress on other branches cannot land on it by
+# accident. Deploy those with --sandbox.
 set -euo pipefail
 
 ADDON_NAME="QuestParty"
@@ -24,10 +29,12 @@ fail() {
 # No permission or owner syncing: the Windows drive cannot store them.
 rsync_flags=(--recursive --links --times --delete --itemize-changes)
 sandbox=false
+force=false
 for arg in "$@"; do
 	case "$arg" in
 		--dry-run) rsync_flags+=(--dry-run) ;;
 		--sandbox) sandbox=true ;;
+		--force) force=true ;;
 		*) fail "unknown option: $arg" ;;
 	esac
 done
@@ -42,6 +49,11 @@ addons_dir="${addons_dir%/}"
 [[ "$addons_dir" == */Interface/AddOns ]] || fail "target must end in Interface/AddOns: $addons_dir"
 [[ -d "$addons_dir" ]] || fail "target folder does not exist: $addons_dir"
 [[ -f "$SOURCE_DIR/$ADDON_NAME.toc" ]] || fail "addon not found at $SOURCE_DIR"
+
+branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+if [[ "$sandbox" == false && "$force" == false && "$branch" != "main" ]]; then
+	fail "on branch $branch: the regular install takes only main. Use --sandbox (or --force to override)"
+fi
 
 # --delete only removes stale files inside the addon's own folder.
 # Saved variables live in the WTF folder and are never touched.

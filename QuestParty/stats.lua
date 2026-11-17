@@ -7,9 +7,8 @@
 -- Saved in the account saved variables (QuestPartyDB) as stats as stats[player][day] = { [tally id] = number },
 -- where day is the number of whole days since 1970 (server time).
 --
--- An advanced feature for now: tallies are kept only in debug mode, which a
--- local source install always has on (X-Debug in the TOC). Released builds
--- keep nothing unless a player turns debug mode on.
+-- Kept for everyone: the 123 tab (ui\report.lua) graphs them. Pretend
+-- players are counted only in the sandbox, where they are the party.
 local _, ns = ...
 local Bus = ns.Bus
 
@@ -44,8 +43,8 @@ end
 -- Adds an entry to its player's tally for the day it happened.
 function Stats:Record(entry)
 	local saved = ns.db.stats
-	if not saved or not ns.IsDebug() or entry.emulated or not entry.player or type(entry.data) ~= "table" then
-		return -- the emulator's pretend players are not counted
+	if not saved or (entry.emulated and not ns.IsSandbox()) or not entry.player or type(entry.data) ~= "table" then
+		return -- the emulator's pretend players are not counted, but the sandbox's are
 	end
 	local def = ns.FeedTypes[entry.type]
 	if not def or not ns.IsEnabled(def.setting) then
@@ -56,7 +55,10 @@ function Stats:Record(entry)
 		if kind.from == entry.type and (not kind.when or Filled(entry.data[kind.when])) then
 			local amount = kind.count and tonumber(entry.data[kind.count]) or 1
 			if kind.sum then
-				amount = entry.data[kind.sum]
+				-- Whole numbers only: XP is counted in points, and a fraction (a
+				-- pretend player's scaled gain) would show as one.
+				amount = tonumber(entry.data[kind.sum])
+				amount = amount and math.floor(amount + 0.5)
 			end
 			if type(amount) == "number" and amount > 0 then
 				saved[entry.player] = saved[entry.player] or {}

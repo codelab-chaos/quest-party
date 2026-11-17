@@ -62,6 +62,13 @@ function Harness.new(saved, character, debugBuild, serverTime, options)
 	env.UnitLevel = function() return world.level end
 	env.UnitXP = function() return world.xp end
 	env.UnitXPMax = function() return world.xpMax end
+	-- Health and power (collectors\vitals.lua).
+	world.health, world.healthMax, world.power, world.powerMax, world.powerType = 100, 100, 50, 100, "MANA"
+	env.UnitHealth = function() return world.health end
+	env.UnitHealthMax = function() return world.healthMax end
+	env.UnitPower = function() return world.power end
+	env.UnitPowerMax = function() return world.powerMax end
+	env.UnitPowerType = function() return 0, world.powerType end
 	env.GetRealZoneText = function() return "Elwynn Forest" end
 	-- The game's skill list, with its category numbers: 6 weapon skills,
 	-- 9 secondary skills, 11 professions.
@@ -154,9 +161,9 @@ function Harness.new(saved, character, debugBuild, serverTime, options)
 	}
 	local ns = {}
 	local modules = {
-		"core.lua", "locales/en-us.lua", "data/feed-types.lua", "data/filters.lua", "data/settings.lua", "data/slots.lua", "data/chat.lua", "data/effects.lua", "data/stats.lua",
-		"store.lua", "stats.lua", "chat.lua", "particles.lua", "resolver.lua", "comms/protocol.lua", "comms/origin.lua", "comms/transport.lua", "comms/session.lua", "comms/sharing.lua",
-		"collectors/patterns.lua", "collectors/samples.lua", "collectors/collectors.lua", "collectors/gear.lua",
+		"core.lua", "locales/en-us.lua", "data/feed-types.lua", "data/filters.lua", "data/settings.lua", "data/themes.lua", "data/slots.lua", "data/chat.lua", "data/effects.lua", "data/stats.lua", "data/scenes.lua",
+		"store.lua", "stats.lua", "chat.lua", "report.lua", "scenes.lua", "magnet.lua", "vitals.lua", "particles.lua", "resolver.lua", "comms/protocol.lua", "comms/origin.lua", "comms/transport.lua", "comms/session.lua", "comms/sharing.lua",
+		"collectors/patterns.lua", "collectors/samples.lua", "collectors/collectors.lua", "collectors/gear.lua", "collectors/vitals.lua",
 		"emulator/script.lua", "emulator/recordings.lua", "emulator/emulator.lua", "emulator/scenarios.lua", "ui/view-model.lua", "ui/party-model.lua", "ui/confetti.lua", "ui/chat-echo.lua", "commands.lua",
 	}
 	if options.sandbox then

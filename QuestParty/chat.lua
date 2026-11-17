@@ -269,7 +269,7 @@ function Chat:Search(text)
 	return found
 end
 
--- ========= The effects strip ================================================
+-- ========= Effect presets (the KekChat button's list) =======================
 -- Preset effect messages (data\effects.lua, EffectPresets), one click to
 -- send: { id, label, effect, icons, saying }, with images the game knows.
 local effectPresets
@@ -311,7 +311,7 @@ end
 -- ========= Suggestions, for typing ==========================================
 -- What a typed word could mean: sayings whose words start with it (or whose
 -- id does), then images whose path or tags hold it. (Effects are sent from
--- the effects strip, not built here.) Typing only
+-- the KekChat button's list, not built here.) Typing only
 -- picks from these; the word itself is never sent. An empty word suggests
 -- every saying. { kind = "saying" | "image", id or icon, text }
 local function Starts(text, word)

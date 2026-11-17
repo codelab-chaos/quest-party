@@ -74,6 +74,7 @@ local function PrintHelp()
 	ns.Print(L.CMD_HELP_SET)
 	ns.Print(L.CMD_HELP_SHARE)
 	ns.Print(L.CMD_HELP_ICON)
+	ns.Print(L.CMD_HELP_RESET)
 end
 
 local function PrintSwitch(setting)
@@ -83,7 +84,7 @@ end
 -- Switch ids are matched without case.
 local function FindSwitch(name)
 	for _, setting in ipairs(ns.Settings) do
-		if setting.id:lower() == name then
+		if setting.id:lower() == name and ns.Switchable(setting) then
 			return setting
 		end
 	end
@@ -113,10 +114,14 @@ local commands = {
 	clear = function()
 		ns.ConfirmClear()
 	end,
+	reset = function()
+		ns.Panel:ResetPosition()
+		ns.Print(L.CMD_RESET_DONE)
+	end,
 	set = function(name, value)
 		if not name then
 			for _, setting in ipairs(ns.Settings) do
-				PrintSwitch(setting)
+				if ns.Switchable(setting) then PrintSwitch(setting) end
 			end
 			return
 		end
@@ -219,6 +224,7 @@ local commands = {
 	end,
 	help = PrintHelp,
 }
+commands.repos = commands.reset
 
 -- The sandbox build answers to its own commands, so both can be loaded at once.
 local SLASH = ns.IsSandbox() and { "/qps", "/qpsandbox" } or { "/qp", "/questparty" }

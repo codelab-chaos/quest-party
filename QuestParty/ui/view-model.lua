@@ -2,14 +2,13 @@
 -- The panel only draws rows, it never reads the store or the feed type data.
 --
 -- A row is:
---   { kind, icon, badge, title, right, lines, summary, progress, quest, highlight, stale, pulse, sequence }
+--   { kind, icon, badge, title, right, lines, summary, progress, quest, highlight, pulse, sequence }
 --   badge     drawn in place of the icon: { style, text }
 --   kind      "feed", "progress" (one objective), "tracker" (a whole quest) or "member"
 --   lines     the detail lines under the title: { text, right, progress = { have, need } }
 --   summary   what to show after the title when the row is drawn on one line
 --   progress  overall { have, need }, drawn as a strip in the one-line view
 --   quest     set when the row is about a quest, so clicking it can jump to that quest
---   stale     nothing has changed for a while, so the row is drawn grayed out
 --   pulse     set when the row changed in the last few seconds. It is a string unique
 --             to that change, so the panel can flash the row exactly once.
 -- Progress rows and feed rows share one timeline, ordered by when each last changed, so
@@ -84,7 +83,6 @@ local function ProgressRow(record, objective, now)
 		progress = progress,
 		quest = record.data.quest,
 		questID = record.data.questID,
-		stale = age > ns.Timing.staleSeconds,
 		pulse = (age <= PULSE_SECONDS) and (record.key .. "/" .. objective.name .. "/" .. objective.have),
 	}
 end
@@ -109,7 +107,7 @@ local function TrackerRow(quest, records, now)
 	end)
 	local lines = {}
 	local overall = { have = 0, need = 0 }
-	local newest, sequence, allStale = records[1].time, 0, true
+	local newest, sequence = records[1].time, 0
 	for _, record in ipairs(records) do
 		local data = record.data
 		local name = ns.ColorName(record.player, record.class)
@@ -138,7 +136,6 @@ local function TrackerRow(quest, records, now)
 
 		newest = math.max(newest, record.time)
 		sequence = math.max(sequence, record.sequence or 0)
-		allStale = allStale and (now - record.time > ns.Timing.staleSeconds)
 	end
 	local age = now - newest
 	return {
@@ -152,7 +149,6 @@ local function TrackerRow(quest, records, now)
 		progress = overall.need > 0 and overall or nil,
 		quest = quest,
 		questID = records[1].data.questID,
-		stale = allStale,
 		pulse = (age <= PULSE_SECONDS) and ("tracker/" .. quest .. "/" .. sequence),
 	}
 end
@@ -205,27 +201,65 @@ local function FeedRow(entry, now)
 end
 
 -- ========= The party's XP bars ==============================================
--- One bar for each other player in the party: everyone sharing on the
--- channel, and in debug mode the emulator's players. Not this player, who has
--- the game's own XP bar. Sorted by name. Each bar is:
---   { name, class, level, have, need, maxLevel, text, lastXP, lastMob }
+-- One bar for everyone on the channel: this player first (from the game
+-- itself, so it is always there and current), then everyone sharing on the
+-- channel and, in debug mode, the emulator's players, sorted by name. Each
+-- bar is:
+--   { name, class, level, have, need, maxLevel, text, lastXP, lastMob,
+--     health, power, powerType }  (health and power in percent, when known)
 --   have, need  the XP bar's fill, nil when that player's XP is not known yet
 --   text        the level and how far there is to go, for the bar's right side
+-- This player's own record: the game's numbers, with the last kill as the
+-- store saw it.
+local function Me()
+	local name = UnitName("player")
+	local _, class = UnitClass("player")
+	local saved = ns.Store:GetMember(name) or {}
+	return {
+		name = name,
+		class = class,
+		level = UnitLevel("player"),
+		currentXP = UnitXP("player"),
+		maxXP = UnitXPMax("player"),
+		lastXP = saved.lastXP,
+		lastMob = saved.lastMob,
+		me = true,
+	}
+end
+
 function ViewModel:PartyBars()
 	local bars = {}
 	if not ns.IsEnabled("levels") then
 		return bars
 	end
+	local members = { Me() }
 	for _, member in ipairs(ns.Store:GetMembers()) do
 		local inParty = ns.Session.peers[member.name] ~= nil or (member.emulated and ns.IsDebug())
-		if inParty and not ns.IsMe(member.name) then
+		if inParty and not ns.IsMe(member.name) and member.name ~= members[1].name then
+			members[#members + 1] = member
+		end
+	end
+	for _, member in ipairs(members) do
+		do
 			local bar = {
 				name = member.name,
 				class = member.class,
 				level = member.level,
 				lastXP = member.lastXP,
 				lastMob = member.lastMob,
+				me = member.me,
 			}
+			-- Health and power: yours from the game, a friend's from the channel.
+			local vitals
+			if member.me then
+				vitals = ns.VitalsCollector and ns.VitalsCollector.reading
+			else
+				local peer = ns.Session.peers[member.name]
+				vitals = peer and peer.vitals
+			end
+			if vitals then
+				bar.health, bar.power, bar.powerType = vitals.h, vitals.p, vitals.t
+			end
 			-- The level goes in the middle of the bar; text is what is left.
 			bar.levelText = tostring(member.level or "?")
 			if member.maxXP == 0 then
@@ -233,7 +267,7 @@ function ViewModel:PartyBars()
 				bar.text = L.XPBAR_BAR_MAX
 			elseif member.maxXP and member.currentXP then
 				bar.have, bar.need = member.currentXP, member.maxXP
-				bar.text = L.XPBAR_BAR_DONE:format(100 * member.currentXP / member.maxXP)
+				bar.text = L.XPBAR_BAR_DONE:format(math.floor(100 * member.currentXP / member.maxXP))
 			else
 				bar.text = ""
 			end

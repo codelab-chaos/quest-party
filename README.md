@@ -115,7 +115,8 @@ Arguments in square brackets are optional.
 | `/qp debug [on/off]` | Enable or disable debug mode; omit the argument to toggle it. |
 
 Available switches: `shareGear`, `partyHeads`, `rememberPlayers`, `otherUpdates`,
-`confetti`, `chatEcho`, `chatOrder`, and `showSelf`.
+`confetti`, `chatEcho`, `chatOrder`, and `showSelf`. In the sandbox (`/qps`)
+your own events always show; `showSelf` has no switch there.
 
 For example, `/qp set showSelf off` turns off **Include self**,
 `/qp set shareGear off` stops sharing your gear, and
@@ -145,10 +146,12 @@ scenario, Clear on go, GO and STOP) are also in Settings while debug mode is ena
 
 The sandbox is a second build of Quest Party, **QuestPartySandbox**, that plays
 pretend players from your own character, for testing a party without a second
-account. It has its own saved variables, its own panel and its own commands
-(`/qps`), collects nothing of your own, and never sends as your character: every
-message names the pretend player it stands for. Friends' clients ignore those
-messages, and your own Quest Party shows them only in debug mode.
+account. It is a developer's tool only. It has its own saved variables, its own
+panel and its own commands (`/qps`), shows your own quests from its own tracking
+but sends nothing of yours, and never sends as your character: every message
+names the pretend player it stands for. Friends' clients ignore those messages,
+and your own Quest Party shows them only in debug mode. The sandbox in turn
+ignores your own Quest Party when both are loaded, so you never show twice.
 
 Install it with `scripts/deploy.sh --sandbox`, or build a ZIP with
 `python3 scripts/package.py --sandbox`. It is never part of a release. Your
@@ -232,7 +235,9 @@ The tests cannot prove the server carries addon messages on a custom channel.
 Check for Lua errors with `/console scriptErrors 1` before reloading.
 
 For local installation, `scripts/deploy.sh` uses the AddOns path in
-`.deploy-target` (ignored by Git) or `WOW_ADDONS_DIR`.
+`.deploy-target` (ignored by Git) or `WOW_ADDONS_DIR`. The regular install takes
+only the `main` branch, so work in progress cannot replace the build you play
+with; deploy other branches with `--sandbox` (or `--force` on purpose).
 
 To shrink a saved file with the game closed, `scripts/prune-saved.py` shows what
 it holds and, with `--write`, removes the message log, the feed, friends' quest

@@ -16,6 +16,7 @@ local LAYOUT = {
 	maxWidth = 800,
 	maxHeight = 1000,
 	gripSize = 16,
+	edgeGrab = 5, -- how thick each edge's invisible sizing strip is
 	headerHeight = 30,
 	filterHeight = 18,
 	filterGap = 3,
@@ -34,7 +35,6 @@ local LAYOUT = {
 	rowSpacing = 2,
 	pulseSeconds = 0.9,
 	pulseMemory = 400,
-	staleAlpha = 0.45,
 	optionHeight = 22,
 
 	scrollBarWidth = 12,
@@ -45,23 +45,26 @@ local LAYOUT = {
 	xpBarEdge = 7, -- the rounded border's size: half the height makes round ends
 	xpBarInset = 2, -- the fill sits this far inside the border
 	xpBarGap = 2,
+	-- Under each XP bar, health then power: thin, the bar's width.
+	healthHeight = 3,
+	powerHeight = 2,
 	xpBarMax = 8,
 	xpStripGap = 4, -- between the last bar and the tabs
 	xpBarNotches = 3, -- marks splitting each bar into equal parts (3 makes quarters)
 }
 
 local COLORS = {
-	panel = { 0.05, 0.04, 0.08, 0.92 },
+	-- The rows' and panel's palette is the chosen theme (data\themes.lua).
 	border = { 0.80, 0.65, 0.20, 1 },
 	gutterOff = { 0.35, 0.35, 0.35, 0.6 }, -- a gutter icon's border when its rows are hidden
-	row = { 1, 1, 1, 0.05 },
-	rowHighlight = { 0.45, 0.20, 0.75, 0.45 }, -- a level-up
-	rowHighlightQuest = { 0.70, 0.52, 0.12, 0.42 }, -- a quest handed in
-	rowCard = { 0.20, 0.45, 0.75, 0.18 },
+	count = { 1, 0.82, 0 }, -- an objective's count (4/8), in the title's size
+	countDone = { 0.25, 1, 0.25 }, -- a count that is complete (8/8)
+	rightMuted = { 0.5, 0.5, 0.5 }, -- a row's time, on the right
 	tab = { 0.10, 0.09, 0.13, 1 },
 	tabSelected = { 0.42, 0.33, 0.10, 1 },
 	tabEdge = { 0.80, 0.65, 0.20, 1 }, -- the selected tab's outline and the line under the tabs
-	bar = { 0.25, 0.75, 0.30, 1 },
+	bar = { 0.25, 0.75, 0.30, 1 }, -- a progress bar that is done (green, as its count)
+	barGoing = { 0.85, 0.16, 0.14, 1 }, -- one still going (red)
 	barBack = { 0, 0, 0, 0.5 },
 	pulse = { 1, 0.85, 0.35, 0.55 },
 	-- The party's XP bars. Each player keeps the same color from this list,
@@ -195,11 +198,12 @@ local function RowHeight(data)
 	return height
 end
 
+-- Which of the theme's row colors each kind of row takes (data\themes.lua).
 local ROW_BACKGROUND = {
-	feed = COLORS.row,
-	progress = COLORS.rowCard,
-	tracker = COLORS.rowCard,
-	member = COLORS.rowCard,
+	feed = "row",
+	progress = "card",
+	tracker = "card",
+	member = "card",
 }
 
 local BACKDROP = {
@@ -210,6 +214,7 @@ local BACKDROP = {
 }
 
 local frame, scrollBox, scrollBar, listView, emptyText, optionsView, optionsButton, viewButton, titleIcon, soundButton
+local BarStep -- from one party bar to the next (defined with the bars)
 
 -- The speaker shows the volume: crossed out at Mute, fainter the softer.
 local VOLUME_ALPHA = { [0] = 0.6, [1] = 0.55, [2] = 0.8, [3] = 1 }
@@ -231,6 +236,17 @@ local pulsesPlayed = {}
 local pulsesPlayedCount = 0
 
 -- ========= Rows =============================================================
+-- A progress bar's fill and color. A quest's is red while going and green
+-- once done; anything else's (an XP row's) stays green.
+local function SetProgress(bar, progress, quest)
+	bar:SetMinMaxValues(0, progress.need)
+	bar:SetValue(progress.have)
+	local going = quest and progress.have < progress.need
+	bar:SetStatusBarColor(unpack(going and COLORS.barGoing or COLORS.bar))
+end
+
+local QUEST_ROWS = { progress = true, tracker = true }
+
 local function CreateBar(row)
 	local bar = CreateFrame("StatusBar", nil, row)
 	bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
@@ -244,6 +260,22 @@ end
 local function BuildRow(row)
 	row.background = row:CreateTexture(nil, "BACKGROUND")
 	row.background:SetAllPoints()
+	-- A thin rim around each row, in the theme's color (InitRow).
+	row.edges = {}
+	for _, side in ipairs({ { "TOPLEFT", "TOPRIGHT", true }, { "BOTTOMLEFT", "BOTTOMRIGHT", true }, { "TOPLEFT", "BOTTOMLEFT" }, { "TOPRIGHT", "BOTTOMRIGHT" } }) do
+		local edge = row:CreateTexture(nil, "BACKGROUND", nil, 1)
+		edge:SetPoint(side[1])
+		edge:SetPoint(side[2])
+		if side[3] then edge:SetHeight(1) else edge:SetWidth(1) end
+		row.edges[#row.edges + 1] = edge
+	end
+
+	-- The icon's well: a dark square in a gold edge, and a gold line down
+	-- the row after it, as the concept art's.
+	row.wellEdge = row:CreateTexture(nil, "BORDER", nil, 1)
+	row.well = row:CreateTexture(nil, "BORDER", nil, 2)
+	row.divider = row:CreateTexture(nil, "BORDER", nil, 2)
+	row.divider:SetWidth(1)
 
 	row.hover = row:CreateTexture(nil, "BORDER")
 	row.hover:SetAllPoints()
@@ -294,6 +326,11 @@ local function BuildRow(row)
 	fade:SetFromAlpha(COLORS.pulse[4])
 	fade:SetToAlpha(0)
 	fade:SetDuration(LAYOUT.pulseSeconds)
+	-- However it ends (finished, stopped, or cut off while hidden), the flash
+	-- is gone: a flash left showing tints the whole row gold.
+	local function Clear() row.pulse:SetAlpha(0) end
+	row.pulseAnimation:SetScript("OnFinished", Clear)
+	row.pulseAnimation:SetScript("OnStop", Clear)
 
 	-- Rows about a quest can be clicked to jump to the Quests filter.
 	row:SetScript("OnEnter", function(self)
@@ -344,7 +381,8 @@ end
 
 local function PlayPulse(row, pulse)
 	row.pulseAnimation:Stop()
-	if not pulse or pulsesPlayed[pulse] then
+	row.pulse:SetAlpha(0)
+	if not pulse or pulsesPlayed[pulse] or not row:IsVisible() then
 		return
 	end
 	if pulsesPlayedCount >= LAYOUT.pulseMemory then
@@ -373,8 +411,7 @@ local function LayoutOneLine(row, data, style)
 
 	if data.progress then
 		row.strip:SetHeight(style.barHeight)
-		row.strip:SetMinMaxValues(0, data.progress.need)
-		row.strip:SetValue(data.progress.have)
+		SetProgress(row.strip, data.progress, QUEST_ROWS[data.kind])
 		row.strip:Show()
 	else
 		row.strip:Hide()
@@ -409,8 +446,7 @@ local function LayoutDetailed(row, data, style)
 			line.bar:SetPoint("TOPLEFT", left, y - style.barOffset)
 			line.bar:SetPoint("TOPRIGHT", -6, y - style.barOffset)
 			line.bar:SetHeight(style.barHeight)
-			line.bar:SetMinMaxValues(0, lineData.progress.need)
-			line.bar:SetValue(lineData.progress.have)
+			SetProgress(line.bar, lineData.progress, QUEST_ROWS[data.kind])
 			line.bar:Show()
 			y = y - style.barLineHeight
 		else
@@ -456,7 +492,6 @@ local function ShowBadge(row, data, style)
 	badge.text:SetFontObject(look.font[StyleName()] or look.font.detailed)
 	badge.text:SetTextColor(unpack(look.textColor))
 	badge.text:SetText(data.badge.text)
-	badge:SetAlpha(data.stale and LAYOUT.staleAlpha or 1)
 	row.icon:Hide()
 	badge:Show()
 	badge.turn:SetDuration(look.spinSeconds)
@@ -471,15 +506,34 @@ local function InitRow(row, data)
 	end
 	local style = ROW_STYLES[StyleName()]
 
-	local background = (data.highlight == "quest" and COLORS.rowHighlightQuest)
-		or (data.highlight and COLORS.rowHighlight)
-		or ROW_BACKGROUND[data.kind] or COLORS.row
-	row.background:SetColorTexture(unpack(background))
+	local theme = ns.Theme()
+	local background = (data.highlight == "quest" and theme.handIn)
+		or (data.highlight and theme.level)
+		or theme[ROW_BACKGROUND[data.kind] or "row"]
+	for _, edge in ipairs(row.edges) do
+		edge:SetColorTexture(unpack(theme.rim))
+	end
+	row.well:SetColorTexture(unpack(theme.well))
+	row.wellEdge:SetColorTexture(unpack(theme.wellEdge))
+	row.divider:SetColorTexture(unpack(theme.divider))
+	-- Lit from the left: a gradient across the row.
+	row.background:SetColorTexture(1, 1, 1, 1)
+	row.background:SetGradient("HORIZONTAL", CreateColor(unpack(background[1])), CreateColor(unpack(background[2])))
 	row.icon:SetTexture(data.icon)
 	row.icon:SetSize(style.iconSize, style.iconSize)
-	row.icon:SetDesaturated(data.stale and true or false)
+	row.icon:SetDesaturated(false)
 	row.title:SetFontObject(style.titleFont)
 	row.right:SetText(data.right or "")
+	-- An objective's count stands out, as big as the title and gold (green
+	-- when done); anything else on the right (a time) stays small and gray.
+	if data.kind == "progress" then
+		local done = data.progress and data.progress.have >= data.progress.need
+		row.right:SetFontObject(style.titleFont)
+		row.right:SetTextColor(unpack(done and COLORS.countDone or COLORS.count))
+	else
+		row.right:SetFontObject("GameFontDisableSmall")
+		row.right:SetTextColor(unpack(COLORS.rightMuted)) -- a reused row may have held a count
+	end
 
 	row.icon:ClearAllPoints()
 	row.right:ClearAllPoints()
@@ -493,8 +547,24 @@ local function InitRow(row, data)
 	row.quest = data.quest
 	row.hover:Hide()
 	row:EnableMouse(data.quest ~= nil)
-	row:SetAlpha(data.stale and LAYOUT.staleAlpha or 1)
+	row:SetAlpha(1)
 	ShowBadge(row, data, style)
+	-- The well sits around the icon wherever the layout put it; a badge
+	-- (a level-up) has its own ring instead.
+	local hasIcon = row.icon:IsShown()
+	row.well:SetShown(hasIcon)
+	row.wellEdge:SetShown(hasIcon)
+	if hasIcon then
+		row.well:ClearAllPoints()
+		row.well:SetPoint("TOPLEFT", row.icon, "TOPLEFT", -2, 2)
+		row.well:SetPoint("BOTTOMRIGHT", row.icon, "BOTTOMRIGHT", 2, -2)
+		row.wellEdge:ClearAllPoints()
+		row.wellEdge:SetPoint("TOPLEFT", row.icon, "TOPLEFT", -3, 3)
+		row.wellEdge:SetPoint("BOTTOMRIGHT", row.icon, "BOTTOMRIGHT", 3, -3)
+	end
+	row.divider:ClearAllPoints()
+	row.divider:SetPoint("TOPLEFT", row, "TOPLEFT", 5 + style.iconSize + 4, -3)
+	row.divider:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 5 + style.iconSize + 4, 3)
 	PlayPulse(row, data.pulse)
 end
 
@@ -534,7 +604,7 @@ local function StripHeight()
 	if xpBarsShown == 0 then
 		return 0
 	end
-	return xpBarsShown * (LAYOUT.xpBarHeight + LAYOUT.xpBarGap) - LAYOUT.xpBarGap + LAYOUT.xpStripGap
+	return xpBarsShown * BarStep() - LAYOUT.xpBarGap + LAYOUT.xpStripGap
 end
 
 local function ListTop()
@@ -561,6 +631,7 @@ end
 
 -- A quest to bring into view on the next refresh, set by Panel:FocusQuest.
 local focusQuest
+local focusSequence -- a feed row to bring into view, from the dock
 
 -- In chat order new rows and updated cards land at the bottom, so the list follows the bottom
 -- unless the player has scrolled up to read. jumpToEnd forces it, for a fresh view.
@@ -569,9 +640,18 @@ function Panel:Refresh(jumpToEnd)
 		return
 	end
 	local filter = ns.FilterById[ns.charDb.filter] or ns.Filters[1]
-	-- The Chat tab shows Quest Party chat (ui\chat.lua) in place of the list.
-	scrollBox:SetShown(not filter.chat)
-	scrollBar:SetShown(not filter.chat)
+	-- KekChat (ui\chat.lua) and the 123 graphs (ui\report.lua) take the list's
+	-- place on their tabs.
+	local own = filter.chat or filter.report
+	scrollBox:SetShown(not own)
+	scrollBar:SetShown(not own)
+	if filter.report then
+		ns.ChatView:HideDocked()
+		emptyText:Hide()
+		ns.ReportView:Show(ListTop(), LAYOUT.inset)
+		return
+	end
+	ns.ReportView:Hide()
 	if filter.chat then
 		emptyText:Hide()
 		ns.ChatView:ShowDocked(ListTop(), LAYOUT.inset)
@@ -593,6 +673,16 @@ function Panel:Refresh(jumpToEnd)
 		end
 		focusQuest = nil
 	end
+	if focusSequence then
+		for index, data in ipairs(rows) do
+			if data.kind == "feed" and data.sequence == focusSequence then
+				focusIndex = index
+				data.pulse = "focus/" .. focusSequence .. "/" .. GetTime() -- always flash it
+				break
+			end
+		end
+		focusSequence = nil
+	end
 
 	listView:SetPadding(TopPadding(rows), 0, 0, 0, LAYOUT.rowSpacing)
 	scrollBox:SetDataProvider(CreateDataProvider(rows), ScrollBoxConstants.RetainScrollPosition)
@@ -605,6 +695,13 @@ function Panel:Refresh(jumpToEnd)
 	end
 	emptyText:SetText(ns.IsDebug() and L.EMPTY_DEBUG or L.EMPTY)
 	emptyText:SetShown(#rows == 0)
+end
+
+-- Opens the feed (All) and brings one row into view with a flash: the one a
+-- dock drawer stood for.
+function Panel:FocusEntry(sequence)
+	focusSequence = sequence
+	self:SelectFilter(ns.Filters[1].id)
 end
 
 -- Jumps to the Quests filter and brings one quest into view with a flash.
@@ -777,6 +874,24 @@ local function RestorePosition()
 	end
 end
 
+-- /qp reset: the panel back to its first size and place, shown and not
+-- docked, and the dock back to its screen edge. For a panel lost off screen.
+function Panel:ResetPosition()
+	ns.charDb.position, ns.charDb.size, ns.charDb.dockPoint = nil, nil, nil
+	if not frame then return end
+	if ns.charDb.docked then
+		ns.charDb.docked = false
+		ns.Dock:Hide()
+	end
+	frame:SetSize(LAYOUT.width, LAYOUT.height)
+	RestorePosition()
+	ns.charDb.shown = true
+	frame:SetAlpha(1)
+	frame:SetScale(1)
+	frame:Show()
+	self:Refresh()
+end
+
 -- Sets the icon beside the title. Pass an icon name, a full texture path or a file id.
 -- Nothing (or an empty string) goes back to the default.
 function Panel:SetTitleIcon(icon)
@@ -947,7 +1062,7 @@ local function BuildGutter()
 	gutter:SetClipsChildren(true) -- icons past the right edge are cut off; widen the panel to see them
 	local back = gutter:CreateTexture(nil, "BACKGROUND")
 	back:SetAllPoints()
-	back:SetColorTexture(unpack(COLORS.row))
+	back:SetColorTexture(unpack(ns.Theme().row[2])) -- the rows' dark end
 	gutter.buttons = {}
 	for index, filter in ipairs(ns.GutterFilters) do
 		local button = CreateFrame("Button", nil, gutter, "BackdropTemplate")
@@ -1061,6 +1176,10 @@ local function ShowBarTip(bar)
 		local line = (data.lastMob and data.lastMob ~= "") and L.XPBAR_TIP_GAIN_FROM:format(gain, data.lastMob) or L.XPBAR_TIP_GAIN:format(gain)
 		GameTooltip:AddLine(line, 0.8, 0.8, 0.8)
 	end
+	if data.health then
+		local powerName = ((data.powerType or "MANA"):lower():gsub("_", " "))
+		GameTooltip:AddLine(L.XPBAR_TIP_VITALS:format(data.health, powerName, data.power or 0), 0.8, 0.8, 0.8)
+	end
 	GameTooltip:Show()
 end
 
@@ -1086,6 +1205,12 @@ local function PlaceNotches(fill, width)
 		notch:SetPoint("TOPLEFT", x, 0)
 		notch:SetPoint("BOTTOMLEFT", x, 0)
 	end
+end
+
+-- From one party bar to the next: the XP bar, its health and power under
+-- it, and the gap.
+BarStep = function()
+	return LAYOUT.xpBarHeight + LAYOUT.healthHeight + LAYOUT.powerHeight + LAYOUT.xpBarGap
 end
 
 local function CreateXpBar()
@@ -1125,6 +1250,22 @@ local function CreateXpBar()
 	bar.name:SetJustifyH("LEFT")
 	bar.name:SetWordWrap(false)
 	bar.name:SetShadowOffset(1, -1)
+
+	-- Health and power, thin, just under the bar (Panel:UpdateXpBars).
+	local function Thin(height, offset)
+		local thin = CreateFrame("StatusBar", nil, bar)
+		thin:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", LAYOUT.xpBarInset + 2, -offset)
+		thin:SetPoint("TOPRIGHT", bar, "BOTTOMRIGHT", -(LAYOUT.xpBarInset + 2), -offset)
+		thin:SetHeight(height)
+		thin:SetStatusBarTexture(COLORS.xpBarTexture)
+		thin:SetMinMaxValues(0, 100)
+		local back = thin:CreateTexture(nil, "BACKGROUND")
+		back:SetAllPoints()
+		back:SetColorTexture(0, 0, 0, 0.6)
+		return thin
+	end
+	bar.health = Thin(LAYOUT.healthHeight, 0)
+	bar.power = Thin(LAYOUT.powerHeight, LAYOUT.healthHeight)
 
 	bar:EnableMouse(true)
 	bar:SetScript("OnEnter", ShowBarTip)
@@ -1178,8 +1319,17 @@ function Panel:UpdateXpBars()
 		bar.name:SetText(entry.name)
 		bar.level:SetText(entry.levelText)
 		bar.text:SetText(entry.text)
+		-- Health and power, when known (a friend on an older version sends none).
+		bar.health:SetShown(entry.health ~= nil)
+		bar.power:SetShown(entry.health ~= nil)
+		if entry.health then
+			bar.health:SetValue(entry.health)
+			bar.health:SetStatusBarColor(unpack(ns.HealthColor))
+			bar.power:SetValue(entry.power or 0)
+			bar.power:SetStatusBarColor(unpack(ns.PowerColors[entry.powerType] or ns.PowerColors.MANA))
+		end
 		bar:ClearAllPoints()
-		local top = (index - 1) * (LAYOUT.xpBarHeight + LAYOUT.xpBarGap)
+		local top = (index - 1) * BarStep()
 		bar:SetPoint("TOPLEFT", 0, -top)
 		bar:SetPoint("TOPRIGHT", 0, -top)
 		bar:Show()
@@ -1270,7 +1420,7 @@ local function BuildSettingsWindow()
 	end)
 	tinsert(UISpecialFrames, optionsView:GetName())
 	optionsView:SetBackdrop(BACKDROP)
-	optionsView:SetBackdropColor(unpack(COLORS.panel))
+	optionsView:SetBackdropColor(unpack(ns.Theme().panel))
 	optionsView:SetBackdropBorderColor(unpack(COLORS.border))
 	optionsView:Hide()
 	optionsView.checks = {}
@@ -1429,7 +1579,7 @@ local function BuildSwitches(content, width, group, y)
 	local column = (width - 4) / 2
 	local index = 0
 	for _, setting in ipairs(ns.Settings) do
-		if setting.group == group.id then
+		if setting.group == group.id and ns.Switchable(setting) then
 			local check = CreateFrame("CheckButton", nil, content, "UICheckButtonTemplate")
 			check:SetSize(SETTINGS.checkSize, SETTINGS.checkSize)
 			check:SetPoint("TOPLEFT", 2 + (index % 2) * column, -(y + math.floor(index / 2) * SETTINGS.rowHeight))
@@ -1578,7 +1728,9 @@ end
 -- A grip in the bottom right corner. Drag it to resize the window.
 local function BuildResizeGrip()
 	frame:SetResizable(true)
-	frame:SetResizeBounds(LAYOUT.minWidth, LAYOUT.minHeight, LAYOUT.maxWidth, LAYOUT.maxHeight)
+	-- Never taller than the screen, so an edge is always in reach.
+	local maxHeight = math.min(LAYOUT.maxHeight, math.floor(UIParent:GetHeight() or LAYOUT.maxHeight))
+	frame:SetResizeBounds(LAYOUT.minWidth, LAYOUT.minHeight, LAYOUT.maxWidth, math.max(LAYOUT.minHeight, maxHeight))
 
 	local grip = CreateFrame("Button", nil, frame)
 	grip:SetSize(LAYOUT.gripSize, LAYOUT.gripSize)
@@ -1586,27 +1738,64 @@ local function BuildResizeGrip()
 	grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
 	grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
 	grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+	-- While dragging, the rows stretch with the window by their anchors, so
+	-- nothing is rebuilt each frame (that was the hitching); one redraw at the
+	-- end lays everything out for the new size.
 	grip:SetScript("OnMouseDown", function()
+		Panel.sizing = true
 		frame:StartSizing("BOTTOMRIGHT")
 	end)
 	grip:SetScript("OnMouseUp", function()
 		frame:StopMovingOrSizing()
+		Panel.sizing = false
 		SaveSize()
 		SavePosition() -- sizing re-anchors the window
+		Panel:Refresh()
 	end)
+
+	-- Every edge can be dragged too, not only the corner: a strip along each,
+	-- so a window grown past the screen can still be brought back.
+	for _, edge in ipairs({
+		{ "TOP", "TOPLEFT", "TOPRIGHT", true }, { "BOTTOM", "BOTTOMLEFT", "BOTTOMRIGHT", true },
+		{ "LEFT", "TOPLEFT", "BOTTOMLEFT" }, { "RIGHT", "TOPRIGHT", "BOTTOMRIGHT" },
+	}) do
+		local strip = CreateFrame("Frame", nil, frame)
+		strip:SetPoint(edge[2])
+		strip:SetPoint(edge[3])
+		if edge[4] then strip:SetHeight(LAYOUT.edgeGrab) else strip:SetWidth(LAYOUT.edgeGrab) end
+		strip:SetFrameLevel(frame:GetFrameLevel() + 20)
+		strip:EnableMouse(true)
+		strip:SetScript("OnMouseDown", function()
+			Panel.sizing = true
+			frame:StartSizing(edge[1])
+		end)
+		strip:SetScript("OnMouseUp", function()
+			frame:StopMovingOrSizing()
+			Panel.sizing = false
+			SaveSize()
+			SavePosition()
+			Panel:Refresh()
+		end)
+	end
 
 	frame:SetScript("OnSizeChanged", function()
 		emptyText:SetWidth(frame:GetWidth() - 40)
-		Panel:Refresh()
+		if not Panel.sizing then
+			Panel:Refresh()
+		end
 	end)
 end
 
 local function Build()
 	frame = CreateFrame("Frame", ns.Globals.frame("Panel"), UIParent, "BackdropTemplate")
+	-- A saved size taller than this screen is cut to fit it.
 	local size = ns.charDb.size
-	frame:SetSize(size and size.width or LAYOUT.width, size and size.height or LAYOUT.height)
+	local screen = math.floor(UIParent:GetHeight() or 0)
+	local height = size and size.height or LAYOUT.height
+	if screen > 0 then height = math.min(height, screen) end
+	frame:SetSize(size and size.width or LAYOUT.width, height)
 	frame:SetBackdrop(BACKDROP)
-	frame:SetBackdropColor(unpack(COLORS.panel))
+	frame:SetBackdropColor(unpack(ns.Theme().panel))
 	frame:SetBackdropBorderColor(unpack(COLORS.border))
 	frame:SetFrameStrata("MEDIUM")
 	frame:SetToplevel(true) -- a click brings it in front of other windows
@@ -1765,6 +1954,28 @@ Bus:On("CHAT_CHANGED", function()
 	end
 end)
 
+-- Health and power: redrawn a moment after they change, so a fight's
+-- many changes are one redraw now and then.
+local vitalsPending = false
+local function VitalsChanged()
+	if vitalsPending or not frame then return end
+	vitalsPending = true
+	C_Timer.After(0.2, function()
+		vitalsPending = false
+		Panel:UpdateXpBars()
+	end)
+end
+Bus:On("VITALS_CHANGED", VitalsChanged)
+Bus:On("VITALS_RECEIVED", VitalsChanged)
+
+-- Your own XP bar follows the game's.
+local xpEvents = CreateFrame("Frame")
+xpEvents:RegisterEvent("PLAYER_XP_UPDATE")
+xpEvents:RegisterEvent("PLAYER_LEVEL_UP")
+xpEvents:SetScript("OnEvent", function()
+	if frame then Panel:UpdateXpBars() end
+end)
+
 Bus:On("PEERS_CHANGED", function()
 	if frame then
 		UpdateFilter()
@@ -1799,6 +2010,14 @@ Bus:On("SLIDER_CHANGED", function(id)
 		PlaceUnderStrip()
 		Panel:Refresh()
 	end
+end)
+
+-- The Theme slider: the panel and every row in the new palette, at once.
+Bus:On("SLIDER_CHANGED", function(id)
+	if id ~= "theme" or not frame then return end
+	frame:SetBackdropColor(unpack(ns.Theme().panel))
+	if optionsView then optionsView:SetBackdropColor(unpack(ns.Theme().panel)) end
+	Panel:Refresh()
 end)
 
 Bus:On("SLIDER_CHANGED", function(id)

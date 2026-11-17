@@ -200,6 +200,10 @@ function ns.IsEnabled(id)
 	if id == nil or ns.AlwaysOn[id] then
 		return true
 	end
+	-- Hard-coded on in the sandbox, whatever is saved (data\settings.lua).
+	if ns.IsSandbox() and ns.SettingById and ns.SettingById[id] and ns.SettingById[id].sandboxOn then
+		return true
+	end
 	return ns.db.switches[id] == true
 end
 
