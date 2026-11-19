@@ -3,29 +3,36 @@
 Features and fixes shipped in each release. Copy a version's section into
 CurseForge's changelog field using Markdown formatting.
 
-## Unreleased (0.3.6)
+## 0.3.6 - 2026-11-19
 
-### Added
+One Quest Party, with the channel as its single feed: what you see of yourself
+is exactly what your friends see. Quest Party relies on a channel; without one
+joined there is no feed. Friends on 0.3.5 and 0.2.0 still share with you as
+before: the messages are the same.
 
-- Quest Party has a page in the game's own Options, under AddOns, with a button that opens Quest Party's settings.
-- The title can name the channel you share on, in grey after Quest Party (Show channel in title in Settings, on by default; switch it off before screenshots so they do not invite strangers), running under the header buttons; on a narrow panel Quest Party collapses to QP.
-- A kill row's multiplier ("x4") is orange, so it stands out.
-- The Quest tab has a short row at the top of its list with a small gear that cycles the quest cards' layout (Segmented, Grid, Ring, List), the current one named beside it.
+### The channel is the feed
 
-### Changed
+- Your own events, quests, gear, stamps and KekChat go to the channel and show in your panel when they come back from it, read the same way as everyone else's. Your kills, for example, now arrive in the same batches your friends get.
+- You are a player like any other: your own head leads the side bar and opens your card, with your gear on it. Include self is no longer a switch.
+- Messages are sent once, straight away, with no queue, pacing or retries. You say hello and answer newcomers at once, and everything is shared at the handshake (the "tell me how you stand" request is gone). Your gear goes out 30 seconds after your last change. `/qp share` compares what you sent with what came back.
 
-- Plainer messaging: you say hello and answer newcomers straight away (no random waits), messages no longer carry ordering numbers, the "tell me how you stand" request is gone (everything comes at the handshake), the 10-second "just left" window is gone, and your gear goes out 30 seconds after your last change.
-- Every feed card can be stamped: kills, XP, skill-ups, joins and dropped quests too.
-- Quest Party relies on a channel: the channel is the feed. Your own events, quests, gear and KekChat go to the channel and show in your panel when they come back from the channel, read by exactly the same code as everyone else's, so you see yourself as your friends do (your kills, for example, now arrive in the same batches they get). Without a channel joined there is no feed.
-- One Quest Party, no sandbox build: the separate QuestPartySandbox addon is gone. Its pretend players, recorded sessions and test runs are dev mode, part of every build, off by default and turned on with `/qp dev on` (or `/qp debug on`) (`/qp dev party`, `/qp dev replay`, `/qp dev stop` and the rest, and the test runs in Settings). The older emulator (`/qp emu`) is replaced by them.
-- You are a player like any other, always: your own events, gear, head and card go through the same path as everyone's. Include self is no longer a switch.
+### Dev mode
+
+- The separate QuestPartySandbox addon is gone. Its pretend players, recorded sessions and test runs are now dev mode, part of Quest Party, off by default: `/qp dev on` shows the tools (`/qp dev party`, `/qp dev replay`, `/qp dev stop` and the rest, and the test runs in Settings), and `/qp dev off` stops all of them.
 - Pretend players never count toward Party Fuel, and wiping a dev run forgets only them: your own feed, friends and Fuel are never touched.
-- Turning dev mode off quiets every dev tool: a run stops and its pretend players leave, loopback goes off, the lab and listener close, and the commands and test runs refuse until it is on again. Loopback only ever holds back pretend players' messages; yours always go to the channel.
+
+### The panel
+
+- The title can name the channel you share on, in grey after Quest Party (Show channel in title in Settings, on by default; switch it off before screenshots so they do not invite strangers). On a narrow panel Quest Party collapses to QP.
+- The Quest tab has a small gear at the top of its list that cycles the quest cards' layout: Segmented, Grid, Ring, List.
+- Every feed card can be stamped: kills, XP, skill-ups, joins and dropped quests too.
+- A kill row's multiplier ("x4") is orange, so it stands out.
+- Quest Party has a page in the game's Options, under AddOns, with a button that opens its settings.
 
 ### Fixed
 
-- Your own messages could get stuck: Forever answers a channel send with a throttle code yet delivers it, so Quest Party kept resending the first message and everything behind it (your KekChat, your events) never went out. Every message is now sent once, straight away: no queue, pacing or retries, and the game's answer is not judged. The channel is the truth; /qp share compares sent with came back.
-- Your own head was missing from the side bar, so your own card could not be opened, and your card's Equipped tab was empty: only the sandbox build kept them.
+- Your own messages could get stuck: Forever answers a channel send with a throttle code yet delivers it, so Quest Party resent its first message over and over and nothing behind it went out.
+- Your own head was missing from the side bar, so your own card could not be opened.
 
 ## 0.3.5 - 2026-11-18
 

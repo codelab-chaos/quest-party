@@ -12,6 +12,8 @@
 Rule (owner, 2026-11-18): there is no sandbox, just the next version, tested in the one Quest Party install from
 its branch. Pretend players are a debug-mode (dev mode) feature.
 
+- **release-036** (chore, done 2026-11-19): change list in CHANGELOG.md, `v036` merged into `main`, pushed, tagged
+  `v0.3.6` with a GitHub release. Still open: the CurseForge upload (manual).
 - **message-order-numbers** (idea, later, if evidence): 0.3.6 removed the always-growing number (`n`) that status
   messages carried so a late or repeated one never replaced newer news. It guarded the old send queue's resends;
   with direct sending one sender's messages arrive in order. Bring it back only if out-of-order news shows in game.
