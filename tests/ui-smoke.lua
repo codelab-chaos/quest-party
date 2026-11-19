@@ -73,10 +73,10 @@ return function(Harness, options)
 		end)
 		if not drawn then problems[#problems + 1] = "a full party: " .. tostring(why) end
 		-- The stamp picker opens on a card (a right-click), built whole.
-		local opened, why = pcall(function()
+		local opened, openProblem = pcall(function()
 			return ns.StampView:Open({ stampEntry = { type = "level", player = "Player2", data = { level = 12 } } })
 		end)
-		if not opened then problems[#problems + 1] = "the stamp picker: " .. tostring(why) end
+		if not opened then problems[#problems + 1] = "the stamp picker: " .. tostring(openProblem) end
 		-- The Quest tab in each quest card layout (ui\\quest-card.lua).
 		ns.Bus:Fire("ENTRY_RECEIVED", { type = "quest_progress", player = "Player1", class = "MAGE", data = { questID = 9, quest = "Q", objective = "Rats", have = 2, need = 5 } })
 		ns.Bus:Fire("ENTRY_RECEIVED", { type = "quest_progress", player = "Player1", class = "MAGE", data = { questID = 9, quest = "Q", objective = "Wolves", have = 3, need = 3 } })
@@ -86,11 +86,11 @@ return function(Harness, options)
 		end
 		ns.Panel:SelectFilter("party")
 		for step = 0, 3 do
-			local laid, problem = pcall(function()
+			local laid, layProblem = pcall(function()
 				ns.SetSlider("questCardStyle", step)
 				ns.Panel:Refresh()
 			end)
-			if not laid then problems[#problems + 1] = "quest cards, style " .. step .. ": " .. tostring(problem) end
+			if not laid then problems[#problems + 1] = "quest cards, style " .. step .. ": " .. tostring(layProblem) end
 		end
 	end
 	assert(#problems == 0, table.concat(problems, "\n"))

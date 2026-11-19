@@ -1186,7 +1186,7 @@ test("each player keeps one bright color, the same everywhere, and a party of 16
 	-- The 17th gets the least used, so colors spread out again.
 	local seventeenth = C:Index("Player17")
 	equal(seventeenth >= 1 and seventeenth <= 16, true)
-	local r, g, b = C:For("Player1")
+	local r = C:For("Player1")
 	equal(r, w.ns.PlayerPalette[C:Index("Player1")][1])
 end)
 
@@ -1296,16 +1296,16 @@ end)
 
 test("a quest a party is on: a section per objective, those working on it latest first, the done collapsed", function()
 	local w = Harness.new()
-	local function progress(player, objective, have, need, ago)
+	local function Progress(player, objective, have, need, ago)
 		w:ingest("quest_progress", { questID = 7, quest = "Sharing the Land", objective = objective, have = have, need = need }, player)
 		w:advance(ago or 1)
 	end
-	progress("Ann", "Tanner slain", 3, 10)
-	progress("Bob", "Tanner slain", 10, 10)
-	progress("Cat", "Tanner slain", 5, 10)
-	progress("Ann", "Skinner slain", 8, 8)
-	progress("Dan", "Tanner slain", 1, 10)
-	progress("Ann", "Tanner slain", 4, 10) -- Ann's newest: first
+	Progress("Ann", "Tanner slain", 3, 10)
+	Progress("Bob", "Tanner slain", 10, 10)
+	Progress("Cat", "Tanner slain", 5, 10)
+	Progress("Ann", "Skinner slain", 8, 8)
+	Progress("Dan", "Tanner slain", 1, 10)
+	Progress("Ann", "Tanner slain", 4, 10) -- Ann's newest: first
 	local card
 	for _, row in ipairs(w.ns.ViewModel:Build("party")) do
 		if row.kind == "tracker" and row.quest == "Sharing the Land" then card = row end
@@ -1435,7 +1435,7 @@ test("scenes: 16 in the atlas, picked by type or skill, cropped to a card's shap
 	close((bottom - top) * 512, 512 / 18 - 1)
 	close((top + bottom) / 2 * 512, 96)
 	-- A tall card (4 to 1) shows the middle of the width, all the height.
-	left, right, top, bottom = ns.Scene:Coords(scene, 200, 50)
+	left, right, top = ns.Scene:Coords(scene, 200, 50)
 	close((right - left) * 1024, 256 - 1)
 	close((left + right) / 2 * 1024, 768)
 	close(top, 64.5 / 512)
@@ -2956,7 +2956,7 @@ test("images, a saying and an effect go out as one short message, and show once 
 	local w = Harness.new({ switches = { chatEcho = false } })
 	equal(w.ns.Chat:Send({ 134071 }, "gz"), false) -- no channel yet
 	w:share()
-	local ok, problem = w.ns.Chat:Send({}, nil)
+	local _, problem = w.ns.Chat:Send({}, nil)
 	equal(problem, w.ns.L.CHAT_PICK) -- nothing chosen
 	equal(w.ns.Chat:Send({}, "not a saying"), false)
 	equal(w.ns.Chat:Send({ 134071 }, "gz", "no such effect"), false)
@@ -3078,7 +3078,7 @@ test("presets: built-in ones first, then the player's own, saved once each and k
 	equal(presets[2].effect, nil) -- and no effect without images
 	local builtIn = #presets
 	equal(w.ns.Chat:SavePreset({ 133000, 133001 }, "gz", "rain"), true)
-	local ok, problem = w.ns.Chat:SavePreset({ 133000, 133001 }, "gz", "rain")
+	local _, problem = w.ns.Chat:SavePreset({ 133000, 133001 }, "gz", "rain")
 	equal(problem, w.ns.L.CHAT_PRESET_KNOWN)
 	equal(w.ns.Chat:SavePreset({}, nil), false)
 	presets = w.ns.Chat:Presets()
@@ -3202,7 +3202,7 @@ end)
 test("sounds play at the volume set: loud, regular, soft, or not at all on mute", function()
 	local w = Harness.new({ switches = { chatSounds = false } }) -- an old switch is cleaned away
 	local played = {}
-	w.env.PlaySound = function(kit, channel, _, _, _, volume) played[#played + 1] = { kit = kit, volume = volume } end
+	w.env.PlaySound = function(kit, _, _, _, _, volume) played[#played + 1] = { kit = kit, volume = volume } end
 	equal(w.ns.db.switches.chatSounds, nil)
 	equal(w.ns.GetSlider("volume"), 2) -- regular
 	w.ns.PlaySound(74702)
@@ -3425,13 +3425,13 @@ test("of several counts waiting for the same objective, only the newest is sent"
 	w:advance(5)
 	local before = #w.sent
 	w.lockdown = true -- nothing can leave for now
-	local function progress(objective, have)
+	local function Progress(objective, have)
 		w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "quest_progress", data = { questID = 7, quest = "A Quest", objectiveIndex = objective, objective = "Thing " .. objective, have = have, need = 9 } })
 	end
-	progress(1, 1)
-	progress(1, 2)
-	progress(2, 1)
-	progress(1, 3)
+	Progress(1, 1)
+	Progress(1, 2)
+	Progress(2, 1)
+	Progress(1, 3)
 	w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "level", data = { level = 21 } })
 	w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "level", data = { level = 22 } }) -- things that happened are all sent
 	equal(#w.sent, before)

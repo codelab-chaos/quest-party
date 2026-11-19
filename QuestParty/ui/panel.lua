@@ -182,11 +182,9 @@ local function RightRoom(fontString, text)
 	return math.min(RIGHT_TEXT_WIDTH, math.ceil(fontString:GetStringWidth() or RIGHT_TEXT_WIDTH)) + 12
 end
 
--- The room kept at a card's bottom right for its detail line
--- (ui\stamps.lua), for the detail line beside them.
-local function StampRoom(data)
-	return 8 -- stamps are inked over the card, not beside the text
-end
+-- The room kept at a detail line's right when it has nothing there: stamps
+-- are inked over the card (ui\stamps.lua), not beside the text.
+local LINE_END_ROOM = 8
 
 local function StyleName()
 	return ns.charDb.oneLine and "oneLine" or "detailed"
@@ -652,7 +650,7 @@ local function LayoutDetailed(row, data, style)
 		line.right:SetText(lineData.right or "")
 		line.right:Show()
 		-- Up to what is on its right: its own count, or the edge.
-		local room = MarkRoom(style) + (lineData.right and RightRoom(line.right, lineData.right) or StampRoom(data))
+		local room = MarkRoom(style) + (lineData.right and RightRoom(line.right, lineData.right) or LINE_END_ROOM)
 		line.text:SetPoint("TOPRIGHT", -room, y)
 		line.text:SetText(lineData.text)
 		line.text:Show()
@@ -1631,8 +1629,7 @@ function Panel:UpdateXpBars()
 		-- Health and power, when known (a friend on an older version sends none).
 		-- A member of your game group: the bar's frame in the party's color.
 		if entry.grouped then
-			local r, g, b = PartyColor()
-			bar:SetBackdropBorderColor(r, g, b, 1)
+			bar:SetBackdropBorderColor(PartyColor())
 		else
 			bar:SetBackdropBorderColor(unpack(COLORS.xpBarBorder))
 		end
@@ -1851,7 +1848,7 @@ local function BuildChannel(content, y)
 end
 
 -- One slider: its label, the bar, and its value beside it.
-local function BuildSlider(content, width, slider, y)
+local function BuildSlider(content, _width, slider, y)
 	local label = content:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
 	label:SetPoint("TOPLEFT", 6, -(y + 6))
 	label:SetText(slider.label)

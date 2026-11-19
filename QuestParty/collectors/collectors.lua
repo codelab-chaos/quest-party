@@ -131,7 +131,7 @@ end
 
 -- Counts may lag behind the info message. A unique objective identifies its quest
 -- without requiring equal counts; ambiguous matches wait for an ID-bearing event.
-local function QuestForObjective(objective, have, need, hint)
+local function QuestForObjective(objective, _have, need, hint) -- have: not needed to match
 	local name = ObjectiveName(objective)
 	if not name then return nil end
 	local matches = {}

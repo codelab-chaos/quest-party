@@ -17,7 +17,7 @@ function Harness.new(saved, character, debugBuild, serverTime, options)
 	local world = { now = serverTime or 10000, level = 20, xp = 0, xpMax = 1000, frames = {}, timers = {}, sent = {}, chat = {}, party = {}, quests = {}, questData = {}, questWatches = {}, channels = {}, joins = {}, leaves = {} }
 	local env = setmetatable({}, { __index = _G })
 	env._G = env
-	env.unpack = unpack or table.unpack
+	env.unpack = unpack
 	env[addonName .. "DB"] = saved
 	env[addonName .. "CharDB"] = character
 	env.ACCEPT, env.DECLINE = "Accept", "Decline"

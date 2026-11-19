@@ -219,8 +219,8 @@ local function BuildWaypoint()
 			if not C_Map.CanSetUserWaypointOnMap(map) then error("no pins on this map") end
 			local position = C_Map.GetPlayerMapPosition(map, "player")
 			if not position then error("no position here") end
-			local x, y = position:GetXY()
-			C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(map, x, y))
+			local mapX, mapY = position:GetXY()
+			C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(map, mapX, mapY))
 			C_SuperTrack.SetSuperTrackedUserWaypoint(true)
 			return ("map %d at %.1f, %.1f"):format(map, x * 100, y * 100)
 		end },
@@ -416,7 +416,6 @@ local EMBLEM_CLASSES = {
 local function BuildEmblems()
 	Heading("Stamp emblems", "the garrison's class and spec emblems the game has")
 	local cells = {}
-	local gridTop = y
 	Buttons({ { "Probe", function()
 		local names = {}
 		local classes = {}

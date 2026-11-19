@@ -2,7 +2,7 @@
 -- addon to talk to the same addon on other players' machines. Nothing here
 -- shows in anyone's chat. It knows nothing about what the messages mean. Outgoing messages go through a queue that respects the game's
 -- throttle and waits out chat lockdown (instances, some combat states).
-local addonName, ns = ...
+local _, ns = ...
 local Bus = ns.Bus
 
 local PREFIX = "QuestParty" -- 16 characters at most

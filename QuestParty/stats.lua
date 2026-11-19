@@ -19,10 +19,6 @@ ns.Stats = Stats
 
 local SECONDS_PER_DAY = 86400
 
-local function Today()
-	return math.floor(GetServerTime() / SECONDS_PER_DAY)
-end
-
 local function Filled(value)
 	return value ~= nil and value ~= ""
 end

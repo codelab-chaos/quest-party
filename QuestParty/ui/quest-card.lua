@@ -86,7 +86,7 @@ end
 -- ========= Segmented: one bar, a segment per objective ======================
 local segmented = {}
 
-function segmented.Height(data)
+function segmented.Height(_data)
 	return 4 + LAYOUT.segmentBar + 4 + LAYOUT.line
 end
 
@@ -188,7 +188,7 @@ end
 -- ========= Ring: overall progress in the mark's place =======================
 local ring = { hidesMark = true }
 
-function ring.Height(data)
+function ring.Height(_data)
 	return LAYOUT.line + 2
 end
 

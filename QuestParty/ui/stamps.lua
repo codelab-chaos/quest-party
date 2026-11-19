@@ -280,8 +280,8 @@ end
 function StampView:Build(row)
 	row.stampInks = {}
 	-- The card resized (the panel did): its stamps placed again to fit.
-	row:HookScript("OnSizeChanged", function(self)
-		if self.stampData then StampView:Show(self, self.stampData) end
+	row:HookScript("OnSizeChanged", function(card)
+		if card.stampData then StampView:Show(card, card.stampData) end
 	end)
 end
 
@@ -382,7 +382,10 @@ function StampView:Show(row, data)
 		local stamp = key .. "@" .. tally.id .. "@" .. tostring(tally.time) .. "@" .. tally.count
 		-- Its time up: it fades away, and the card is drawn again without it.
 		ink.showing = stamp
-		if fadeAfter then
+		-- One timer per stamp: the list redraws often (and every frame of a
+		-- resize), and each redraw must not start another.
+		if fadeAfter and ink.fadeFor ~= stamp then
+			ink.fadeFor = stamp
 			C_Timer.After(fadeAfter - (now - (tally.time or now)), function()
 				if ink.showing == stamp and ink:IsShown() then
 					ink.fade:Play()
@@ -407,6 +410,7 @@ function StampView:Show(row, data)
 	end
 	for index = #tallies + 1, #row.stampInks do
 		row.stampInks[index].showing = nil
+		row.stampInks[index].fadeFor = nil
 		row.stampInks[index]:Hide()
 	end
 end
