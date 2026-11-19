@@ -29,6 +29,9 @@ ns.Settings = {
 	{ id = "dockRight", group = "display", label = L.SET_DOCK_RIGHT, tip = L.SET_DOCK_RIGHT_TIP, default = true },
 	{ id = "chatEcho", group = "display", label = L.SET_CHAT_ECHO, tip = L.SET_CHAT_ECHO_TIP, default = true },
 	{ id = "chatOrder", group = "display", label = L.SET_CHAT_ORDER, tip = L.SET_CHAT_ORDER_TIP, default = true },
+	{ id = "stampFade", group = "display", label = L.SET_STAMP_FADE, tip = L.SET_STAMP_FADE_TIP, default = false },
+	{ id = "showVitals", group = "display", label = L.SET_SHOW_VITALS, tip = L.SET_SHOW_VITALS_TIP, default = true },
+	{ id = "cardBackdrops", group = "display", label = L.SET_CARD_BACKDROPS, tip = L.SET_CARD_BACKDROPS_TIP, default = true },
 	{ id = "showSelf", group = "display", label = L.SET_SHOW_SELF, tip = L.SET_SHOW_SELF_TIP, default = true, sandboxOn = true },
 }
 -- sandboxOn: in the sandbox build, always on, with no switch at all (not in
@@ -48,6 +51,15 @@ ns.SettingGroups = {
 --   labels          or the name of a list (ns[labels]) whose entry at the value has a label
 -- Volume: four steps, from the speaker in the title bar or the slider.
 --   volume  passed to PlaySound (0 plays nothing)
+-- How a quest card lays out its objectives on the Quest tab (ui\quest-card.lua),
+-- the Quest cards slider's steps.
+ns.QuestCardStyles = {
+	[0] = { id = "segmented", label = L.QUEST_CARD_SEGMENTED },
+	[1] = { id = "grid", label = L.QUEST_CARD_GRID },
+	[2] = { id = "ring", label = L.QUEST_CARD_RING },
+	[3] = { id = "list", label = L.QUEST_CARD_LIST },
+}
+
 ns.VolumeLevels = {
 	[0] = { id = "mute", label = L.VOLUME_MUTE, volume = 0 },
 	[1] = { id = "soft", label = L.VOLUME_SOFT, volume = 0.35 },
@@ -58,6 +70,8 @@ ns.VolumeLevels = {
 ns.SettingSliders = {
 	{ id = "theme", group = "display", label = L.SET_THEME, tip = L.SET_THEME_TIP, min = 0, max = 3, step = 1, default = 0, labels = "Themes" },
 	{ id = "volume", group = "display", label = L.SET_VOLUME, tip = L.SET_VOLUME_TIP, min = 0, max = 3, step = 1, default = 2, labels = "VolumeLevels" },
+	{ id = "questCardStyle", group = "display", label = L.SET_QUEST_CARD, tip = L.SET_QUEST_CARD_TIP, min = 0, max = 3, step = 1, default = 0, labels = "QuestCardStyles" },
+	{ id = "partyCap", group = "party", label = L.SET_PARTY_CAP, tip = L.SET_PARTY_CAP_TIP, min = 10, max = 20, step = 1, default = 10, format = "%d" },
 	{ id = "gutterScale", group = "display", label = L.SET_GUTTER_SCALE, tip = L.SET_GUTTER_SCALE_TIP, min = 0.75, max = 2, step = 0.05, default = 1.5, format = "%.2fx" },
 }
 
@@ -88,6 +102,9 @@ ns.ProfessionCategories = {
 
 -- Cached cards remain available until cleared or closed by a quest update.
 ns.Timing = {
+	-- Professions are read this long after the skill list last changed, and sent
+	-- if they differ (collectors\professions.lua).
+	professionSeconds = 5,
 	-- Welcomes are always on, so they are rate limited: one per player in this
 	-- many seconds, and at most welcomeBurst in welcomeBurstSeconds overall.
 	welcomeSeconds = 10 * 60,

@@ -436,6 +436,29 @@ local function Merge(entry, def)
 	return true
 end
 
+-- A row that finishes something folds in the kills that did it (foldKills in
+-- data\feed-types.lua): the player's newest kill run in the last while whose
+-- creature is in the row's text ("Palemane Tanner" in "Palemane Tanner
+-- slain", "Prairie Wolf" in "Prairie Wolf Paw"). Its row goes, and its kills
+-- and XP go on this one. The XP bar and the stats already counted each kill.
+local function FoldKills(entry, def)
+	local rule = def.foldKills
+	local text = rule and entry.data[rule.field]
+	if type(text) ~= "string" or text == "" then return end
+	local now = entry.time or GetServerTime()
+	for index, row in ipairs(db.feed) do -- newest first
+		if row ~= entry and row.type == "xp" and row.player == entry.player and now - (row.time or 0) <= rule.seconds then
+			local mob = row.data.mob
+			if type(mob) == "string" and mob ~= "" and text:find(mob, 1, true) then
+				entry.data.kills = tonumber(row.data.gains) or 1
+				entry.data.killXP = row.data.xp
+				table.remove(db.feed, index)
+				return
+			end
+		end
+	end
+end
+
 function Store:Ingest(entry)
 	local def = ns.FeedTypes[entry.type]
 	if not def or not entry.player or type(entry.data) ~= "table" then
@@ -462,6 +485,7 @@ function Store:Ingest(entry)
 		toFeed = cardModes[def.card.mode](entry, def)
 	end
 	if toFeed and not Merge(entry, def) then
+		FoldKills(entry, def)
 		AddFeed(entry, def)
 	end
 	Bus:Fire("STORE_CHANGED")
@@ -525,6 +549,24 @@ function Store:UpdateGear(player, class, gear)
 	member.gearTime = GetServerTime()
 	member.time = GetServerTime()
 	Bus:Fire("STORE_CHANGED")
+end
+
+-- Who plays a character (Sharing.PlayerId), kept with the member so the
+-- party's tabs can tell a player's characters apart from different players.
+function Store:SetPlayerId(name, playerId)
+	local member = db.members[name]
+	if not member then
+		member = { name = name, time = GetServerTime() }
+		db.members[name] = member
+	end
+	member.playerId = playerId
+end
+
+-- A player's professions as they last said (comms\\sharing.lua), kept with
+-- them like everything else known of them.
+function Store:SetProfessions(name, list)
+	local member = db.members[name]
+	if member then member.professions = list end -- the peer has them too
 end
 
 function Store:GetMember(name)
@@ -606,6 +648,50 @@ function Store:ForgetName(name)
 		Bus:Fire("STORE_CHANGED")
 	end
 	return cards, rows
+end
+
+-- Moves everything held under one name to another: cards (and their keys),
+-- feed rows, the player, and their fuel tallies (stats.lua). For this character's own
+-- records saved under the first name alone, before the surname was used.
+-- Where both names hold a card for the same thing, the newer one stays.
+function Store:RenamePlayer(old, new)
+	if not old or not new or old == new then return 0 end
+	local moved = 0
+	local KEY_SEPARATOR_PATTERN = "^([^" .. KEY_SEPARATOR .. "]+)" .. KEY_SEPARATOR .. old:gsub("%p", "%%%0") .. KEY_SEPARATOR
+	local moving = {}
+	for key, record in pairs(db.cards) do
+		if record.player == old then moving[key] = record end
+	end
+	for key, record in pairs(moving) do
+		do
+			db.cards[key] = nil
+			record.player = new
+			local newKey = key:gsub(KEY_SEPARATOR_PATTERN, "%1" .. KEY_SEPARATOR .. new:gsub("%%", "%%%%") .. KEY_SEPARATOR, 1)
+			local existing = db.cards[newKey]
+			if not existing or (existing.time or 0) < (record.time or 0) then
+				db.cards[newKey] = record
+			end
+			moved = moved + 1
+		end
+	end
+	for _, entry in ipairs(db.feed) do
+		if entry.player == old then
+			entry.player = new
+			moved = moved + 1
+		end
+	end
+	if db.members[old] then
+		if not db.members[new] then
+			db.members[new] = db.members[old]
+			db.members[new].name = new
+		end
+		db.members[old] = nil
+	end
+	ns.Stats:RenamePlayer(old, new)
+	if moved > 0 then
+		Bus:Fire("STORE_CHANGED")
+	end
+	return moved
 end
 
 -- Forgets every name that is this character but not the one given: the

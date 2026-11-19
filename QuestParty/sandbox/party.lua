@@ -114,7 +114,19 @@ function Party.Hello(persona)
 		m = persona.maxXP,
 		r = persona.race,
 		g = persona.sex,
+		k = Party.Professions(persona),
 	}
+end
+
+-- A persona's professions on the wire (data\\professions.lua): "185.20,...".
+function Party.Professions(persona)
+	local list = {}
+	for name, rank in pairs(persona.skills or {}) do
+		local profession = ns.ProfessionNamed and ns.ProfessionNamed(name)
+		if profession then list[#list + 1] = { id = profession.id, rank = rank } end
+	end
+	table.sort(list, function(a, b) return a.id < b.id end)
+	return ns.EncodeProfessions and ns.EncodeProfessions(list) or nil
 end
 
 -- Seconds until the persona's next event.
@@ -160,14 +172,21 @@ function events.kill(persona, actions)
 	local creature = random.pick(zone.creatures)
 	local rates = World().profiles[persona.profile]
 	-- Quest credit: a quest of the persona's that wants this kind of kill.
-	if random.chance(rates.questCredit) then
+	-- A player on a shared quest (the sandbox's Shared quest scenario) works
+	-- mostly on it.
+	if random.chance(persona.questFocus or rates.questCredit) then
 		for _, quest in pairs(persona.quests) do
-			local objective = quest.objectives[1]
-			if objective.have < objective.need then
+			-- One of its unfinished objectives, at random.
+			local open = {}
+			for _, objective in ipairs(quest.objectives) do
+				if objective.have < objective.need then open[#open + 1] = objective end
+			end
+			local objective = #open > 0 and random.pick(open) or nil
+			if objective then
 				creature = objective.creature or creature
 				objective.have = objective.have + 1
 				actions[#actions + 1] = { send = "entry", type = "kill", data = { mob = creature, quest = quest.quest, questID = quest.questID, xp = World().xpForKill(persona.level) } }
-				actions[#actions + 1] = { send = "entry", type = "quest_progress", data = { quest = quest.quest, questID = quest.questID, objective = objective.objective, objectiveIndex = 1, have = objective.have, need = objective.need } }
+				actions[#actions + 1] = { send = "entry", type = "quest_progress", data = { quest = quest.quest, questID = quest.questID, objective = objective.objective, objectiveIndex = objective.index or 1, have = objective.have, need = objective.need } }
 				actions[#actions + 1] = { send = "quest", quest = quest }
 				break
 			end
@@ -178,8 +197,11 @@ end
 
 function events.quest(persona, actions)
 	for id, quest in pairs(persona.quests) do
-		local objective = quest.objectives[1]
-		if objective.have >= objective.need then
+		local finished = not quest.keep
+		for _, objective in ipairs(quest.objectives) do
+			if objective.have < objective.need then finished = false end
+		end
+		if finished then
 			persona.quests[id] = nil
 			local xp = World().xpForQuest(persona.level)
 			actions[#actions + 1] = { send = "entry", type = "quest_complete", data = { quest = quest.quest, questID = quest.questID, xp = xp } }
@@ -190,6 +212,7 @@ function events.quest(persona, actions)
 end
 
 function events.newQuest(persona, actions)
+	if persona.questFocus then return end -- on the shared quest only
 	local count = 0
 	for _ in pairs(persona.quests) do count = count + 1 end
 	if count >= 5 then

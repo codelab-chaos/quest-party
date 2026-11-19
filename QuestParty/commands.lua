@@ -17,6 +17,22 @@ StaticPopupDialogs[CONFIRM_CLEAR] = {
 	hideOnEscape = true,
 }
 
+-- Empties this channel's Fuel on this client only, after asking.
+local CONFIRM_FUEL_RESET = ns.Globals.popup("CONFIRM_FUEL_RESET")
+StaticPopupDialogs[CONFIRM_FUEL_RESET] = {
+	text = L.FUEL_RESET_CONFIRM,
+	button1 = L.CLEAR,
+	button2 = CANCEL,
+	OnAccept = function()
+		ns.Stats:Clear()
+		ns.Bus:Fire("STORE_CHANGED")
+		ns.Print(L.FUEL_RESET_DONE)
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
 function ns.ConfirmClear()
 	StaticPopup_Show(CONFIRM_CLEAR)
 end
@@ -75,6 +91,7 @@ local function PrintHelp()
 	ns.Print(L.CMD_HELP_SHARE)
 	ns.Print(L.CMD_HELP_ICON)
 	ns.Print(L.CMD_HELP_RESET)
+	ns.Print(L.CMD_HELP_FUEL)
 end
 
 local function PrintSwitch(setting)
@@ -114,6 +131,13 @@ local commands = {
 	clear = function()
 		ns.ConfirmClear()
 	end,
+	fuel = function(what)
+		if (what or ""):lower() == "reset" then
+			StaticPopup_Show(CONFIRM_FUEL_RESET)
+		else
+			ns.Print(L.CMD_HELP_FUEL)
+		end
+	end,
 	reset = function()
 		ns.Panel:ResetPosition()
 		ns.Print(L.CMD_RESET_DONE)
@@ -148,12 +172,12 @@ local commands = {
 		end
 		local players = ns.Stats:Players()
 		if #players == 0 then
-			ns.Print(L.CMD_STATS_NONE:format(ns.StatDays))
+			ns.Print(L.CMD_STATS_NONE)
 			return
 		end
-		ns.Print(L.CMD_STATS_TITLE:format(ns.StatDays))
+		ns.Print(L.CMD_STATS_TITLE)
 		for _, player in ipairs(players) do
-			local totals, parts = ns.Stats:Week(player), {}
+			local totals, parts = ns.Stats:Total(player), {}
 			for _, kind in ipairs(ns.StatKinds) do
 				if totals[kind.id] then
 					parts[#parts + 1] = kind.label:format(ns.Comma(totals[kind.id]))

@@ -110,6 +110,18 @@ local function Log(direction, text, sender)
 	Bus:Fire("COMMS_LOGGED", record)
 end
 
+-- A random id for whoever plays on this game account, made once and kept in
+-- the account's saved variables: the same on all of their characters, and
+-- nothing about them (not their account or their name).
+function Sharing.PlayerId()
+	if not ns.db.playerId then
+		local digits = {}
+		for index = 1, 12 do digits[index] = ("%x"):format(math.random(0, 15)) end
+		ns.db.playerId = table.concat(digits)
+	end
+	return ns.db.playerId
+end
+
 local function MyFields()
 	local _, class = UnitClass("player")
 	-- Where XP stands, so a newcomer sees everyone's bar at once. At the level
@@ -125,10 +137,18 @@ local function MyFields()
 		r = race or "",
 		g = UnitSex("player") or 0,
 	}
+	-- Who plays this character, the same on all their characters (one id per
+	-- game account), so the party's tabs show each player once.
+	fields.a = Sharing.PlayerId()
 	-- Health and power, so a newcomer sees them at once (VITALS after that).
 	local vitals = ns.VitalsCollector and ns.VitalsCollector.reading
 	if vitals then
 		fields.h, fields.p, fields.t = vitals.h, vitals.p, vitals.t
+	end
+	-- Professions, id and rank (collectors\\professions.lua).
+	local professions = ns.ProfessionsCollector and ns.ProfessionsCollector.text
+	if professions and professions ~= "" then
+		fields.k = professions
 	end
 	return fields
 end
@@ -173,7 +193,7 @@ local function Send(kind, fields, key, as)
 	if Sharing.loopback then
 		Sharing.sent = Sharing.sent + 1
 		C_Timer.After(0, function()
-			Dispatch(text, CHAT_TYPE, UnitName("player"), nil, true, true)
+			Dispatch(text, CHAT_TYPE, ns.MyName(), nil, true, true)
 		end)
 		return true
 	end
@@ -224,6 +244,33 @@ function Sharing:MayWelcome(name)
 	return true
 end
 
+-- When each player was last heard, kept across reloads (server time): after
+-- your own /reload everyone already here sounds new, but was heard moments
+-- ago, so they get no welcome. Dropped once older than a day.
+local function LastHeard()
+	ns.db.lastHeard = ns.db.lastHeard or {}
+	return ns.db.lastHeard
+end
+
+-- Whether a player was here before this session started: heard within the
+-- silence window (SILENT_SECONDS), so their hello now is ours reloading.
+function Sharing.WasHere(name)
+	local heard = LastHeard()[name]
+	return heard ~= nil and GetServerTime() - heard < SILENT_SECONDS
+end
+
+Bus:On("INIT", function()
+	local now = GetServerTime()
+	for name, heard in pairs(LastHeard()) do
+		if now - heard > 86400 then LastHeard()[name] = nil end
+	end
+end)
+
+-- Who went, and when: a message from them still in flight lands after they
+-- went, and must not bring them back (a new hello does).
+local LEFT_SECONDS = 10
+local leftAt = {}
+
 -- Health and power from a message's h, p and t, or nil when it has none
 -- that make sense.
 local function Percent(value)
@@ -241,6 +288,11 @@ local function AddPeer(name, fields, virtual)
 	local peers = Session().peers
 	local peer = peers[name]
 	local isNew = not peer
+	-- Someone who just went is not brought back by anything still in flight
+	-- (a quest, gear, health); only a hello does that (it clears leftAt).
+	if isNew and leftAt[name] and GetTime() - leftAt[name] < LEFT_SECONDS then
+		return
+	end
 	if isNew then
 		peer = { name = name }
 		peers[name] = peer
@@ -270,9 +322,25 @@ local function AddPeer(name, fields, virtual)
 	if vitals then
 		peer.vitals = vitals
 	end
+	-- Their professions, kept with what is known of them.
+	local professions = fields.k and ns.DecodeProfessions(fields.k)
+	if professions then
+		peer.professions = professions
+		ns.Store:SetProfessions(name, professions)
+	end
+	-- Who plays them, across their characters (Sharing.PlayerId).
+	if type(fields.a) == "string" and fields.a:match("^%x+$") and #fields.a <= 16 then
+		peer.player = fields.a
+		ns.Store:SetPlayerId(name, fields.a)
+	end
 	peer.virtual = virtual or nil
 	peer.heard = GetTime()
-	if isNew then
+	-- Already here before you reloaded: back in the list, no welcome.
+	local wasHere = isNew and Sharing.WasHere(name)
+	LastHeard()[name] = GetServerTime()
+	if isNew and wasHere then
+		peer.arrived = GetTime()
+	elseif isNew then
 		peer.arrived = GetTime()
 		ns.Print(L.PEER_JOINED:format(ns.ColorName(name, peer.class), tostring(peer.version or "?")))
 		-- A welcome in the feed (see data\feed-types.lua, joined). Only ours to show:
@@ -288,12 +356,21 @@ local answered = {} -- newcomers whose hello we answered, by name
 local freshness = {} -- the newest n heard, by sender and what it was about
 local lastAnswer = {} -- when we last answered a REQUEST, by who asked
 
+
+-- True when a message other than a hello may add this sender to the party:
+-- not someone who went a moment ago.
+local function MayRejoin(name)
+	return not (leftAt[name] and GetTime() - leftAt[name] < LEFT_SECONDS)
+end
+
 local function DropPeer(name)
 	local peers = Session().peers
 	local peer = peers[name]
 	if not peer then
 		return
 	end
+	leftAt[name] = GetTime()
+	LastHeard()[name] = nil -- gone: coming back is a real arrival, welcomed
 	peers[name] = nil
 	answered[name], freshness[name], lastAnswer[name] = nil, nil, nil
 	ns.Print(L.PEER_LEFT:format(ns.ColorName(name, peer.class)))
@@ -528,6 +605,11 @@ function Sharing.SendSay(icons, saying, effect, class, as)
 	return Send(Kinds.SAY, fields, nil, as)
 end
 
+-- A stamp on a feed card (stamps.lua): the card's key and the stamp's id.
+function Sharing.SendStamp(key, id, as)
+	return Send(Kinds.STAMP, { k = key, s = id }, nil, as)
+end
+
 local stating = false -- a statement of our quests is already on its way
 
 -- Says how each quest we are working on stands, a moment from now.
@@ -664,11 +746,17 @@ handlers[Kinds.HELLO] = function(sender, fields, virtual)
 	if not Fresh(sender, "hello", fields.n) then
 		return
 	end
+	leftAt[sender] = nil -- a hello is a real return
 	AddPeer(sender, fields, virtual)
 	Welcome(sender)
 end
 
+-- An answer or a presence: news of someone here, unless they just went (a
+-- late one, still in flight).
 handlers[Kinds.ACK] = function(sender, fields, virtual)
+	if not Session().peers[sender] and not MayRejoin(sender) then
+		return
+	end
 	if Fresh(sender, "hello", fields.n) then
 		AddPeer(sender, fields, virtual)
 	end
@@ -681,13 +769,16 @@ handlers[Kinds.ENTRY] = function(sender, fields, virtual)
 	if not typeName then
 		return
 	end
-	-- Someone who was here before us, and whose ACK we missed, still counts.
-	if not Session().peers[sender] then
+	-- Someone who was here before us, and whose ACK we missed, still counts;
+	-- someone who just went is not brought back by a late message.
+	local peer = Session().peers[sender]
+	if not peer and MayRejoin(sender) then
 		AddPeer(sender, { c = class }, virtual)
-	else
-		Session().peers[sender].heard = GetTime()
+		peer = Session().peers[sender]
+	elseif peer then
+		peer.heard = GetTime()
 	end
-	Bus:Fire("ENTRY_RECEIVED", { type = typeName, player = sender, class = class or Session().peers[sender].class, data = data, emulated = virtual or nil })
+	Bus:Fire("ENTRY_RECEIVED", { type = typeName, player = sender, class = class or (peer and peer.class), data = data, emulated = virtual or nil })
 end
 
 -- Health and power: the newest replaces what was known.
@@ -698,6 +789,7 @@ handlers[Kinds.VITALS] = function(sender, fields, virtual)
 	end
 	local peer = Session().peers[sender]
 	if not peer then
+		if not MayRejoin(sender) then return end
 		AddPeer(sender, {}, virtual)
 		peer = Session().peers[sender]
 	end
@@ -729,6 +821,11 @@ handlers[Kinds.SAY] = function(sender, fields, virtual)
 	local class = type(fields.c) == "string" and fields.c ~= "" and fields.c or nil
 	local peer = Session().peers[sender]
 	Bus:Fire("CHAT_SAY", { player = sender, class = class or (peer and peer.class), icons = icons, saying = saying, effect = effect, virtual = virtual or nil })
+end
+
+-- A stamp on a feed card (stamps.lua decides whether to keep it).
+handlers[Kinds.STAMP] = function(sender, fields)
+	ns.Stamping:Receive(sender, Clean(fields.k), PlainId(fields.s))
 end
 
 handlers[Kinds.GEAR] = function(sender, fields, virtual)
@@ -843,7 +940,7 @@ function Dispatch(text, chatType, sender, channelId, fromMe, loopback)
 	-- Our own decal back from the server: it shows in our chat too, now that
 	-- it has made the trip.
 	if origin == "self" and kind == Kinds.SAY then
-		Read(text, UnitName("player"), false)
+		Read(text, ns.MyName(), false)
 		return
 	end
 	if origin ~= "peer" then
@@ -854,6 +951,12 @@ function Dispatch(text, chatType, sender, channelId, fromMe, loopback)
 	end
 end
 Sharing.Dispatch = function(...) return Dispatch(...) end
+
+-- True while old messages are read again (Sharing:Replay): nothing new is
+-- happening, so nothing should sound.
+function Sharing.IsReplaying()
+	return replaying == true
+end
 
 Bus:On("COMMS_RECEIVED", function(text, chatType, sender, channelId)
 	Dispatch(text, chatType, sender, channelId, false)
@@ -963,6 +1066,14 @@ Sharing.Sweep = Sweep
 
 Bus:On("READY", function()
 	C_Timer.NewTicker(PRESENCE_SECONDS, Sweep)
+end)
+
+-- Our professions changed (already settled: collectors\\professions.lua):
+-- everyone hears, in a presence.
+Bus:On("PROFESSIONS_CHANGED", function()
+	if Session().state == "connected" and not ns.IsSandbox() then
+		Send(Kinds.PRESENCE, MyFields())
+	end
 end)
 
 -- The game refused a message outright. Say so once per connection, with the

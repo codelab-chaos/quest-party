@@ -80,3 +80,24 @@ ns.SceneBySkill = {
 	Enchanting = "starfall",
 	Inscription = "map",
 }
+
+-- Backdrops: the game's own painted art behind feed cards, as a trial until
+-- they are catalogued (sprint-hub, backdrops-trial). The garrison mission
+-- scenes (each zone in three layers) and the group finder's backgrounds,
+-- all named in the Forever client's own UI. Rotated so rows vary, each card
+-- showing its own slice (scenes.lua, Backdrops). Ones the game lacks are
+-- skipped.
+ns.CardBackdrops = {
+	"_GarrMissionLocation-FrostfireRidge-Back", "_GarrMissionLocation-ShadowmoonValley-Back",
+	"_GarrMissionLocation-TannanJungle-Back", "_GarrMissionLocation-FrostfireSea-Back",
+	"_GarrMissionLocation-ShadowmoonSea-Back", "_GarrMissionLocation-FrostfireRidge-Mid",
+	"_GarrMissionLocation-ShadowmoonValley-Mid", "_GarrMissionLocation-TannanJungle-Mid",
+	"_GarrMissionLocation-FrostfireSea-Mid", "_GarrMissionLocation-ShadowmoonSea-Mid",
+	"groupfinder-background-dungeons", "groupfinder-background-classic",
+}
+
+ns.BackdropRules = {
+	share = 0.7, -- of the card's width, from the right
+	fadeTo = 0.55, -- how strong at the right edge (from nothing at its left)
+}
+

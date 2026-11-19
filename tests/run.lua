@@ -268,7 +268,7 @@ test("a quest handed in is one gold row with its XP, and its XP is not a second 
 	equal(#feed, 1)
 	equal(feed[1].type, "quest_complete")
 	local row = w.ns.ViewModel:Build("all")[1]
-	equal(row.title, "Quest complete: |cffffd100A Quest|r")
+	equal(row.title, "|cffffd100A Quest|r Complete!")
 	equal(row.highlight, "quest")
 	equal(w.ns.Store:GetMembers()[1].currentXP, 190) -- the XP is still counted
 	equal(#sent, 2) -- and still shared, for friends' bars
@@ -314,7 +314,7 @@ test("kills of one creature add up in one row, and other XP in another", functio
 	local rows = w.ns.ViewModel:Build("xp")
 	equal(rows[2].title, "Kills Wandering Spirit x3 for 243 XP")
 	-- 1000 - 413 = 587 to go, at 81 a kill.
-	equal(rows[2].summary, "Tester, Level 20, 8 kills like this to Level 21")
+	equal(rows[2].summary, "Tester, Lv 20, 8 kills to 21")
 	equal(rows[1].title, "Kills Rotting Ghoul for 70 XP")
 	-- Other XP adds up on its own row.
 	w:advance(20)
@@ -363,11 +363,11 @@ test("stats tally each player's week, even what the feed folds or hides", functi
 	w.ns.Collectors:Handle("PLAYER_DEAD")
 	w:hear("E", { t = "quest_complete", c = "WARRIOR", quest = "Leonid's Letter", xp = 90 }, "Tombert Roams")
 	w:hear("E", { t = "level", c = "WARRIOR", level = 15 }, "Tombert Roams")
-	local mine = w.ns.Stats:Week("Tester")
+	local mine = w.ns.Stats:Total("Tester")
 	equal(mine.xp, 243)
 	equal(mine.kills, 3)
 	equal(mine.deaths, 1)
-	local theirs = w.ns.Stats:Week("Tombert Roams")
+	local theirs = w.ns.Stats:Total("Tombert Roams")
 	equal(theirs.quests, 1)
 	equal(theirs.levels, 1)
 	equal(theirs.kills, nil)
@@ -376,29 +376,75 @@ test("stats tally each player's week, even what the feed folds or hides", functi
 	assert(w.chat[#w.chat]:find("Tombert Roams: quests 1, levels 1", 1, true), w.chat[#w.chat])
 end)
 
-test("stats keep a week and drop older days, and the emulator's players are not counted", function()
+test("fuel is kept for good, one book per channel, and the emulator's players are not counted", function()
 	local w = Harness.new({ switches = { chatEcho = false } })
 	w.ns.SetDebug(true)
+	w:share("Alpha")
 	w.ns.Bus:Fire("ENTRY_RECEIVED", { type = "level", player = "Jaina", class = "MAGE", emulated = true, data = { level = 23 } })
 	equal(#w.ns.Stats:Players(), 0)
 	w:ingest("level", { level = 21 })
-	w.now = w.now + 8 * 86400
+	w.now = w.now + 40 * 86400
 	w:ingest("level", { level = 22 })
-	equal(w.ns.Stats:Week("Tester").levels, 2) -- not yet pruned
 	local reloaded = Harness.new(w.ns.db, w.ns.charDb, nil, w.now)
-	equal(reloaded.ns.Stats:Week("Tester").levels, 1) -- the old day is gone
+	equal(reloaded.ns.Stats:Total("Tester").levels, 2) -- 40 days on, nothing dropped
 	reloaded.env.SlashCmdList.QUESTPARTY("stats")
-	assert(reloaded.chat[#reloaded.chat]:find("Tester: levels 1", 1, true))
+	assert(reloaded.chat[#reloaded.chat]:find("Tester: levels 2", 1, true))
+	-- Another channel has its own book.
+	w.ns.db.connection.name = "Beta"
+	equal(#w.ns.Stats:Players(), 0)
+	w:ingest("level", { level = 23 })
+	equal(w.ns.Stats:Total("Tester").levels, 1)
+	w.ns.db.connection.name = "Alpha"
+	equal(w.ns.Stats:Total("Tester").levels, 2)
 	local empty = Harness.new()
 	empty.ns.SetDebug(true)
 	empty.env.SlashCmdList.QUESTPARTY("stats")
-	assert(empty.chat[#empty.chat]:find("No stats yet", 1, true))
+	assert(empty.chat[#empty.chat]:find("No fuel yet", 1, true))
+end)
+
+test("XP fuel is by level: a tenth of a level is 20 x level fuel, at any level, and nothing at the cap", function()
+	local w = Harness.new()
+	local XPFuel = w.ns.Stats.XPFuel
+	equal(#w.ns.XPToLevel, 59)
+	local total = 0
+	for _, need in ipairs(w.ns.XPToLevel) do total = total + need end
+	equal(total, 4084700) -- 1 to 60, as published
+	-- A tenth of a level, by the table: 760 XP at 10, 18,080 at 55.
+	equal(XPFuel(760, 10), 200)
+	equal(XPFuel(18080, 55), 1100)
+	-- The gain's own requirement wins over the table.
+	equal(XPFuel(100, 10, 1000), 200)
+	-- The cap, or no level: nothing.
+	equal(XPFuel(500, 60), nil)
+	equal(XPFuel(500, nil), nil)
+	-- In Fuel: two players each gain a tenth of a level; the one at 55 gets
+	-- 5.5 times the fuel, not the 24 times their raw XP is.
+	w:ingest("xp", { xp = 760, level = 10, currentXP = 1000, maxXP = 7600 }, "Low")
+	w:ingest("xp", { xp = 18080, level = 55, currentXP = 20000, maxXP = 180800 }, "High")
+	local fuel = {}
+	for _, person in ipairs(w.ns.Report:Everyone()) do fuel[person.name] = person.kinds[1].fuel end
+	equal(fuel.Low, 200)
+	equal(fuel.High, 1100)
+	-- The feed keeps the real XP.
+	equal(w.ns.Stats:Total("High").xp, 18080)
+	-- A day counted before XP fuel: its XP is turned into fuel at the level now.
+	w.ns.Stats:Book().Old = { [20000] = { xp = 3800 } }
+	w.ns.Store:Ingest({ type = "level", player = "Old", class = "MAGE", data = { level = 10 } })
+	equal(math.floor(w.ns.Stats:Total("Old").xpFuel + 0.5), 1000)
+end)
+
+test("a week of tallies saved before channel books moves into the current channel's book", function()
+	local saved = { stats = { Bram = { [20000] = { xp = 300, kills = 4 } } }, connection = { name = "Gamma", enabled = true } }
+	local w = Harness.new(saved)
+	equal(w.ns.db.stats, nil)
+	equal(w.ns.Stats:Total("Bram").xp, 300)
+	equal(w.ns.db.fuel.gamma.Bram[20000].kills, 4)
 end)
 
 test("stats are kept for everyone now, for the 123 tab", function()
 	local w = Harness.new({ switches = { chatEcho = false } })
 	w:ingest("level", { level = 21 })
-	equal(w.ns.Stats:Week("Tester").levels, 1) -- a released build keeps them too
+	equal(w.ns.Stats:Total("Tester").levels, 1) -- a released build keeps them too
 end)
 
 test("the 123 tab: totals by kind stacked by player, by player for a kind, and one player's shares", function()
@@ -430,7 +476,7 @@ test("the 123 tab: totals by kind stacked by player, by player for a kind, and o
 	equal(w.ns.Report:Build("quests").total, 0)
 end)
 
-test("the report's vertical vials preserve totals and filters when resized", function()
+test("Fuel's vat: whole, sliced by kind, by player and by one player's kinds, scrolling when it must", function()
 	dofile("tests/report-view.lua")(Harness)
 end)
 
@@ -648,11 +694,11 @@ test("XP gains show current level and percentage remaining without duplicate upd
 	equal(feed[1].data.level, 20)
 	local row = w.ns.ViewModel:Build("xp")[1]
 	equal(row.title, "+150 XP")
-	equal(row.summary, "Tester, Level 20, 45.00% to Level 21")
+	equal(row.summary, "Tester, Lv 20, 45% to 21")
 	equal(row.progress.have, 550)
 	equal(row.progress.need, 1000)
 	equal(#w.chat, 1)
-	assert(w.chat[1]:find("Level 20, 45.00%% to Level 21"))
+	assert(w.chat[1]:find("Lv 20, 45%% to 21"))
 	w:event("PLAYER_XP_UPDATE", "player")
 	w:advance(0)
 	equal(#w.ns.Store:GetFeed(true), 1)
@@ -673,7 +719,7 @@ test("XP rollover reads settled level data and includes XP earned before levelin
 	equal(feed[1].data.xp, 250)
 	equal(feed[1].data.level, 21)
 	local rows = w.ns.ViewModel:Build("xp")
-	equal(rows[2].summary, "Tester, Level 21, 89.29% to Level 22")
+	equal(rows[2].summary, "Tester, Lv 21, 90% to 22")
 end)
 
 test("saved XP history survives reload without announcing old gains again", function()
@@ -751,7 +797,7 @@ test("multi-level XP updates avoid invented gain totals and capped levels avoid 
 			equal(row.summary, "Tester, Level 22")
 			equal(row.progress, nil)
 		else
-			equal(row.summary, "Tester, Level 22, 87.50% to Level 23")
+			equal(row.summary, "Tester, Lv 22, 88% to 23")
 		end
 	end
 end)
@@ -787,7 +833,7 @@ test("an XP gain names the kill behind it when the game said, and not otherwise"
 	equal(row.title, "Kills Riverpaw Gnoll for 65 XP")
 	equal(row.progress, nil) -- no bar: it would read as quest progress
 	equal(row.lines[1].progress, nil)
-	equal(row.summary, "Tester, Level 20, 13 kills like this to Level 21") -- 835 left, 65 a kill
+	equal(row.summary, "Tester, Lv 20, 13 kills to 21") -- 835 left, 65 a kill
 	w:advance(5)
 	w.xp = 265 -- a quest turn-in: no kill
 	w:event("PLAYER_XP_UPDATE", "player")
@@ -1123,6 +1169,60 @@ test("startup hydrates active quests quietly and observes their next real progre
 	equal(#w.sent, 0)
 end)
 
+test("each player keeps one bright color, the same everywhere, and a party of 16 shares none", function()
+	local w = Harness.new()
+	local C = w.ns.PlayerColors
+	equal(#w.ns.PlayerPalette, 16)
+	local seen = {}
+	for index = 1, 16 do
+		local slot = C:Index("Player" .. index)
+		assert(not seen[slot], "two players share a color: " .. slot)
+		seen[slot] = true
+	end
+	-- Kept: the same color every time, and after a reload.
+	local first = C:Index("Player3")
+	local reloaded = Harness.new(w.ns.db)
+	equal(reloaded.ns.PlayerColors:Index("Player3"), first)
+	-- The 17th gets the least used, so colors spread out again.
+	local seventeenth = C:Index("Player17")
+	equal(seventeenth >= 1 and seventeenth <= 16, true)
+	local r, g, b = C:For("Player1")
+	equal(r, w.ns.PlayerPalette[C:Index("Player1")][1])
+end)
+
+test("fuel gained in the last hour, day and week", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	local S = w.ns.Stats
+	-- A week ago, a day ago, now: a level-up each (1 fuel) and a quest (1).
+	w.ns.Bus:Fire("ENTRY_RECEIVED", { type = "level", player = "A", class = "MAGE", time = w.now - 6 * 86400, data = { level = 10 } })
+	w.ns.Bus:Fire("ENTRY_RECEIVED", { type = "level", player = "A", class = "MAGE", time = w.now - 20 * 3600, data = { level = 11 } })
+	w.ns.Bus:Fire("ENTRY_RECEIVED", { type = "level", player = "B", class = "MAGE", time = w.now - 600, data = { level = 12 } })
+	w.ns.Bus:Fire("ENTRY_RECEIVED", { type = "quest_complete", player = "B", class = "MAGE", time = w.now - 60, data = { quest = "Q", xp = 0 } })
+	equal(S:Recent(3600), 2)
+	equal(S:Recent(86400), 3)
+	equal(S:Recent(7 * 86400), 4)
+	equal(S:Recent(3600, "A"), 0)
+	equal(S:Recent(86400, "A"), 1)
+	-- XP counts by level here too: a tenth of level 10.
+	w.ns.Bus:Fire("ENTRY_RECEIVED", { type = "xp", player = "B", class = "MAGE", time = w.now, data = { xp = 760, level = 10, currentXP = 900, maxXP = 7600 } })
+	equal(S:Recent(3600, "B"), 2 + 200)
+	-- The reset empties them too.
+	S:Clear()
+	equal(S:Recent(7 * 86400), 0)
+end)
+
+test("/qp fuel reset empties this channel's fuel on this client, after asking", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:ingest("level", { level = 21 })
+	equal(#w.ns.Stats:Players(), 1)
+	w.env.SlashCmdList[w.ns.Globals.slashKey]("fuel reset")
+	equal(#w.ns.Stats:Players(), 1) -- not until confirmed
+	w:dismissPopup(true)
+	equal(#w.ns.Stats:Players(), 0)
+	w:ingest("level", { level = 22 })
+	equal(w.ns.Stats:Total("Tester").levels, 1) -- counting again
+end)
+
 test("/qp reset and /qp repos forget the panel's and dock's places", function()
 	local w = Harness.new()
 	local calls = 0
@@ -1139,6 +1239,98 @@ test("the panel builds, starts up and opens every tab without an error (both bui
 	smoke(Harness, { sandbox = true })
 end)
 
+test("Players shown: 10 by default, up to 20, keeping you, your group and the most active", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	for index = 1, 14 do
+		w:hear("H", { v = "0.3.5", c = "MAGE", l = 10, x = 100, m = 1000 }, "Player" .. index)
+		w:advance(1) -- each heard a moment after the last
+	end
+	w.group = { "Player1" } -- the first heard: least lately, but in your group
+	w:event("GROUP_ROSTER_UPDATE")
+	equal(w.ns.ViewModel.PartyCap(), 10)
+	local bars = w.ns.ViewModel:PartyBars()
+	equal(#bars, 10)
+	equal(bars[1].me, true) -- you, first
+	local names = {}
+	for _, bar in ipairs(bars) do names[bar.name] = true end
+	equal(names.Player1, true) -- your group is kept
+	equal(names.Player14, true) -- the most lately heard kept
+	equal(names.Player2, nil) -- among the least lately heard: left out
+	w.ns.SetSlider("partyCap", 20)
+	equal(#w.ns.ViewModel:PartyBars(), 15) -- everyone: you and the 14
+	w.ns.SetSlider("partyCap", 50)
+	equal(w.ns.ViewModel.PartyCap(), 20) -- 20 at most
+end)
+
+test("quest cards: one player's card carries its objectives and avatar; four layouts, the List the panel's own", function()
+	local w = Harness.new()
+	w:ingest("quest_progress", { questID = 1, quest = "Q", objective = "Rats", have = 2, need = 5 }, "Friend")
+	w:ingest("quest_progress", { questID = 1, quest = "Q", objective = "Wolves", have = 3, need = 3 }, "Friend")
+	local card
+	for _, row in ipairs(w.ns.ViewModel:Build("party")) do
+		if row.kind == "tracker" then card = row end
+	end
+	equal(card.player, "Friend")
+	equal(#card.objectives, 2)
+	equal(card.mark, "questTaken")
+	equal(card.ready, nil)
+	local QC = w.ns.QuestCard
+	equal(w.ns.GetSlider("questCardStyle"), 0)
+	equal(QC:For(card), QC.layouts.segmented) -- the default
+	w.ns.SetSlider("questCardStyle", 1)
+	equal(QC:For(card), QC.layouts.grid)
+	equal(QC.layouts.grid.Height(card), QC.layouts.grid.Height({ objectives = { 1 } })) -- two to a line
+	w.ns.SetSlider("questCardStyle", 2)
+	equal(QC:For(card).hidesMark, true)
+	w.ns.SetSlider("questCardStyle", 3)
+	equal(QC:For(card), nil) -- the List: the panel's own lines
+	-- Every objective done: it leaves the Quest tab, as before.
+	w:ingest("quest_progress", { questID = 1, quest = "Q", objective = "Rats", have = 5, need = 5 }, "Friend")
+	local still = false
+	for _, row in ipairs(w.ns.ViewModel:Build("party")) do
+		if row.kind == "tracker" and row.quest == "Q" then still = true end
+	end
+	equal(still, false)
+end)
+
+test("a quest a party is on: a section per objective, those working on it latest first, the done collapsed", function()
+	local w = Harness.new()
+	local function progress(player, objective, have, need, ago)
+		w:ingest("quest_progress", { questID = 7, quest = "Sharing the Land", objective = objective, have = have, need = need }, player)
+		w:advance(ago or 1)
+	end
+	progress("Ann", "Tanner slain", 3, 10)
+	progress("Bob", "Tanner slain", 10, 10)
+	progress("Cat", "Tanner slain", 5, 10)
+	progress("Ann", "Skinner slain", 8, 8)
+	progress("Dan", "Tanner slain", 1, 10)
+	progress("Ann", "Tanner slain", 4, 10) -- Ann's newest: first
+	local card
+	for _, row in ipairs(w.ns.ViewModel:Build("party")) do
+		if row.kind == "tracker" and row.quest == "Sharing the Land" then card = row end
+	end
+	equal(#card.party, 4)
+	equal(w.ns.QuestCard:For(card), w.ns.QuestCard.layouts.party) -- whatever the slider
+	local tanner = card.sections[1]
+	equal(tanner.name, "Tanner slain")
+	local order = {}
+	for _, entry in ipairs(tanner.active) do order[#order + 1] = entry.name end
+	equal(table.concat(order, ","), "Ann,Dan,Cat") -- the latest progress first
+	equal(#tanner.done, 1) -- Bob, collapsed
+	equal(tanner.done[1].name, "Bob")
+	equal(card.sections[2].name, "Skinner slain")
+	equal(#card.sections[2].done, 1)
+	equal(w.ns.QuestCard.layouts.party.Height(card) > 0, true)
+end)
+
+test("stress: a party of 20 at the cap of 20 draws, bars and side bar, without an error", function()
+	local smoke = dofile("tests/ui-smoke.lua")
+	local w = smoke(Harness, { players = 20, cap = 20 })
+	equal(#w.ns.ViewModel:PartyBars(), 20) -- you and 19 of the 20, at the cap
+	equal(#w.ns.PartyModel:Heads(), 20)
+end)
+
 test("themes: every theme has the whole palette, and the Theme slider picks one", function()
 	local w = Harness.new()
 	local ns = w.ns
@@ -1146,7 +1338,7 @@ test("themes: every theme has the whole palette, and the Theme slider picks one"
 	for index = slider.min, slider.max do
 		local theme = ns.Themes[index]
 		assert(theme and theme.label, "theme " .. index)
-		for _, key in ipairs({ "row", "card", "level", "handIn" }) do
+		for _, key in ipairs({ "row", "card", "level", "handIn", "accepted", "joined" }) do
 			equal(#theme[key], 2)
 			equal(#theme[key][1], 4)
 			equal(#theme[key][2], 4)
@@ -1273,14 +1465,364 @@ test("the 123 XP is whole numbers, even from fractional gains or old tallies", f
 	local w = Harness.new()
 	w:ingest("xp", { xp = 26.5, mob = "Kobold", level = 5, currentXP = 10, maxXP = 100 }, "Bram")
 	w:ingest("xp", { xp = 13.25, mob = "Kobold", level = 5, currentXP = 20, maxXP = 100 }, "Bram")
-	equal(w.ns.Stats:Week("Bram").xp, 27 + 13)
+	equal(w.ns.Stats:Total("Bram").xp, 27 + 13)
 	-- A tally saved by an older build, with a fraction in it.
-	local day = next(w.ns.db.stats.Bram)
-	w.ns.db.stats.Bram[day].xp = 40.75
+	local day = next(w.ns.Stats:Book().Bram)
+	w.ns.Stats:Book().Bram[day].xp = 40.75
 	for _, row in ipairs(w.ns.Report:Build(nil, nil).rows) do
 		equal(row.value, math.floor(row.value))
 	end
 	equal(w.ns.Report:Build("xp", nil).rows[1].value, 41)
+end)
+
+test("every row has its mark from the concept: the game's ! and ?, XP, and one for each kind", function()
+	local w = Harness.new()
+	w:ingest("quest_accepted", { questID = 1, quest = "Q" }, "Friend")
+	w:ingest("quest_progress", { questID = 1, quest = "Q", objective = "Rats", have = 2, need = 5 }, "Friend")
+	w:ingest("quest_complete", { questID = 2, quest = "R", xp = 100 }, "Friend")
+	w:ingest("level", { level = 12 }, "Friend")
+	local marks = {}
+	for _, row in ipairs(w.ns.ViewModel:Build("all")) do
+		marks[row.kind .. ":" .. tostring(row.mark or (row.badge and row.badge.style))] = true
+	end
+	equal(marks["feed:questTaken"], true)
+	equal(marks["feed:questDone"], true)
+	equal(marks["progress:questTaken"], true)
+	equal(marks["feed:level"], true) -- a level-up keeps its crest and number
+	for _, row in ipairs(w.ns.ViewModel:Build("party")) do
+		if row.kind == "tracker" then equal(row.mark, "questTaken") end
+	end
+	-- The game's own quest marks, and every feed type has a mark or a crest.
+	equal(w.ns.MarkLooks.questTaken.texture, "Interface\\GossipFrame\\AvailableQuestIcon")
+	equal(w.ns.MarkLooks.questDone.texture, 236669)
+	equal(w.ns.MarkLooks.xp.text, "XP")
+	for id, def in pairs(w.ns.FeedTypes) do
+		assert(def.badge or (def.mark and w.ns.MarkLooks[def.mark]), "a mark for " .. id)
+	end
+	for _, filter in ipairs(w.ns.GutterFilters) do
+		assert(w.ns.MarkLooks[filter.mark], "a mark for the " .. filter.id .. " filter")
+	end
+	for id, look in pairs(w.ns.MarkLooks) do
+		assert(look.edge and look.fill and (look.texture or look.text), "a whole look for " .. id)
+	end
+end)
+
+test("a quest two or more are on is one card as a party, a column each, and shared quests lead", function()
+	local w = Harness.new()
+	w:ingest("quest_progress", { questID = 1, quest = "Solo", objective = "Rats", have = 1, need = 5 }, "Friend")
+	w:ingest("quest_progress", { questID = 2, quest = "Together", objective = "Wolves", have = 6, need = 6 }, "Friend")
+	w:ingest("quest_progress", { questID = 2, quest = "Together", objective = "Wolves", have = 2, need = 6 }, "Tester")
+	local rows = {}
+	for _, row in ipairs(w.ns.ViewModel:Build("party")) do
+		if row.kind == "tracker" then rows[#rows + 1] = row end
+	end
+	equal(rows[1].quest, "Together") -- shared, so it leads
+	equal(#rows[1].party, 2)
+	local byName = {}
+	for _, member in ipairs(rows[1].party) do byName[member.name] = member end
+	equal(byName.Friend.done, true)
+	equal(byName.Tester.done, false)
+	equal(byName.Tester.have, 2)
+	equal(byName.Tester.me, true)
+	equal(byName.Friend.objectives[1].name, "Wolves")
+	equal(rows[2].quest, "Solo")
+	equal(rows[2].party, nil) -- one player: the simple card
+end)
+
+test("kills that finish an objective fold into its Done row, other kills stay", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	for _ = 1, 8 do
+		w:ingest("xp", { xp = 55, mob = "Palemane Tanner", level = 7, currentXP = 100, maxXP = 2000 }, "Friend")
+	end
+	w:ingest("xp", { xp = 60, mob = "Wiry Swoop", level = 7, currentXP = 160, maxXP = 2000 }, "Friend")
+	w:ingest("quest_progress", { questID = 4, quest = "Sharing the Land", objective = "Palemane Tanner slain", have = 10, need = 10 }, "Friend")
+	local rows = w.ns.ViewModel:Build("all")
+	local done, tanners, swoop
+	for _, row in ipairs(rows) do
+		if row.title:find("Palemane Tanner slain", 1, true) then done = row end
+		if row.title:find("Kills Palemane Tanner", 1, true) then tanners = row end
+		if row.title:find("Wiry Swoop", 1, true) then swoop = row end
+	end
+	equal(tanners, nil) -- folded into the Done row
+	equal(done.summary, "Friend, +8 kills, +440 XP")
+	equal(swoop ~= nil, true) -- no quest of its own: stays
+	equal(w.ns.Stats:Total("Friend").kills, 9) -- every kill still counted
+	-- A collection: the creature that drops it folds in too.
+	w:ingest("xp", { xp = 51, mob = "Prairie Wolf", level = 7, currentXP = 211, maxXP = 2000 }, "Friend")
+	w:ingest("quest_progress", { questID = 5, quest = "Poison Water", objective = "Prairie Wolf Paw", have = 6, need = 6 }, "Friend")
+	for _, row in ipairs(w.ns.ViewModel:Build("all")) do
+		if row.title:find("Prairie Wolf Paw", 1, true) then equal(row.summary, "Friend, +1 kill, +51 XP") end
+		assert(not row.title:find("Kills Prairie Wolf", 1, true), "the wolf run folded in")
+	end
+end)
+
+test("event sounds: quest complete, level up and an objective done, one per moment, none for old rows", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	local played = {}
+	w.env.PlaySound = function(kit) played[#played + 1] = kit return true end
+	-- A kill finishes the objective, the quest is handed in and the level comes:
+	-- one moment, one sound, the level's.
+	w:ingest("quest_progress", { questID = 1, quest = "Q", objective = "Rats", have = 10, need = 10 }, "Friend")
+	w:ingest("quest_complete", { questID = 1, quest = "Q", xp = 700 }, "Friend")
+	w:ingest("level", { level = 11 }, "Friend")
+	w:advance(1)
+	equal(#played, 1)
+	equal(played[1], 46893)
+	-- On its own, a quest handed in sounds its own.
+	w:ingest("quest_complete", { questID = 2, quest = "R", xp = 300 }, "Friend")
+	w:advance(1)
+	equal(played[2], 23404)
+	-- An objective done.
+	w:ingest("quest_progress", { questID = 3, quest = "S", objective = "Wolves", have = 6, need = 6 }, "Friend")
+	w:advance(1)
+	equal(played[3], 878)
+	-- Rows with no sound, and an old row caught up, are quiet.
+	w:ingest("death", { zone = "X", level = 5 }, "Friend")
+	w.ns.Bus:Fire("ENTRY_RECEIVED", { type = "level", player = "Old", class = "MAGE", time = w.now - 3600, data = { level = 9 } })
+	w:advance(1)
+	equal(#played, 3)
+end)
+
+test("stamps add up by kind, in the order each was first used, one per player", function()
+	local w = Harness.new()
+	local S = w.ns.Stamping
+	local key = "Friend~level~12"
+	S:Add(key, "gg", "Ann", 100)
+	S:Add(key, "gratz", "Bob", 101)
+	S:Add(key, "gg", "Cat", 102)
+	S:Add(key, "gg", "Dan", 103)
+	local tallies = S:Tally(key)
+	equal(#tallies, 2)
+	equal(tallies[1].id, "gg") -- first used, first spot
+	equal(tallies[1].count, 3)
+	equal(tallies[1].time, 103)
+	equal(table.concat(tallies[1].from, ","), "Ann,Cat,Dan")
+	equal(tallies[2].id, "gratz")
+	equal(tallies[2].count, 1)
+	-- Stamping the same again: refused, the first stays.
+	equal(S:Add(key, "gg", "Dan", 200), nil)
+	tallies = S:Tally(key)
+	equal(tallies[1].count, 3)
+	equal(tallies[1].time, 103)
+	equal(w.ns.L.STAMP_TALLY:format(w.ns.L.STAMP_GG, 3), "Hooray! x3")
+end)
+
+test("one tab per player: a friend's or your own other characters have no tab, their history stays", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	-- A friend on one character, then on another.
+	w:hear("H", { v = "0.3.5", c = "WARRIOR", l = 10, z = "Mulgore", a = "abc123" }, "Mainchar")
+	w:hear("E", { t = "level", c = "WARRIOR", level = 10 }, "Mainchar")
+	w.ns.Session.peers.Mainchar = nil -- logged off
+	w:hear("H", { v = "0.3.5", c = "MAGE", l = 3, z = "Elwynn Forest", a = "abc123" }, "Altchar")
+	-- Someone else, and an older client that sends no player id.
+	w:hear("H", { v = "0.3.5", c = "ROGUE", l = 7, a = "fff000" }, "Stranger")
+	w:hear("H", { v = "0.2.0", c = "PRIEST", l = 5 }, "Oldclient")
+	local names = {}
+	for _, head in ipairs(w.ns.PartyModel:Heads()) do names[head.name] = true end
+	equal(names.Altchar, true)
+	equal(names.Mainchar, nil) -- the same player: no second tab
+	equal(names.Stranger, true)
+	equal(names.Oldclient, true)
+	equal(#w.ns.Store:GetFeed(true) > 0, true) -- Mainchar's level row is still there
+	-- Your own other character: filed under your id, so no tab.
+	w.ns.Store:SetPlayerId("Myalt", w.ns.Sharing.PlayerId())
+	w.ns.Bus:Fire("ENTRY_RECEIVED", { type = "level", player = "Myalt", class = "MAGE", data = { level = 4 } })
+	names = {}
+	for _, head in ipairs(w.ns.PartyModel:Heads()) do names[head.name] = true end
+	equal(names.Myalt, nil)
+	-- Your hello carries your player id, the same every time.
+	local id = w.ns.Sharing.PlayerId()
+	equal(id, w.ns.Sharing.PlayerId())
+	local sent
+	for _, message in ipairs(w.sent) do if message.text:match("^1:H:") then sent = message.text end end
+	equal(sent:find("a=" .. id, 1, true) ~= nil, true)
+end)
+
+test("Stamps fade: off by default; on, a card shows only stamps from the last 15 seconds", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	equal(w.ns.IsEnabled("stampFade"), false)
+	equal(w.ns.StampRules.fadeSeconds, 15)
+	local key = "Friend~level~12"
+	local S = w.ns.Stamping
+	S:Add(key, "gg", "Ann", w.now - 20)
+	S:Add(key, "lol", "Bob", w.now - 5)
+	equal(#S:Showing(key, w.now), 2) -- off: nothing fades
+	w.ns.SetEnabled("stampFade", true)
+	local showing = S:Showing(key, w.now)
+	equal(#showing, 1) -- the 20 second old one has faded
+	equal(showing[1].id, "lol")
+	S:Add(key, "gg", "Cat", w.now) -- stamped again: back
+	equal(#S:Showing(key, w.now), 2)
+	equal(#S:For(key), 3) -- still all kept, only not inked
+end)
+
+test("stamps: eight words, each with an emblem; one since retired is left off the card", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	equal(#w.ns.Stamps, 8)
+	for _, stamp in ipairs(w.ns.Stamps) do
+		assert(stamp.id:match("^[%w_]+$"), "a plain id: " .. stamp.id)
+		assert(stamp.text and stamp.icon and stamp.color, "a word, a fallback icon and a color: " .. stamp.id)
+	end
+	-- A card stamped before a stamp was retired (the garrison and raid marks).
+	local S = w.ns.Stamping
+	local list = { { id = "c_priest", from = "Ann", time = w.now }, { id = "gg", from = "Bob", time = w.now } }
+	w.ns.db.stamps = w.ns.db.stamps or {}
+	S:Add("Friend~level~12", "gg", "Bob", w.now)
+	table.insert(S:For("Friend~level~12"), 1, list[1])
+	local tallies = S:Tally("Friend~level~12")
+	equal(#tallies, 1)
+	equal(tallies[1].id, "gg")
+	-- Nor does it hold anyone's two per card: Ann may still stamp it.
+	table.insert(S:For("Friend~level~12"), { id = "m_star", from = "Ann", time = w.now })
+	equal(S:May("Friend~level~12", "Ann", "nice"), true)
+	-- And it is cleared from what is kept.
+	S:Prune(w.now)
+	for _, stamp in ipairs(S:For("Friend~level~12")) do
+		assert(w.ns.StampById[stamp.id], "only stamps this version has are kept")
+	end
+end)
+
+test("a stamp's impact is one of KekChat's effects and sounds at random, made small", function()
+	local w = Harness.new()
+	local S = w.ns.Stamping
+	local seen, sounds = {}, {}
+	for _ = 1, 200 do
+		local impact = S.Impact("gg")
+		seen[impact.preset] = true
+		sounds[impact.sound] = true
+		equal(impact.icons[1], "Interface\\Icons\\" .. w.ns.StampById.gg.icon) -- the stamp's own image leads
+		local base = w.ns.ChatEffectById[impact.effect.id]
+		assert(impact.effect.size[2] < base.size[2], "smaller than KekChat's")
+	end
+	local presets, kinds = 0, 0
+	for _ in pairs(seen) do presets = presets + 1 end
+	for _ in pairs(sounds) do kinds = kinds + 1 end
+	equal(presets > 1, true) -- not always the same effect
+	equal(kinds > 1, true) -- nor the same sound
+	for id in pairs(sounds) do
+		local found = false
+		for _, sound in ipairs(w.ns.StampImpact.sounds) do if sound == id then found = true end end
+		equal(found, true)
+	end
+	for _, id in ipairs(w.ns.StampImpact.presets) do
+		local found = false
+		for _, preset in ipairs(w.ns.EffectPresets) do if preset.id == id then found = true end end
+		assert(found, "KekChat has " .. id)
+	end
+end)
+
+test("stamps: a card is named the same on every client, two per player, and travels", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	local S = w.ns.Stamping
+	local entry = { type = "quest_complete", player = "Friend", data = { quest = "The Venture Co.", xp = 700 } }
+	equal(S:KeyFor(entry), "Friend~quest_complete~The Venture Co.")
+	equal(S:KeyFor({ type = "xp", player = "Friend", data = { xp = 5 } }), nil) -- not stampable
+	-- Yours: on the card at once, and out on the channel.
+	w:ingest("quest_complete", { quest = "The Venture Co.", xp = 700 }, "Friend")
+	equal(S:Send(entry, "gg"), true)
+	local text
+	for _, message in ipairs(w.sent) do
+		if message.text:match("^1:T:") then text = message.text end
+	end
+	equal(text ~= nil, true)
+	equal(S:For(S:KeyFor(entry))[1].id, "gg")
+	-- A second, different stamp from you is added: two each.
+	S:Send(entry, "legend")
+	equal(#S:For(S:KeyFor(entry)), 2)
+	-- Then you are done with this card: a third is refused and not sent, and
+	-- so is the same one again. The first two stay.
+	local sentBefore = #w.sent
+	local ok, why = S:Send(entry, "nice")
+	equal(ok, false)
+	equal(why, w.ns.L.STAMP_DONE)
+	equal(S:Send(entry, "legend"), false)
+	equal(#w.sent, sentBefore)
+	local mine = {}
+	for _, stamp in ipairs(S:For(S:KeyFor(entry))) do mine[#mine + 1] = stamp.id end
+	equal(table.concat(mine, ","), "gg,legend")
+	equal(S:May(S:KeyFor(entry), w.ns.MyName()), false)
+	-- The feed row carries them, so the panel can draw them.
+	local row
+	for _, built in ipairs(w.ns.ViewModel:Build("all")) do
+		if built.stampKey then row = built end
+	end
+	equal(row.stamps[#row.stamps].id, "legend") -- the newest last
+	-- From the channel: a friend's stamp lands; a muted player's and an
+	-- unknown stamp do not.
+	w:hear("T", { k = S:KeyFor(entry), s = "gratz" }, "Buddy")
+	equal(#S:For(S:KeyFor(entry)), 3) -- your two and Buddy's
+	-- A client that sends past the rule: only Buddy's first two show here.
+	w:advance(30) -- past the spam timeout
+	w:hear("T", { k = S:KeyFor(entry), s = "gratz" }, "Buddy") -- the same again
+	w:hear("T", { k = S:KeyFor(entry), s = "lol" }, "Buddy")
+	w:advance(30)
+	w:hear("T", { k = S:KeyFor(entry), s = "oof" }, "Buddy") -- a third
+	local buddy = {}
+	for _, stamp in ipairs(S:For(S:KeyFor(entry))) do
+		if stamp.from == "Buddy" then buddy[#buddy + 1] = stamp.id end
+	end
+	equal(table.concat(buddy, ","), "gratz,lol")
+	w.ns.Chat:ToggleMute("Pest")
+	w:hear("T", { k = S:KeyFor(entry), s = "gratz" }, "Pest")
+	w:hear("T", { k = S:KeyFor(entry), s = "typed words" }, "Buddy")
+	equal(#S:For(S:KeyFor(entry)), 4)
+	-- A stamp for a card not here yet is kept, and shows when the card comes.
+	w:hear("T", { k = "Other~level~12", s = "gg" }, "Buddy")
+	w:ingest("level", { level = 12 }, "Other")
+	local found
+	for _, built in ipairs(w.ns.ViewModel:Build("all")) do
+		if built.stampKey == "Other~level~12" then found = built end
+	end
+	equal(found.stamps[1].from, "Buddy")
+end)
+
+test("quests you and someone else are both on are marked shared, in the Quest tab and the feed", function()
+	local w = Harness.new()
+	w:ingest("quest_accepted", { questID = 7, quest = "Together" }, "Tester")
+	w:ingest("quest_accepted", { questID = 7, quest = "Together" }, "Friend")
+	w:ingest("quest_accepted", { questID = 8, quest = "Theirs Alone" }, "Friend")
+	w:ingest("quest_accepted", { questID = 9, quest = "Mine Alone" }, "Tester")
+	-- Some progress, so each quest has a card in the Quest tab.
+	for _, entry in ipairs({ { 7, "Together", "Tester" }, { 7, "Together", "Friend" }, { 8, "Theirs Alone", "Friend" }, { 9, "Mine Alone", "Tester" } }) do
+		w:ingest("quest_progress", { questID = entry[1], quest = entry[2], objective = "Rats", have = 1, need = 5 }, entry[3])
+	end
+	local function Marks(filter)
+		local marks = {}
+		for _, row in ipairs(w.ns.ViewModel:Build(filter)) do
+			if row.quest then marks[row.kind .. ":" .. row.quest .. ":" .. tostring(row.shared)] = true end
+		end
+		return marks
+	end
+	local quest = Marks("party")
+	equal(quest["tracker:Together:true"], true)
+	equal(quest["tracker:Theirs Alone:nil"], true)
+	equal(quest["tracker:Mine Alone:nil"], true)
+	local feed = Marks("all")
+	equal(feed["feed:Together:true"], true)
+	equal(feed["feed:Theirs Alone:nil"], true)
+	equal(w.ns.FilterById.party.label, "Quest")
+end)
+
+test("backdrops rotate among the ones the game has, each card its own slice, never stretched", function()
+	local S = Harness.new().ns.Scene
+	local has = function(name) return name:find("Frostfire", 1, true) ~= nil end
+	equal(S:Backdrop(0, has), "_GarrMissionLocation-FrostfireRidge-Back")
+	equal(S:Backdrop(1, has), "_GarrMissionLocation-FrostfireSea-Back")
+	equal(S:Backdrop(4, has), "_GarrMissionLocation-FrostfireRidge-Back") -- four usable: around again
+	equal(S:Backdrop(7, function() return false end), nil)
+	-- A wide painting (16:1) on a card shape (8:1): the full height, a slice of the width.
+	local l, r, t, b = S:Slice({ 0, 1, 0, 1 }, 4096, 256, 280, 35, 0)
+	equal(t, 0) equal(b, 1)
+	assert(math.abs((r - l) - 0.5) < 1e-9, "half the width shows")
+	equal(l, 0)
+	local l2 = S:Slice({ 0, 1, 0, 1 }, 4096, 256, 280, 35, 3)
+	assert(math.abs(l2 - 0.5) < 1e-9, "another card, another slice")
+	-- A tall painting (1:1) on a card: the full width, a band from the middle.
+	l, r, t, b = S:Slice({ 0, 1, 0, 1 }, 512, 512, 280, 35, 0)
+	equal(l, 0) equal(r, 1)
+	assert(math.abs((b - t) - 0.125) < 1e-9 and math.abs(t - 0.4375) < 1e-9, "a middle band")
 end)
 
 test("vitals: health and power in 5% steps, and a sliver still shows", function()
@@ -1335,6 +1877,45 @@ test("vitals go out stepped and debounced, and show on a friend's bar", function
 	equal(friend.powerType, "RAGE")
 	-- Your own bar has yours, from the game.
 	equal(w.ns.ViewModel:PartyBars()[1].health, 65)
+end)
+
+test("your game group's members are marked: their rows and their XP bars, by full name", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	w:hear("H", { v = "0.3.5", c = "SHAMAN", l = 12, x = 100, m = 1000 }, "Mcdouble Whopper")
+	w:hear("H", { v = "0.3.5", c = "MAGE", l = 9, x = 100, m = 1000 }, "Stranger")
+	w:ingest("level", { level = 12 }, "Mcdouble Whopper")
+	w:ingest("level", { level = 9 }, "Stranger")
+	equal(w.ns.Group:Has("Mcdouble Whopper"), false)
+	-- They join your party (the game gives the name and surname apart).
+	local changed = 0
+	w.ns.Bus:On("GROUP_CHANGED", function() changed = changed + 1 end)
+	w.group = { "Mcdouble Whopper" }
+	w:event("GROUP_ROSTER_UPDATE")
+	equal(changed, 1)
+	equal(w.ns.Group:Has("Mcdouble Whopper"), true)
+	local marks = {}
+	for _, row in ipairs(w.ns.ViewModel:Build("all")) do marks[row.player] = row.grouped end
+	equal(marks["Mcdouble Whopper"], true)
+	equal(marks.Stranger, nil)
+	local bars = {}
+	for _, bar in ipairs(w.ns.ViewModel:PartyBars()) do bars[bar.name] = bar.grouped end
+	equal(bars["Mcdouble Whopper"], true)
+	equal(bars.Stranger, nil)
+	-- They leave the group.
+	w.group = {}
+	w:event("GROUP_ROSTER_UPDATE")
+	equal(w.ns.Group:Has("Mcdouble Whopper"), false)
+end)
+
+test("Health and power can be switched off; the bars' numbers are still kept", function()
+	local w = Harness.new()
+	equal(w.ns.IsEnabled("showVitals"), true) -- on by default
+	w.ns.SetEnabled("showVitals", false)
+	equal(w.ns.IsEnabled("showVitals"), false)
+	w:share()
+	w:hear("V", { h = 40, p = 75, t = "RAGE" }, "Friend")
+	equal(w.ns.Session.peers.Friend.vitals.h, 40) -- still known, only not drawn
 end)
 
 test("vitals: a hidden value keeps the last, a hello carries them, and the sandbox sends none", function()
@@ -1433,20 +2014,28 @@ test("the sandbox shows everything of this character's own and sends none of it"
 	equal(kinds.level, true)
 end)
 
-test("the sandbox ignores this character's regular Quest Party, and forgets what it saved from it", function()
+test("your own rows carry your full name (first and surname), and old first-name rows move to it", function()
 	local w = Harness.new(nil, nil, false, nil, { sandbox = true })
 	w:share()
-	-- Saved by an older sandbox, which treated it as a friend: the full name.
-	w.ns.Bus:Fire("ENTRY_RECEIVED", { type = "quest_progress", player = "Tester Bones", class = "MAGE", data = { questID = 9, quest = "Old", objective = "Rats", have = 1, need = 2 } })
+	-- Saved before the surname was used: under the first name alone.
+	w.ns.Bus:Fire("ENTRY_RECEIVED", { type = "quest_progress", player = "Tester", class = "MAGE", data = { questID = 9, quest = "Old", objective = "Rats", have = 1, need = 2 } })
 	w.ns.Bus:Fire("ENTRY_RECEIVED", { type = "quest_progress", player = "Friend", class = "MAGE", data = { questID = 9, quest = "Old", objective = "Rats", have = 1, need = 2 } })
+	w.ns.Stats:Book().Tester = w.ns.Stats:Book().Tester or { [1] = { quests = 2 } }
 	w.env.UnitName = function() return "Tester", "Bones" end
+	equal(w.ns.MyName(), "Tester Bones")
 	w.ns.Bus:Fire("READY")
 	local players = {}
 	for _, card in ipairs(w.ns.Store:GetCards("quest")) do players[#players + 1] = card.player end
-	equal(table.concat(players, ","), "Friend")
+	table.sort(players)
+	equal(table.concat(players, ","), "Friend,Tester Bones")
+	equal(w.ns.Stats:Book().Tester, nil)
+	equal(w.ns.Stats:Book()["Tester Bones"] ~= nil, true)
+	-- New events of yours carry the full name too.
+	w.ns.Collectors:Handle("PLAYER_DEAD")
+	equal(w.ns.Store:GetFeed(true)[1].player, "Tester Bones")
 	-- A message from this character's regular Quest Party: not heard.
 	local before = #w.ns.Store:GetFeed(true)
-	w:event("CHAT_MSG_ADDON", "QuestParty", w.ns.Protocol.Encode("Q", { quest = "New", id = 3 }), "CHANNEL", "Tester-Bones", "", 0, 5, "QuestFriends")
+	w:event("CHAT_MSG_ADDON", "QuestParty", w.ns.Protocol.Encode("E", { t = "death", c = "MAGE", zone = "X", level = 5 }), "CHANNEL", "Tester Bones-TestRealm", "", 0, 5, "QuestFriends")
 	equal(#w.ns.Store:GetFeed(true), before)
 end)
 
@@ -2317,7 +2906,7 @@ test("XP from kills goes out in batches, one message per creature, so grinding d
 	w.ns.SetDebug(true)
 	w:hear("E", { t = "xp", c = "WARRIOR", xp = 150, gains = 2, level = 13, currentXP = 5400, maxXP = 11400, mob = "Murloc" }, "Friend")
 	w:hear("E", { t = "xp", c = "WARRIOR", xp = 75, level = 13, currentXP = 5475, maxXP = 11400, mob = "Murloc" }, "Friend")
-	equal(w.ns.Stats:Week("Friend").kills, 3)
+	equal(w.ns.Stats:Total("Friend").kills, 3)
 	local row
 	for _, entry in ipairs(w.ns.Store:GetFeed(true)) do
 		if entry.player == "Friend" then row = entry end
@@ -3285,6 +3874,105 @@ test("a sandbox party over the channel is marked as its pretend players, and sho
 	equal(w.ns.Sandbox:StartParty(2, 7, 1), true)
 end)
 
+test("a message still in flight when someone goes does not bring them back; a hello does", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	w:hear("H", { v = "0.3.5", c = "MAGE", l = 9 }, "Goer")
+	equal(w.ns.Session.peers.Goer ~= nil, true)
+	w.ns.Sharing:Forget("Goer")
+	w:hear("E", { t = "level", c = "MAGE", level = 10 }, "Goer")
+	w:hear("P", { v = "0.3.5", c = "MAGE", l = 10 }, "Goer")
+	equal(w.ns.Session.peers.Goer, nil) -- not back
+	equal(w.ns.Store:GetFeed(true)[1].player, "Goer") -- what they did still shows
+	w:hear("H", { v = "0.3.5", c = "MAGE", l = 10 }, "Goer")
+	equal(w.ns.Session.peers.Goer ~= nil, true) -- a hello is a real return
+	-- Long after they went, any message counts again.
+	w.ns.Sharing:Forget("Goer")
+	w:advance(30)
+	w:hear("E", { t = "level", c = "MAGE", level = 11 }, "Goer")
+	equal(w.ns.Session.peers.Goer ~= nil, true)
+end)
+
+test("after your own reload, players already here are not welcomed again; a real arrival is", function()
+	local w = Harness.new({ switches = { chatEcho = false } }, nil, nil, nil, { welcomes = true })
+	w:share()
+	local function Joins(name)
+		local count = 0
+		for _, entry in ipairs(w.ns.Store:GetFeed(true)) do
+			if entry.type == "joined" and entry.player == name then count = count + 1 end
+		end
+		return count
+	end
+	w:hear("H", { v = "0.3.5", c = "SHAMAN", l = 12 }, "Mcdouble Whopper")
+	equal(Joins("Mcdouble Whopper"), 1)
+	-- You reload: the session is new, what is saved stays.
+	local w2 = Harness.new({ switches = { chatEcho = false } }, nil, nil, nil, { welcomes = true })
+	w2.ns.db.lastHeard = w.ns.db.lastHeard
+	w2:share()
+	w2:hear("H", { v = "0.3.5", c = "SHAMAN", l = 12 }, "Mcdouble Whopper")
+	local again = 0
+	for _, entry in ipairs(w2.ns.Store:GetFeed(true)) do
+		if entry.type == "joined" and entry.player == "Mcdouble Whopper" then again = again + 1 end
+	end
+	equal(again, 0) -- already here: no welcome
+	equal(w2.ns.Session.peers["Mcdouble Whopper"] ~= nil, true) -- but back in the list
+	-- Someone new is still welcomed.
+	w2:hear("H", { v = "0.3.5", c = "MAGE", l = 5 }, "Newcomer")
+	local newcomer = 0
+	for _, entry in ipairs(w2.ns.Store:GetFeed(true)) do
+		if entry.type == "joined" and entry.player == "Newcomer" then newcomer = newcomer + 1 end
+	end
+	equal(newcomer, 1)
+end)
+
+test("the sandbox's Shared quest scenario: ten pretend players on one quest card, sections filling", function()
+	local w = sandbox()
+	w.ns.Bus:Fire("READY")
+	local scenario
+	for _, item in ipairs(w.ns.Scenarios) do if item.id == "sharedQuest" then scenario = item end end
+	equal(scenario.run(), true)
+	w:advance(150)
+	local card
+	for _, row in ipairs(w.ns.ViewModel:Build("party")) do
+		if row.kind == "tracker" and row.quest == "Sharing the Land" then card = row end
+	end
+	if not card then
+		local names = {}
+		for _, row in ipairs(w.ns.ViewModel:Build("party")) do names[#names + 1] = row.kind .. ":" .. tostring(row.quest) end
+		error("no card; rows: " .. table.concat(names, ", ") .. "; peers " .. #w.ns.Sandbox.order)
+	end
+	equal(#card.party >= 5, true) -- most have arrived
+	equal(#card.sections, 3)
+	local moved = 0
+	for _, section in ipairs(card.sections) do
+		for _, entry in ipairs(section.active) do if entry.have > 0 then moved = moved + 1 end end
+		moved = moved + #section.done
+	end
+	equal(moved > 0, true)
+	w.ns.Sandbox:Stop()
+end)
+
+test("the sandbox's pretend players send health and power, which their bars show", function()
+	local w = sandbox()
+	w.ns.Bus:Fire("READY")
+	w.ns.Sharing.loopback = true
+	equal(w.ns.Sandbox:StartParty(4, 2, 60), true)
+	w:advance(30)
+	local withVitals = 0
+	for _, name in ipairs(w.ns.Sandbox.order) do
+		local peer = w.ns.Session.peers[name]
+		if peer and peer.vitals then
+			withVitals = withVitals + 1
+			assert(peer.vitals.h >= 5 and peer.vitals.h <= 100, "health in range")
+			assert(peer.vitals.t == "MANA" or peer.vitals.t == "RAGE" or peer.vitals.t == "ENERGY", "a power by class")
+		end
+	end
+	equal(withVitals >= 3, true)
+	local bars = 0
+	for _, bar in ipairs(w.ns.ViewModel:PartyBars()) do if bar.health then bars = bars + 1 end end
+	equal(bars >= 3, true)
+end)
+
 test("in loopback a party of 20 plays for an hour without the network, and every player is seen", function()
 	local w = sandbox()
 	w.ns.Bus:Fire("READY")
@@ -3295,7 +3983,15 @@ test("in loopback a party of 20 plays for an hour without the network, and every
 	local measure = w.ns.Sandbox:Measure()
 	equal(measure.players, 20)
 	equal(measure.failed, 0)
-	assert(measure.peers >= 15, "most of the party has arrived: " .. measure.peers)
+	-- Every one of the 20 was seen; those here now are exactly the ones whose
+	-- session (20 to 120 pretend minutes) has not ended in the hour.
+	local seen, staying = 0, 0
+	for _, name in ipairs(w.ns.Sandbox.order) do
+		if w.ns.Store:GetMember(name) then seen = seen + 1 end
+		if w.ns.Sandbox.personas[name].leaveAt > w.ns.Sandbox.clock then staying = staying + 1 end
+	end
+	equal(seen, 20)
+	equal(measure.peers, staying)
 	assert(measure.feed > 20, "they have been busy: " .. measure.feed)
 	assert(measure.feed <= 200, "the feed stays capped")
 	local gear = 0
@@ -3425,6 +4121,49 @@ test("a card's gear: one item's details, and the stats of all of them added up",
 	equal(totals.loading, true)
 end)
 
+test("your professions are read from the skill list, sent when they change, once it settles", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	local lines = {
+		{ skillID = 185, name = "Cooking", rank = 20, isHeader = false },
+		{ skillID = 182, name = "Herbalism", rank = 12, isHeader = false },
+		{ skillID = 98, name = "Language: Orcish", rank = 300, isHeader = false }, -- not a profession
+	}
+	w.env.C_SkillInfo = { GetNumSkillLines = function() return #lines end, GetSkillLineInfo = function(index) return lines[index] end }
+	local P = w.ns.ProfessionsCollector
+	P:Check()
+	equal(P.text, "182.12,185.20")
+	local function Presences()
+		local count, last = 0, nil
+		for _, message in ipairs(w.sent) do
+			if message.text:match("^1:P:") then count = count + 1 last = message.text end
+		end
+		return count, last
+	end
+	local before = Presences()
+	-- A burst of skill-ups: one read, a moment after, one presence.
+	lines[1].rank = 21
+	for _ = 1, 5 do P:Soon() end
+	equal(Presences(), before)
+	w:advance(w.ns.Timing.professionSeconds + 1)
+	local after, text = Presences()
+	equal(after, before + 1)
+	equal(text:find("k=182.12,185.21", 1, true) ~= nil, true)
+	-- Nothing changed: nothing sent.
+	P:Soon()
+	w:advance(w.ns.Timing.professionSeconds + 1)
+	equal(Presences(), after)
+	-- The skill row's mark shows the profession's own icon.
+	equal(w.ns.ProfessionIcon("Cooking"), "Interface\\Icons\\INV_Misc_Food_15")
+	equal(#w.ns.DecodeProfessions("185.20,999.5,182.12"), 2) -- unknown ids dropped
+	w:ingest("skill", { skill = "Cooking", level = 22 }, "Friend")
+	local found
+	for _, row in ipairs(w.ns.ViewModel:Build("all")) do
+		if row.mark == "skill" then found = row.markIcon end
+	end
+	equal(found, "Interface\\Icons\\INV_Misc_Food_15")
+end)
+
 test("a player's card: level, XP, session XP, their quests, shared ones marked, and gear", function()
 	local w = Harness.new()
 	w:share()
@@ -3445,12 +4184,21 @@ test("a player's card: level, XP, session XP, their quests, shared ones marked, 
 	w:hear("E", { t = "skill", c = "WARRIOR", skill = "Mining", level = 27 }, "Friend")
 	w:hear("E", { t = "skill", c = "WARRIOR", skill = "Cooking", level = 5 }, "Friend")
 	local info = w.ns.PartyModel:Card("Friend").info
-	equal(info[1].title, "About")
-	equal(info[3].title, "Professions")
-	equal(#info[3].lines, 2)
-	equal(info[3].lines[1].label, "Cooking")
-	equal(info[3].lines[2].label, "Mining")
-	equal(info[3].lines[2].value, "27")
+	equal(info[1].title, "Professions") -- first
+	equal(info[2].title, "About")
+	equal(#info[1].lines, 2)
+	equal(info[1].lines[1].label:match("Mining$") ~= nil, true) -- highest first, with its icon
+	equal(info[1].lines[1].label:find("Trade_Mining", 1, true) ~= nil, true)
+	equal(info[1].lines[1].value, "27")
+	equal(info[1].lines[2].label:match("Cooking$") ~= nil, true)
+	-- All their professions, as they say them (a presence), not only those
+	-- seen rising.
+	w:hear("P", { c = "WARRIOR", l = 14, k = "185.30,186.27,182.12" }, "Friend")
+	info = w.ns.PartyModel:Card("Friend").info
+	equal(#info[1].lines, 3)
+	equal(info[1].lines[1].label:match("Cooking$") ~= nil, true)
+	equal(info[1].lines[1].value, "30")
+	equal(info[1].lines[3].label:match("Herbalism$") ~= nil, true)
 	equal(card.level, 14)
 	equal(card.here, true)
 	equal(card.version, "0.3.5")

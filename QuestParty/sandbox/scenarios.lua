@@ -24,8 +24,34 @@ local function Recording(name, speed)
 	end
 end
 
+-- Count pretend players all on one quest of three objectives, arriving one
+-- after another, most of their kills for it, a few starting ahead. Nobody
+-- hands it in, so those done stay on the card, collapsed.
+local function SharedQuest(count, seed, speed)
+	return function()
+		ns.Sharing.loopback = true
+		Sandbox.gearSeconds = 15
+		return Sandbox:StartParty(count, seed, speed, function(persona)
+			local random = persona.random
+			persona.quests = {}
+			persona.questFocus = 0.6
+			persona.quests[990001] = {
+				questID = 990001,
+				quest = "Sharing the Land",
+				keep = true,
+				objectives = {
+					{ index = 1, objective = "Palemane Tanner slain", creature = "Palemane Tanner", have = random.int(0, 3), need = 20 },
+					{ index = 2, objective = "Palemane Skinner slain", creature = "Palemane Skinner", have = random.int(0, 2), need = 15 },
+					{ index = 3, objective = "Palemane Poacher slain", creature = "Palemane Poacher", have = 0, need = 10 },
+				},
+			}
+		end)
+	end
+end
+
 ns.Scenarios = {
 	{ id = "trio", label = L.SCENARIO_TRIO, run = Party(3, 7, 10, true, 15) },
+	{ id = "sharedQuest", label = L.SCENARIO_SHARED_QUEST, run = SharedQuest(10, 13, 5) },
 	{ id = "party8", label = L.SCENARIO_PARTY8, run = Party(8, 11, 10, true, 15) },
 	{ id = "crowd20", label = L.SCENARIO_CROWD20, run = Party(20, 3, 30, true, 15) },
 	{ id = "crowd50", label = L.SCENARIO_CROWD50, run = Party(50, 5, 30, true, 15) },

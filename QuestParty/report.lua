@@ -5,7 +5,8 @@
 -- Report:Build(kind, player) gives { mode, rows, total } where mode says how
 -- to draw the rows:
 --   stacked  no kind, no player: a row per kind, its total split by player
---            ({ label, value, segments = { { player, class, value } } })
+--            ({ label, value, fuel, segments = { { player, class, value } } }),
+--            and fuel, the party's whole fuel (each kind by its weight)
 --   players  a kind, no player: a row per player, biggest first
 --            ({ label, class, value, share of the biggest })
 --   shares   a player (a kind or not): a row per kind, that player's part of
@@ -26,8 +27,13 @@ function Report:Players()
 	return ns.Stats:Players()
 end
 
+-- The kinds in the Fuel tab: those with a fuel weight (data\stats.lua).
 function Report:Kinds()
-	return ns.StatKinds
+	local kinds = {}
+	for _, kind in ipairs(ns.StatKinds) do
+		if kind.fuel ~= nil then kinds[#kinds + 1] = kind end
+	end
+	return kinds
 end
 
 local function KindOf(id)
@@ -40,7 +46,7 @@ end
 local function Totals()
 	local totals = {}
 	for _, player in ipairs(ns.Stats:Players()) do
-		local week = ns.Stats:Week(player)
+		local week = ns.Stats:Total(player)
 		-- Whole numbers, even from tallies saved before they were rounded.
 		for id, amount in pairs(week) do
 			week[id] = math.floor(amount + 0.5)
@@ -50,10 +56,22 @@ local function Totals()
 	return totals
 end
 
+-- A kind's fuel over these players' totals ({ [player] = totals }): its
+-- fuel tally when it has one (XP's, by level), else its count, times its
+-- weight. A whole number.
+function Report.Fuel(kind, totals)
+	local fuel = 0
+	for _, week in pairs(totals) do
+		local amount = kind.fuelFrom and (week[kind.fuelFrom] or 0) or (week[kind.id] or 0)
+		fuel = fuel + amount * kind.fuel
+	end
+	return math.floor(fuel + 0.5)
+end
+
 function Report:Build(kindId, player)
 	local totals = Totals()
 	local players = ns.Stats:Players()
-	local kinds = kindId and { KindOf(kindId) } or ns.StatKinds
+	local kinds = kindId and { KindOf(kindId) } or self:Kinds()
 	local rows, total = {}, 0
 
 	if player then
@@ -63,7 +81,7 @@ function Report:Build(kindId, player)
 				party = party + (totals[name][kind.id] or 0)
 			end
 			local value = totals[player] and totals[player][kind.id] or 0
-			rows[#rows + 1] = { id = kind.id, label = kind.name, class = ClassOf(player), value = value, share = party > 0 and value / party or 0 }
+			rows[#rows + 1] = { id = kind.id, label = kind.name, class = ClassOf(player), value = value, share = party > 0 and value / party or 0, fuel = Report.Fuel(kind, { [player] = totals[player] or {} }) }
 			total = total + value
 		end
 		return { mode = "shares", rows = rows, total = total }
@@ -99,8 +117,37 @@ function Report:Build(kindId, player)
 			end
 		end
 		table.sort(segments, function(a, b) return a.value > b.value end)
-		rows[#rows + 1] = { id = kind.id, label = kind.name, value = value, segments = segments }
+		rows[#rows + 1] = { id = kind.id, label = kind.name, value = value, segments = segments, fuel = Report.Fuel(kind, totals) }
 		total = total + value
 	end
-	return { mode = "stacked", rows = rows, total = total }
+	-- The party's fuel: every kind's count by its weight, as one number.
+	local fuel = 0
+	for _, row in ipairs(rows) do fuel = fuel + row.fuel end
+	return { mode = "stacked", rows = rows, total = total, fuel = fuel }
 end
+
+-- Everyone who ever added fuel on this channel, the most first: each with
+-- their fuel and its kinds { name, class, fuel, kinds = { { id, label,
+-- value, fuel } } } (only kinds they have any of).
+function Report:Everyone()
+	local everyone = {}
+	for _, player in ipairs(ns.Stats:Players()) do
+		local week = ns.Stats:Total(player)
+		local person = { name = player, class = ClassOf(player), fuel = 0, kinds = {} }
+		for _, kind in ipairs(self:Kinds()) do
+			local value = math.floor((week[kind.id] or 0) + 0.5)
+			if value > 0 then
+				local fuel = Report.Fuel(kind, { [player] = week })
+				person.kinds[#person.kinds + 1] = { id = kind.id, label = kind.name, value = value, fuel = fuel }
+				person.fuel = person.fuel + fuel
+			end
+		end
+		if #person.kinds > 0 then everyone[#everyone + 1] = person end
+	end
+	table.sort(everyone, function(a, b)
+		if a.fuel ~= b.fuel then return a.fuel > b.fuel end
+		return a.name < b.name
+	end)
+	return everyone
+end
+

@@ -58,7 +58,7 @@ local function Emit(typeName, data)
 	-- sandbox: Include self is hard-coded on there).
 	if ns.IsEnabled("showSelf") then
 		local _, class = UnitClass("player")
-		Bus:Fire("ENTRY_RECEIVED", { type = typeName, player = UnitName("player"), class = class, data = Copy(data) })
+		Bus:Fire("ENTRY_RECEIVED", { type = typeName, player = ns.MyName(), class = class, data = Copy(data) })
 	end
 end
 
@@ -103,7 +103,7 @@ function Collectors:GetQuestSnapshot(onlyQuestID)
 	end
 	for id in pairs(knownQuests) do ids[id] = true end
 	for _, card in ipairs(ns.Store:GetCards("quest")) do
-		if card.player == UnitName("player") and card.data.questID then ids[card.data.questID] = true end
+		if card.player == ns.MyName() and card.data.questID then ids[card.data.questID] = true end
 	end
 	if onlyQuestID then ids = { [onlyQuestID] = true } end
 	local snapshot = {}
@@ -182,7 +182,7 @@ local function EmitProgress(quest, objective, have, need, creditTime, fromLog, o
 	-- A message can arrive before the log's new count. Do not immediately undo it.
 	if fromLog and previous and have < previous.have and GetTime() - previous.time < 1 then return false end
 	seen[key] = { have = have, need = need, objective = objective, time = GetTime() }
-	ns.Store:IdentifyQuest(UnitName("player"), quest.questID, quest.quest, objective)
+	ns.Store:IdentifyQuest(ns.MyName(), quest.questID, quest.quest, objective)
 	Emit("quest_progress", { questID = quest.questID, quest = quest.quest, objectiveIndex = objectiveIndex, objective = objective, have = have, need = need })
 	if have > 0 and (not previous or have > previous.have) then
 		OnCredit(quest.quest, quest.questID, creditTime)
@@ -222,7 +222,7 @@ local function RefreshQuest(questID)
 end
 
 local function RepairSavedQuests()
-	local player = UnitName("player")
+	local player = ns.MyName()
 	for _, quest in ipairs(Collectors:GetQuestSnapshot()) do
 		ns.Store:IdentifyQuest(player, quest.questID, quest.quest)
 	end
@@ -240,7 +240,7 @@ end
 -- go through the normal collector, so genuine progress still produces events.
 local function HydrateOwnQuests(force)
 	if not ns.IsEnabled("showSelf") or not ns.IsEnabled("quests") then return end
-	local player = UnitName("player")
+	local player = ns.MyName()
 	local _, class = UnitClass("player")
 	for _, quest in ipairs(Collectors:GetQuestSnapshot()) do
 		if quest.objectivesReady and not turnedIn[quest.questID] and (force or not progressSeen[quest.questID]) then
@@ -458,9 +458,18 @@ Bus:On("READY", function()
 	-- The sandbox ignores this character's regular Quest Party now (comms\
 	-- origin.lua). What it saved from it before, under the full name the
 	-- channel carries ("Bagoe Bones", not the game's "Bagoe"), goes.
-	if ns.IsSandbox() then
-		ns.Store:ForgetOtherSelves(UnitName("player"))
+	-- Your own records saved under the first name alone (before the surname
+	-- was used) move to the full name the channel carries.
+	local first = UnitName("player")
+	if first ~= ns.MyName() then
+		ns.Store:RenamePlayer(first, ns.MyName())
 	end
+	if ns.IsSandbox() then
+		ns.Store:ForgetOtherSelves(ns.MyName())
+	end
+	-- This character is yours: filed under your player id, so on your next
+	-- character it has no tab of its own (ui\party-model.lua).
+	ns.Store:SetPlayerId(ns.MyName(), ns.Sharing.PlayerId())
 	ready = true
 	experience = ReadExperience() -- establish a baseline without replaying old gains
 	levelTold = experience and experience.level -- the level we start at is not news

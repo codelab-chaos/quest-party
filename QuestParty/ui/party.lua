@@ -27,6 +27,12 @@ local LAYOUT = {
 	peekHover = 0.6,
 	peekSelected = 0.75,
 	slideSeconds = 0.06,
+	-- With a card open beside the drawer, the selected head is the card's
+	-- portrait (grown to portraitSize, out on the card), and the others fade
+	-- back until the mouse comes near the drawer.
+	fadedHead = 0.18,
+	fadeSeconds = 0.15,
+	nearDrawer = { up = 12, down = 12, left = 70, right = 24 }, -- how near counts
 	-- The panel, drawer and card are one group on the panel's layer. Front to
 	-- back: the panel, the heads, the card (and everything in it), the drawer.
 	-- They sit in the raiseRoom frame levels under the panel's, so a head that
@@ -41,6 +47,7 @@ local LAYOUT = {
 	cardWidth = 300,
 	cardPad = 8,
 	portraitSize = 54,
+	portraitOverhang = 0.05, -- the share of the card's portrait past its left edge
 	portraitRing = 3,
 	classIconSize = 14,
 	crestSize = 56,
@@ -127,14 +134,6 @@ local LayoutArea -- defined with the card's area
 local ListWidth -- defined with the card's lists
 local heads = {}
 
-local function ClassColor(class)
-	local color = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-	if color then
-		return color.r, color.g, color.b
-	end
-	return unpack(COLORS.border)
-end
-
 -- A portrait: the game's race art when it has it, or the class icon.
 local SetPortrait = ns.Look.SetPortrait -- shared with KekChat (ui\look.lua)
 
@@ -176,8 +175,26 @@ local function SlideStep(button, elapsed)
 	button:SetPoint("TOPLEFT", host, "TOPRIGHT", button.x, -button.top)
 end
 
+-- Whether the selected head is the card's portrait: a card is open and sits
+-- beside the drawer (not beside the popped-out chat).
+function Party:HeadIsPortrait()
+	return self.selected ~= nil and card ~= nil and (card:IsShown() or self.opening == true)
+		and not (ns.ChatView and ns.ChatView:IsPopped())
+end
+
+-- Where the selected head sits as the card's portrait: almost all on the
+-- card, with portraitOverhang of it past the card's left edge, over the
+-- connector between the drawer and the card, so it reads as joining them.
+local function PortraitX()
+	local cardLeft = (strip:GetWidth() or 0) - 2 * LAYOUT.dockOverlap
+	return cardLeft - math.floor(LAYOUT.portraitSize * LAYOUT.portraitOverhang + 0.5)
+end
+
 -- How much of a head shows past the panel's edge, as an offset from it.
 local function HeadX(button)
+	if button.data and button.data.name == Party.selected and Party:HeadIsPortrait() then
+		return PortraitX()
+	end
 	local peek = LAYOUT.peek
 	if button.data and button.data.name == Party.selected then
 		peek = LAYOUT.peekSelected
@@ -237,6 +254,13 @@ local function Fit(count)
 end
 
 local function DrawHead(button, data, size, top)
+	-- The card's portrait: as big as the card's own was.
+	local isPortrait = data.name == Party.selected and Party:HeadIsPortrait()
+	if isPortrait then
+		size = LAYOUT.portraitSize
+		Party.portraitTop = top
+	end
+	button.fadeTo = (Party:HeadIsPortrait() and not isPortrait) and LAYOUT.fadedHead or 1
 	local moved = button.data ~= data and (not button.data or button.data.name ~= data.name) or button.size ~= size or button.top ~= top
 	button.data, button.size, button.top = data, size, top
 	button:SetSize(size, size)
@@ -256,12 +280,17 @@ local function DrawHead(button, data, size, top)
 	elseif not data.here then
 		button.ring:SetVertexColor(unpack(COLORS.ringGone))
 	else
-		button.ring:SetVertexColor(ClassColor(data.class))
+		if ns.Group:Has(data.name) then
+			button.ring:SetVertexColor(ns.Look.PartyColor()) -- in your game group
+		else
+			button.ring:SetVertexColor(ns.PlayerColors:For(data.name)) -- their own color, as their XP bar
+		end
 	end
 	button:Show()
 end
 
 local function DrawHeads(list)
+	Party.portraitTop = nil
 	local size, step, fits = Fit(#list)
 	Party.offset = math.max(0, math.min(Party.offset, #list - fits))
 	local shown = 0
@@ -280,6 +309,28 @@ local function DrawHeads(list)
 	for index = shown + 1, #heads do
 		heads[index]:Hide()
 		heads[index].data = nil
+	end
+	Party:Fade()
+end
+
+-- The other heads fade back while a card is open, and come back as the
+-- mouse nears the drawer, so another player is still a click away.
+function Party:Fade()
+	local watching = self:HeadIsPortrait()
+	strip:SetScript("OnUpdate", watching and function(_, elapsed)
+		local near = LAYOUT.nearDrawer
+		local close = strip:IsMouseOver(near.up, -near.down, -near.left, near.right)
+		local step = math.min(1, elapsed / LAYOUT.fadeSeconds)
+		for _, button in ipairs(heads) do
+			if button:IsShown() then
+				local target = close and 1 or (button.fadeTo or 1)
+				local alpha = button:GetAlpha()
+				button:SetAlpha(alpha + (target - alpha) * step)
+			end
+		end
+	end or nil)
+	if not watching then
+		for _, button in ipairs(heads) do button:SetAlpha(1) end
 	end
 end
 
@@ -382,7 +433,7 @@ end
 local function BuildHeader()
 	card.ring = card:CreateTexture(nil, "BORDER")
 	card.ring:SetSize(LAYOUT.portraitSize, LAYOUT.portraitSize)
-	card.ring:SetPoint("TOPLEFT", LAYOUT.cardPad, -LAYOUT.cardPad)
+	card.ring:SetPoint("TOPLEFT", -math.floor(LAYOUT.portraitSize * LAYOUT.portraitOverhang + 0.5), -LAYOUT.cardPad) -- as the head does (PortraitX)
 	card.ring:SetTexture("Interface\\Buttons\\WHITE8x8")
 	card.ring:SetVertexColor(unpack(COLORS.selected))
 	Round(card.ring, card)
@@ -399,11 +450,14 @@ local function BuildHeader()
 	local faction = UnitFactionGroup and UnitFactionGroup("player")
 	card.crest:SetTexture(CRESTS[faction] or nil)
 
-	local textLeft = LAYOUT.cardPad + LAYOUT.portraitSize + 10
+	-- Just right of the portrait, which sits portraitOverhang past the left edge.
+	local textLeft = math.floor(LAYOUT.portraitSize * (1 - LAYOUT.portraitOverhang) + 0.5) + 10
 	card.name = card:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 	card.name:SetPoint("TOPLEFT", textLeft, -(LAYOUT.cardPad + 6))
 	card.name:SetPoint("RIGHT", -30, 0)
 	card.name:SetJustifyH("LEFT")
+	-- Still being made: on the class line, clear of the name.
+	card.alpha = ns.Look.AlphaStamp(card, "TOPRIGHT", -40, -(LAYOUT.cardPad + 26))
 	card.name:SetWordWrap(false)
 	card.classIcon = card:CreateTexture(nil, "ARTWORK")
 	card.classIcon:SetSize(LAYOUT.classIconSize, LAYOUT.classIconSize)
@@ -411,6 +465,21 @@ local function BuildHeader()
 	card.classIcon:SetTexture("Interface\\TargetingFrame\\UI-Classes-Circles")
 	card.sub = card:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	card.sub:SetPoint("LEFT", card.classIcon, "RIGHT", 5, 0)
+	-- Health and power, for a player here now (DrawHeader).
+	local function Thin(height, below, offset)
+		local bar = CreateFrame("StatusBar", nil, card)
+		bar:SetPoint("TOPLEFT", below, "BOTTOMLEFT", 0, offset)
+		bar:SetPoint("RIGHT", card, "RIGHT", -LAYOUT.crestRight - 30, 0)
+		bar:SetHeight(height)
+		bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+		bar:SetMinMaxValues(0, 100)
+		local back = bar:CreateTexture(nil, "BACKGROUND")
+		back:SetAllPoints()
+		back:SetColorTexture(0, 0, 0, 0.6)
+		return bar
+	end
+	card.health = Thin(5, card.classIcon, -5)
+	card.power = Thin(3, card.health, -1)
 
 	local close = CreateFrame("Button", nil, card, "UIPanelCloseButton")
 	close:SetPoint("TOPRIGHT", 2, 2)
@@ -663,6 +732,11 @@ local function DrawQuests(data)
 end
 
 local function DrawHeader(data)
+	-- The selected head is the portrait when the card is beside the drawer;
+	-- its own shows only beside the popped-out chat.
+	local own = not Party:HeadIsPortrait()
+	card.portrait:SetShown(own)
+	card.ring:SetShown(own)
 	SetPortrait(card.portrait, data)
 	card.portrait:SetDesaturated(not data.here)
 	card.ring:SetVertexColor(unpack(data.here and COLORS.selected or COLORS.ringGone))
@@ -674,6 +748,24 @@ local function DrawHeader(data)
 	end
 	local className = data.class and (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[data.class] or data.class) or ""
 	card.sub:SetText(L.CARD_LEVEL_CLASS:format(data.level or "?", className))
+	-- Health and power: only for a player here now, and only with the switch on.
+	local vitals
+	if data.here and ns.IsEnabled("showVitals") then
+		if ns.IsMe(data.name) then
+			vitals = ns.VitalsCollector and ns.VitalsCollector.reading
+		else
+			local peer = ns.Session.peers[data.name]
+			vitals = peer and peer.vitals
+		end
+	end
+	card.health:SetShown(vitals ~= nil)
+	card.power:SetShown(vitals ~= nil)
+	if vitals then
+		card.health:SetValue(vitals.h)
+		card.health:SetStatusBarColor(unpack(ns.HealthColor))
+		card.power:SetValue(vitals.p or 0)
+		card.power:SetStatusBarColor(unpack(ns.PowerColors[vitals.t] or ns.PowerColors.MANA))
+	end
 end
 
 -- An item's name in its quality's color.
@@ -815,7 +907,9 @@ function Party:Redraw()
 	if card:IsShown() or self.opening then
 		self.opening = false
 		DrawCard()
+		self:PlaceCard() -- its header beside the head that is its portrait
 	end
+	self:Fade()
 end
 
 -- Asks for a redraw; many asks in a moment make one.
@@ -901,7 +995,13 @@ function Party:PlaceCard()
 	end
 	local chat = ns.ChatView and ns.ChatView:IsPopped() and _G[ns.Globals.frame("Chat")]
 	card:ClearAllPoints()
-	card:SetPoint("TOPLEFT", chat or strip, "TOPRIGHT", -LAYOUT.dockOverlap, 0)
+	-- Beside the drawer, the card's header lines up with the selected head,
+	-- which is its portrait.
+	local down = 0
+	if not chat and self.portraitTop then
+		down = math.max(0, self.portraitTop - LAYOUT.cardPad)
+	end
+	card:SetPoint("TOPLEFT", chat or strip, "TOPRIGHT", -LAYOUT.dockOverlap, -down)
 end
 
 function Party:Raise()
@@ -926,6 +1026,10 @@ Bus:On("READY", Build)
 Bus:On("STORE_CHANGED", function() Party:Changed() end)
 Bus:On("PEERS_CHANGED", function() Party:Changed() end)
 Bus:On("SETTING_CHANGED", function() Party:Changed() end)
+-- Health and power move on the card while it is open.
+Bus:On("VITALS_RECEIVED", function() Party:Changed() end)
+Bus:On("GROUP_CHANGED", function() Party:Changed() end)
+Bus:On("VITALS_CHANGED", function() Party:Changed() end)
 Bus:On("DEBUG_CHANGED", function() Party:Changed() end)
 
 -- An item the game had not loaded yet has arrived: the card can show it now.

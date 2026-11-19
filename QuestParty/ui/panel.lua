@@ -34,12 +34,13 @@ local LAYOUT = {
 	inset = 8,
 	rowSpacing = 2,
 	pulseSeconds = 0.9,
+	glowSeconds = 1.4, -- a shared quest's glow, one breath in or out
 	pulseMemory = 400,
 	optionHeight = 22,
 
 	scrollBarWidth = 12,
 	refreshSeconds = 30,
-	-- The party's XP bars, stacked above the tabs. Past xpBarMax players the
+	-- The party's XP bars, stacked above the tabs. Past the Players shown cap the
 	-- rest are left out, so the bars never crowd out the list.
 	xpBarHeight = 14,
 	xpBarEdge = 7, -- the rounded border's size: half the height makes round ends
@@ -48,7 +49,7 @@ local LAYOUT = {
 	-- Under each XP bar, health then power: thin, the bar's width.
 	healthHeight = 3,
 	powerHeight = 2,
-	xpBarMax = 8,
+	-- (how many show is the Players shown slider: ViewModel.PartyCap)
 	xpStripGap = 4, -- between the last bar and the tabs
 	xpBarNotches = 3, -- marks splitting each bar into equal parts (3 makes quarters)
 }
@@ -59,7 +60,7 @@ local COLORS = {
 	gutterOff = { 0.35, 0.35, 0.35, 0.6 }, -- a gutter icon's border when its rows are hidden
 	count = { 1, 0.82, 0 }, -- an objective's count (4/8), in the title's size
 	countDone = { 0.25, 1, 0.25 }, -- a count that is complete (8/8)
-	rightMuted = { 0.5, 0.5, 0.5 }, -- a row's time, on the right
+	rightMuted = { 0.78, 0.78, 0.78 }, -- a row's time, on the right: soft but readable
 	tab = { 0.10, 0.09, 0.13, 1 },
 	tabSelected = { 0.42, 0.33, 0.10, 1 },
 	tabEdge = { 0.80, 0.65, 0.20, 1 }, -- the selected tab's outline and the line under the tabs
@@ -67,18 +68,7 @@ local COLORS = {
 	barGoing = { 0.85, 0.16, 0.14, 1 }, -- one still going (red)
 	barBack = { 0, 0, 0, 0.5 },
 	pulse = { 1, 0.85, 0.35, 0.55 },
-	-- The party's XP bars. Each player keeps the same color from this list,
-	-- picked from their name, so a bar is easy to follow as others come and go.
-	xpBars = {
-		{ 0.58, 0.36, 0.86 }, -- violet
-		{ 0.27, 0.56, 0.90 }, -- blue
-		{ 0.20, 0.70, 0.66 }, -- teal
-		{ 0.38, 0.72, 0.32 }, -- green
-		{ 0.86, 0.66, 0.22 }, -- gold
-		{ 0.88, 0.45, 0.25 }, -- orange
-		{ 0.86, 0.36, 0.56 }, -- rose
-		{ 0.30, 0.74, 0.88 }, -- sky
-	},
+	sharedGlow = { 0.667, 0.667, 1, 0.95 }, -- a quest you share: the party chat's color (PartyColor)
 	xpBarAlpha = 0.95,
 	xpBarBack = { 0.02, 0.02, 0.04, 0.85 },
 	xpBarBorder = { 0.80, 0.65, 0.20, 0.70 }, -- the panel's gold, a little softer
@@ -93,6 +83,7 @@ local COLORS = {
 local ROW_STYLES = {
 	detailed = {
 		iconSize = 26,
+		avatarSize = 24, -- the player's round avatar, inside the card's top left corner (34, then 27, before)
 		titleFont = "GameFontHighlight",
 		titleHeight = 21, -- top edge to the first detail line
 		lineHeight = 14,
@@ -104,6 +95,7 @@ local ROW_STYLES = {
 	oneLine = {
 		height = 20,
 		iconSize = 16,
+		avatarSize = 16,
 		titleFont = "GameFontHighlightSmall",
 		barHeight = 2,
 	},
@@ -180,7 +172,21 @@ local function UseAtlas(texture, atlas)
 end
 
 -- Room kept on the right of each line for the count or time.
-local RIGHT_TEXT_WIDTH = 58
+local RIGHT_TEXT_WIDTH = 58 -- the most the time or count can take
+
+-- How far from the right a row's text must stop: just clear of what is on
+-- the right (the time, a count), not a fixed width, so titles run as far as
+-- they can. With nothing there, a small margin.
+local function RightRoom(fontString, text)
+	if not text or text == "" then return 8 end
+	return math.min(RIGHT_TEXT_WIDTH, math.ceil(fontString:GetStringWidth() or RIGHT_TEXT_WIDTH)) + 12
+end
+
+-- The room kept at a card's bottom right for its detail line
+-- (ui\stamps.lua), for the detail line beside them.
+local function StampRoom(data)
+	return 8 -- stamps are inked over the card, not beside the text
+end
 
 local function StyleName()
 	return ns.charDb.oneLine and "oneLine" or "detailed"
@@ -191,6 +197,11 @@ local function RowHeight(data)
 	if style.height then
 		return style.height
 	end
+	-- A quest card in one of its layouts (ui\\quest-card.lua).
+	local card = ns.QuestCard:For(data)
+	if card then
+		return style.titleHeight + card.Height(data) + style.bottomPadding
+	end
 	local height = style.titleHeight + style.bottomPadding
 	for _, line in ipairs(data.lines) do
 		height = height + (line.progress and style.barLineHeight or style.lineHeight)
@@ -199,6 +210,13 @@ local function RowHeight(data)
 end
 
 -- Which of the theme's row colors each kind of row takes (data\themes.lua).
+-- The glow's soft edge: the tooltip border, tinted gold. Inside the row, so
+-- the list's clipping and the next row never cut it.
+local GLOW_BACKDROP = {
+	edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+	edgeSize = 12,
+}
+
 local ROW_BACKGROUND = {
 	feed = "row",
 	progress = "card",
@@ -214,16 +232,39 @@ local BACKDROP = {
 }
 
 local frame, scrollBox, scrollBar, listView, emptyText, optionsView, optionsButton, viewButton, titleIcon, soundButton
+local panelTitle
+
+-- The title in full when it fits beside the header buttons, else its short
+-- form ("QP Sandbox"); the font string cuts anything still too long.
+local function FitTitle()
+	if not panelTitle then return end
+	panelTitle:SetText(L.TITLE)
+	local room = panelTitle:GetWidth() or 0
+	local wanted = panelTitle.GetUnboundedStringWidth and panelTitle:GetUnboundedStringWidth() or panelTitle:GetStringWidth()
+	if room > 0 and wanted > room then
+		panelTitle:SetText(L.TITLE_SHORT)
+	end
+end
 local BarStep -- from one party bar to the next (defined with the bars)
 
--- The speaker shows the volume: crossed out at Mute, fainter the softer.
-local VOLUME_ALPHA = { [0] = 0.6, [1] = 0.55, [2] = 0.8, [3] = 1 }
+-- The speaker shows the volume: a speaker and three rising bars beside it,
+-- as many lit as the level (soft one, regular two, loud three); at Mute the
+-- speaker is crossed out and no bar is lit.
+local VOLUME_BARS = {
+	heights = { 4, 7, 10 }, -- the three bars, rising
+	width = 2,
+	gap = 1,
+	lit = { 1, 0.82, 0.10, 1 },
+	dark = { 0.35, 0.35, 0.35, 0.6 },
+}
 local function UpdateSoundButton()
 	if not soundButton then return end
 	local value = ns.GetSlider("volume") or 2
 	soundButton.icon:SetAtlas(value > 0 and "voicechat-icon-speaker" or "voicechat-icon-speaker-mute")
 	soundButton.icon:SetDesaturated(value == 0)
-	soundButton.icon:SetAlpha(VOLUME_ALPHA[value] or 1)
+	for index, bar in ipairs(soundButton.levels or {}) do
+		bar:SetColorTexture(unpack(index <= value and VOLUME_BARS.lit or VOLUME_BARS.dark))
+	end
 end
 local filterBar, xpStrip, gutter
 local PlaceList, PlaceUnderStrip, BuildShrink
@@ -236,6 +277,12 @@ local pulsesPlayed = {}
 local pulsesPlayedCount = 0
 
 -- ========= Rows =============================================================
+-- The party chat's color (ui\look.lua): shared quests glow in it, and your
+-- game group's members are marked in it.
+local function PartyColor()
+	return ns.Look.PartyColor()
+end
+
 -- A progress bar's fill and color. A quest's is red while going and green
 -- once done; anything else's (an XP row's) stays green.
 local function SetProgress(bar, progress, quest)
@@ -246,6 +293,69 @@ local function SetProgress(bar, progress, quest)
 end
 
 local QUEST_ROWS = { progress = true, tracker = true }
+
+-- ========= Opening a quest in the game's quest log =========================
+-- Whether a quest is in your own quest log.
+local function InMyLog(questID)
+	return questID ~= nil and C_QuestLog.GetLogIndexForQuestID(questID) ~= nil
+end
+
+-- Opens the game's quest log on a quest, with whichever of the game's own
+-- calls this client has: the map's quest details (modern log), then the
+-- classic quest log by its index, then just the log.
+local QUEST_OPENERS = {
+	function(questID)
+		if not QuestMapFrame_OpenToQuestDetails then return false end
+		QuestMapFrame_OpenToQuestDetails(questID)
+		return true
+	end,
+	function(questID)
+		local index = C_QuestLog.GetLogIndexForQuestID(questID)
+		if not (QuestLog_OpenToQuest and index) then return false end
+		QuestLog_OpenToQuest(index, true)
+		return true
+	end,
+	function()
+		if ToggleQuestLog then ToggleQuestLog() return true end
+		return false
+	end,
+}
+
+local function OpenQuest(questID)
+	for _, opener in ipairs(QUEST_OPENERS) do
+		local ok, opened = pcall(opener, questID)
+		if ok and opened then return true end
+	end
+	return false
+end
+
+-- ========= Backdrops (a trial: the game's art behind the cards) ==============
+local function HasAtlas(name)
+	return C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(name) ~= nil
+end
+
+local function ShowBackdrop(row, data)
+	local name = ns.IsEnabled("cardBackdrops") and (data.kind == "feed" or data.kind == "progress")
+		and ns.Scene:Backdrop(data.sequence or data.index or 0, HasAtlas)
+	local info = name and C_Texture.GetAtlasInfo(name)
+	if not info or not info.file then
+		row.backdrop:Hide()
+		return
+	end
+	local rules = ns.BackdropRules
+	local width = (row:GetWidth() or 0) * rules.share
+	local height = row:GetHeight() or 0
+	row.backdrop:ClearAllPoints()
+	row.backdrop:SetPoint("TOPRIGHT")
+	row.backdrop:SetPoint("BOTTOMRIGHT")
+	row.backdrop:SetWidth(math.max(1, width))
+	row.backdrop:SetTexture(info.file)
+	local coords = { info.leftTexCoord, info.rightTexCoord, info.topTexCoord, info.bottomTexCoord }
+	row.backdrop:SetTexCoord(ns.Scene:Slice(coords, info.width or 1, info.height or 1, width, height, data.sequence or 0))
+	-- From nothing under the text to fuller at the right.
+	row.backdrop:SetGradient("HORIZONTAL", CreateColor(1, 1, 1, 0), CreateColor(1, 1, 1, rules.fadeTo))
+	row.backdrop:Show()
+end
 
 local function CreateBar(row)
 	local bar = CreateFrame("StatusBar", nil, row)
@@ -260,10 +370,14 @@ end
 local function BuildRow(row)
 	row.background = row:CreateTexture(nil, "BACKGROUND")
 	row.background:SetAllPoints()
+	-- The card's backdrop: the game's own art, faint at its left, fuller at
+	-- the card's right (ShowBackdrop).
+	row.backdrop = row:CreateTexture(nil, "BACKGROUND", nil, 1)
+
 	-- A thin rim around each row, in the theme's color (InitRow).
 	row.edges = {}
 	for _, side in ipairs({ { "TOPLEFT", "TOPRIGHT", true }, { "BOTTOMLEFT", "BOTTOMRIGHT", true }, { "TOPLEFT", "BOTTOMLEFT" }, { "TOPRIGHT", "BOTTOMRIGHT" } }) do
-		local edge = row:CreateTexture(nil, "BACKGROUND", nil, 1)
+		local edge = row:CreateTexture(nil, "BACKGROUND", nil, 2)
 		edge:SetPoint(side[1])
 		edge:SetPoint(side[2])
 		if side[3] then edge:SetHeight(1) else edge:SetWidth(1) end
@@ -277,12 +391,49 @@ local function BuildRow(row)
 	row.divider = row:CreateTexture(nil, "BORDER", nil, 2)
 	row.divider:SetWidth(1)
 
+	-- A shared quest's glow (ViewModel: shared): a soft gold light around the
+	-- row that breathes slowly, so the quests you are on together stand out.
+	row.glow = CreateFrame("Frame", nil, row, "BackdropTemplate")
+	row.glow:SetAllPoints()
+	row.glow:SetBackdrop(GLOW_BACKDROP)
+	row.glow:EnableMouse(false)
+	row.glow:Hide()
+	row.glow.breathe = row.glow:CreateAnimationGroup()
+	row.glow.breathe:SetLooping("BOUNCE")
+	local breathe = row.glow.breathe:CreateAnimation("Alpha")
+	breathe:SetFromAlpha(1)
+	breathe:SetToAlpha(0.35)
+	breathe:SetDuration(LAYOUT.glowSeconds)
+	breathe:SetSmoothing("IN_OUT")
+
+	-- A member of your game group: a stripe down the row's left edge.
+	row.groupEdge = row:CreateTexture(nil, "BORDER", nil, 3)
+	row.groupEdge:SetPoint("TOPLEFT", 1, -1)
+	row.groupEdge:SetPoint("BOTTOMLEFT", 1, 1)
+	row.groupEdge:SetWidth(3)
+	row.groupEdge:Hide()
+
+	-- The player's avatar: round, in a gold ring (ShowAvatar).
+	row.avatarRing = row:CreateTexture(nil, "ARTWORK", nil, 1)
+	row.avatarRing:SetTexture("Interface\\Buttons\\WHITE8x8")
+	row.avatarRing:SetVertexColor(0.80, 0.65, 0.20, 1)
+	ns.Look.Round(row.avatarRing, row)
+	row.avatar = row:CreateTexture(nil, "ARTWORK", nil, 2)
+	ns.Look.Round(row.avatar, row)
+
 	row.hover = row:CreateTexture(nil, "BORDER")
 	row.hover:SetAllPoints()
 	row.hover:SetColorTexture(1, 1, 1, 0.08)
 	row.hover:Hide()
 
 	row.icon = row:CreateTexture(nil, "ARTWORK")
+	-- A mark's art or its text ("XP"), centered in the well (ShowMark).
+	row.markArt = row:CreateTexture(nil, "ARTWORK", nil, 1)
+	row.markArt:SetPoint("CENTER", row.icon, "CENTER")
+	row.markArt:Hide()
+	row.markText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+	row.markText:SetPoint("CENTER", row.icon, "CENTER", 1, 0)
+	row.markText:Hide()
 
 	-- A badge, drawn in place of the icon for some rows (a level-up). Built
 	-- here once and dressed per row in ShowBadge.
@@ -332,26 +483,45 @@ local function BuildRow(row)
 	row.pulseAnimation:SetScript("OnFinished", Clear)
 	row.pulseAnimation:SetScript("OnStop", Clear)
 
-	-- Rows about a quest can be clicked to jump to the Quests filter.
+	-- Rows about a quest can be clicked: in the feed, to show it in the Quest
+	-- tab; in the Quest tab, a quest in your own log opens in the game's quest
+	-- log (one only others have does not).
 	row:SetScript("OnEnter", function(self)
+		if not (self.quest or self.stampEntry) then return end
+		self.hover:Show()
+		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
 		if self.quest then
-			self.hover:Show()
-			GameTooltip:SetOwner(self, "ANCHOR_LEFT")
 			GameTooltip:SetText(self.quest)
-			GameTooltip:AddLine(L.ROW_CLICK_TIP, 1, 1, 1, true)
-			GameTooltip:Show()
+			local tip = L.ROW_CLICK_TIP
+			if ns.charDb.filter == ns.QuestTab then
+				tip = InMyLog(self.questID) and L.ROW_OPEN_TIP or L.ROW_NOT_YOURS_TIP
+			end
+			GameTooltip:AddLine(tip, 1, 1, 1, true)
+		else
+			GameTooltip:SetText(L.STAMP_TIP_TITLE)
 		end
+		ns.StampView:Tip(self) -- right-click to stamp, and who has
+		GameTooltip:Show()
 	end)
 	row:SetScript("OnLeave", function(self)
 		self.hover:Hide()
 		GameTooltip:Hide()
 	end)
-	row:SetScript("OnMouseUp", function(self)
-		if self.quest then
-			Panel:FocusQuest(self.quest)
+	row:SetScript("OnMouseUp", function(self, button)
+		-- Right-click: stamp the card (ui\stamps.lua).
+		if button == "RightButton" then
+			ns.StampView:Open(self)
+			return
 		end
+		if not self.quest then return end
+		if ns.charDb.filter == ns.QuestTab then
+			if InMyLog(self.questID) then OpenQuest(self.questID) end
+			return
+		end
+		Panel:FocusQuest(self.quest)
 	end)
 
+	ns.StampView:Build(row) -- stamps on the card (ui\stamps.lua)
 	row.built = true
 end
 
@@ -396,12 +566,56 @@ end
 
 -- Every anchor below pairs a left point with a right point at the same height, so a
 -- line's position never depends on another widget's size.
+-- ========= The row's two ends (the winning concept) ===========================
+-- On the left, the player's round avatar in a gold ring: their face (race
+-- and sex) when known, their class otherwise (the game's round class icons). On the right, the event's mark in a gold
+-- edged square (or a level-up's round crest), with the time just before it.
+local MARK_EDGE = 8 -- the mark's distance from the row's right edge
+
+-- Where the text starts: past the avatar, or near the edge without one.
+local AVATAR_EDGE = 1 -- the avatar's gold ring, this thick
+local AVATAR_INSET = 1 -- from the card's top and left: the ring touches its rim
+
+local function TextLeft(data, style)
+	return data.player and (AVATAR_INSET + style.avatarSize + 2 * AVATAR_EDGE + 6) or 8
+end
+
+-- How far from the right the text must stop: past the mark and the time.
+local function MarkRoom(style)
+	return MARK_EDGE + style.iconSize + 8
+end
+
+local function ShowAvatar(row, data, style, top)
+	local shown = data.player ~= nil
+	row.avatarRing:SetShown(shown)
+	row.avatar:SetShown(shown)
+	if not shown then return end
+	local size = style.avatarSize
+	row.avatarRing:ClearAllPoints()
+	row.avatarRing:SetSize(size + 2 * AVATAR_EDGE, size + 2 * AVATAR_EDGE)
+	if top then
+		-- Touching the card's top and left rim, inside it.
+		row.avatarRing:SetPoint("TOPLEFT", AVATAR_INSET, -AVATAR_INSET)
+	else
+		row.avatarRing:SetPoint("LEFT", AVATAR_INSET, 0)
+	end
+	row.avatar:ClearAllPoints()
+	row.avatar:SetPoint("TOPLEFT", row.avatarRing, "TOPLEFT", AVATAR_EDGE, -AVATAR_EDGE)
+	row.avatar:SetPoint("BOTTOMRIGHT", row.avatarRing, "BOTTOMRIGHT", -AVATAR_EDGE, AVATAR_EDGE)
+	-- Their face when their race and sex are known (yours always; anyone on
+	-- 0.3.5 or later says them in the hello), their class otherwise.
+	local portrait = ns.PartyModel:Portrait(data.player)
+	portrait.class = portrait.class or data.class
+	ns.Look.SetPortrait(row.avatar, portrait)
+end
+
 local function LayoutOneLine(row, data, style)
-	row.icon:SetPoint("LEFT", 5, 0)
-	row.right:SetPoint("RIGHT", -6, 0)
-	local left = 5 + style.iconSize + 6
+	row.icon:SetPoint("RIGHT", -MARK_EDGE, 0)
+	row.right:SetPoint("RIGHT", row.icon, "LEFT", -8, 0)
+	ShowAvatar(row, data, style)
+	local left = TextLeft(data, style)
 	row.title:SetPoint("LEFT", left, 0)
-	row.title:SetPoint("RIGHT", -(RIGHT_TEXT_WIDTH + 6), 0)
+	row.title:SetPoint("RIGHT", -(MarkRoom(style) + RightRoom(row.right, data.right)), 0)
 	if data.summary then
 		row.title:SetText(data.title .. "  " .. data.summary)
 	else
@@ -419,11 +633,12 @@ local function LayoutOneLine(row, data, style)
 end
 
 local function LayoutDetailed(row, data, style)
-	row.icon:SetPoint("TOPLEFT", 5, -6)
-	row.right:SetPoint("TOPRIGHT", -6, -6)
-	local left = 5 + style.iconSize + 7
+	row.icon:SetPoint("TOPRIGHT", -MARK_EDGE, -6)
+	row.right:SetPoint("TOPRIGHT", row.icon, "TOPLEFT", -8, 0)
+	ShowAvatar(row, data, style, 5)
+	local left = TextLeft(data, style)
 	row.title:SetPoint("TOPLEFT", left, -5)
-	row.title:SetPoint("TOPRIGHT", -(RIGHT_TEXT_WIDTH + 6), -5)
+	row.title:SetPoint("TOPRIGHT", -(MarkRoom(style) + RightRoom(row.right, data.right)), -5)
 	row.title:SetText(data.title)
 	row.strip:Hide()
 
@@ -432,19 +647,20 @@ local function LayoutDetailed(row, data, style)
 		local line = AcquireLine(row, index)
 		line.text:ClearAllPoints()
 		line.text:SetPoint("TOPLEFT", left, y)
-		line.text:SetPoint("TOPRIGHT", -(RIGHT_TEXT_WIDTH + 6), y)
-		line.text:SetText(lineData.text)
-		line.text:Show()
-
 		line.right:ClearAllPoints()
-		line.right:SetPoint("TOPRIGHT", -6, y)
+		line.right:SetPoint("TOPRIGHT", -MarkRoom(style), y)
 		line.right:SetText(lineData.right or "")
 		line.right:Show()
+		-- Up to what is on its right: its own count, or the edge.
+		local room = MarkRoom(style) + (lineData.right and RightRoom(line.right, lineData.right) or StampRoom(data))
+		line.text:SetPoint("TOPRIGHT", -room, y)
+		line.text:SetText(lineData.text)
+		line.text:Show()
 
 		if lineData.progress then
 			line.bar:ClearAllPoints()
 			line.bar:SetPoint("TOPLEFT", left, y - style.barOffset)
-			line.bar:SetPoint("TOPRIGHT", -6, y - style.barOffset)
+			line.bar:SetPoint("TOPRIGHT", -MarkRoom(style), y - style.barOffset)
 			line.bar:SetHeight(style.barHeight)
 			SetProgress(line.bar, lineData.progress, QUEST_ROWS[data.kind])
 			line.bar:Show()
@@ -455,6 +671,27 @@ local function LayoutDetailed(row, data, style)
 		end
 	end
 	HideLines(row, #data.lines + 1)
+end
+
+-- A quest card in one of its layouts (ui\\quest-card.lua): the title, the
+-- avatar and the time as any detailed row, then the layout's body.
+local function LayoutQuestCard(row, data, style, card)
+	row.icon:SetPoint("TOPRIGHT", -MARK_EDGE, -6)
+	row.right:SetPoint("TOPRIGHT", row.icon, "TOPLEFT", -8, 0)
+	ShowAvatar(row, data, style, 5)
+	local left = TextLeft(data, style)
+	row.title:SetPoint("TOPLEFT", left, -5)
+	row.title:SetPoint("TOPRIGHT", -(MarkRoom(style) + RightRoom(row.right, data.right)), -5)
+	row.title:SetText(data.title)
+	row.strip:Hide()
+	HideLines(row, 1)
+	card.Draw(row, data, {
+		left = left,
+		room = MarkRoom(style),
+		top = -style.titleHeight,
+		CreateBar = CreateBar,
+		SetProgress = SetProgress,
+	})
 end
 
 -- Dresses the row's badge for data.badge and puts it over the icon's place,
@@ -478,17 +715,19 @@ local function ShowBadge(row, data, style)
 		badge[layer]:SetPoint("CENTER")
 	end
 	badge.glow:SetSize(size * 1.6, size * 1.6)
-	badge.glow:SetShown(UseAtlas(badge.glow, look.glow))
-	badge.glow:SetVertexColor(unpack(look.glowColor))
+	badge.glow:SetShown(look.glow ~= nil and UseAtlas(badge.glow, look.glow))
+	if look.glowColor then badge.glow:SetVertexColor(unpack(look.glowColor)) end
 	badge.burst:SetSize(size * 1.5, size * 1.5)
-	badge.burst:SetShown(UseAtlas(badge.burst, look.burst))
-	badge.burst:SetVertexColor(unpack(look.burstColor))
+	badge.burst:SetShown(look.burst ~= nil and UseAtlas(badge.burst, look.burst))
+	if look.burstColor then badge.burst:SetVertexColor(unpack(look.burstColor)) end
+	if not badge.burst:IsShown() then badge.spin:Stop() end
 	badge.fill:ClearAllPoints()
 	badge.fill:SetPoint("CENTER")
+	badge.fill:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
 	badge.fill:SetSize(size * 0.78, size * 0.78)
 	badge.fill:SetVertexColor(unpack(look.fill))
 	badge.ring:SetSize(size, size)
-	badge.ring:SetShown(UseAtlas(badge.ring, look.ring))
+	badge.ring:SetShown(look.ring ~= nil and UseAtlas(badge.ring, look.ring))
 	badge.text:SetFontObject(look.font[StyleName()] or look.font.detailed)
 	badge.text:SetTextColor(unpack(look.textColor))
 	badge.text:SetText(data.badge.text)
@@ -500,6 +739,22 @@ local function ShowBadge(row, data, style)
 	end
 end
 
+-- The row's mark (data\marks.lua): its art in the well, the well in the
+-- mark's colors. A badge (a level's crest) takes its place. True when shown.
+local function ShowMark(row, data, style)
+	local look = not (data.badge and BADGES[data.badge.style]) and data.mark and ns.MarkLooks[data.mark]
+	if not look then
+		row.markArt:Hide()
+		row.markText:Hide()
+		return false
+	end
+	row.icon:Hide()
+	ns.Look.DrawMark(row.markArt, row.markText, look, style.iconSize, data.markIcon)
+	row.well:SetColorTexture(unpack(look.fill))
+	row.wellEdge:SetColorTexture(unpack(look.edge))
+	return true
+end
+
 local function InitRow(row, data)
 	if not row.built then
 		BuildRow(row)
@@ -507,7 +762,8 @@ local function InitRow(row, data)
 	local style = ROW_STYLES[StyleName()]
 
 	local theme = ns.Theme()
-	local background = (data.highlight == "quest" and theme.handIn)
+	local background = (data.tint and theme[data.tint])
+		or (data.highlight == "quest" and theme.handIn)
 		or (data.highlight and theme.level)
 		or theme[ROW_BACKGROUND[data.kind] or "row"]
 	for _, edge in ipairs(row.edges) do
@@ -538,34 +794,66 @@ local function InitRow(row, data)
 	row.icon:ClearAllPoints()
 	row.right:ClearAllPoints()
 	row.title:ClearAllPoints()
-	if style.height then
+	local card = not style.height and ns.QuestCard:For(data) or nil
+	ns.QuestCard:HideAll(row, card)
+	if card then
+		LayoutQuestCard(row, data, style, card)
+	elseif style.height then
 		LayoutOneLine(row, data, style)
 	else
 		LayoutDetailed(row, data, style)
 	end
 
 	row.quest = data.quest
+	row.questID = data.questID
 	row.hover:Hide()
-	row:EnableMouse(data.quest ~= nil)
+	row:EnableMouse(data.quest ~= nil or (data.kind == "feed" and data.stampKey ~= nil))
 	row:SetAlpha(1)
 	ShowBadge(row, data, style)
-	-- The well sits around the icon wherever the layout put it; a badge
-	-- (a level-up) has its own ring instead.
-	local hasIcon = row.icon:IsShown()
+	-- The well frames the icon or the mark (in the mark's colors, with a
+	-- bolder edge); a badge (a level's crest) has its own ring instead.
+	local marked = ShowMark(row, data, style)
+	-- A layout that shows progress in the mark's place (the Ring).
+	if card and card.hidesMark then
+		row.markArt:Hide()
+		row.markText:Hide()
+		marked = false
+	end
+	local hasIcon = row.icon:IsShown() or marked
 	row.well:SetShown(hasIcon)
 	row.wellEdge:SetShown(hasIcon)
 	if hasIcon then
+		local edge = marked and 2 or 1
 		row.well:ClearAllPoints()
 		row.well:SetPoint("TOPLEFT", row.icon, "TOPLEFT", -2, 2)
 		row.well:SetPoint("BOTTOMRIGHT", row.icon, "BOTTOMRIGHT", 2, -2)
 		row.wellEdge:ClearAllPoints()
-		row.wellEdge:SetPoint("TOPLEFT", row.icon, "TOPLEFT", -3, 3)
-		row.wellEdge:SetPoint("BOTTOMRIGHT", row.icon, "BOTTOMRIGHT", 3, -3)
+		row.wellEdge:SetPoint("TOPLEFT", row.icon, "TOPLEFT", -2 - edge, 2 + edge)
+		row.wellEdge:SetPoint("BOTTOMRIGHT", row.icon, "BOTTOMRIGHT", 2 + edge, -2 - edge)
 	end
-	row.divider:ClearAllPoints()
-	row.divider:SetPoint("TOPLEFT", row, "TOPLEFT", 5 + style.iconSize + 4, -3)
-	row.divider:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 5 + style.iconSize + 4, 3)
+	row.divider:Hide() -- no line between the avatar and the text
 	PlayPulse(row, data.pulse)
+	ShowBackdrop(row, data)
+	-- Your game group's members: their stripe and ring in the party's color.
+	if data.grouped then
+		local r, g, b = PartyColor()
+		row.groupEdge:SetColorTexture(r, g, b, 1)
+		row.avatarRing:SetVertexColor(r, g, b, 1)
+	else
+		row.avatarRing:SetVertexColor(0.80, 0.65, 0.20, 1)
+	end
+	row.groupEdge:SetShown(data.grouped == true)
+	ns.StampView:Show(row, data)
+	row.glow:SetShown(data.shared == true)
+	if data.shared then
+		local r, g, b = PartyColor()
+		row.glow:SetBackdropBorderColor(r, g, b, COLORS.sharedGlow[4])
+	end
+	if data.shared then
+		if not row.glow.breathe:IsPlaying() then row.glow.breathe:Play() end
+	else
+		row.glow.breathe:Stop()
+	end
 end
 
 -- ========= Refresh ==========================================================
@@ -712,10 +1000,6 @@ end
 
 local function FilterLabel(filter, compact)
 	local label = compact and filter.shortLabel or filter.label
-	if filter.id == "party" then
-		local count = ns.Session:Count()
-		return count > 0 and (label .. " " .. count) or label
-	end
 	if filter.chat and ns.Chat.unread > 0 and ns.charDb.filter ~= filter.id then
 		return label .. " " .. ns.Chat.unread -- new messages not seen yet
 	end
@@ -728,9 +1012,12 @@ local function UpdateGutter()
 	end
 	for _, button in ipairs(gutter.buttons) do
 		local hidden = ns.charDb.hidden[button.filter.id] == true
-		button.icon:SetDesaturated(hidden)
+		local look = button.look
+		button.icon:SetDesaturated(hidden or (look and look.desaturate) == true)
 		button.icon:SetAlpha(hidden and LAYOUT.gutterOffAlpha or 1)
-		button:SetBackdropBorderColor(unpack(hidden and COLORS.gutterOff or COLORS.border))
+		button.markText:SetAlpha(hidden and LAYOUT.gutterOffAlpha or 1)
+		button:SetBackdropBorderColor(unpack(hidden and COLORS.gutterOff or (look and look.edge) or COLORS.border))
+		if look then button:SetBackdropColor(unpack(look.fill)) end
 	end
 end
 
@@ -972,7 +1259,10 @@ local function BuildHeader()
 
 	local title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 	title:SetPoint("LEFT", titleIcon, "RIGHT", 6, 0)
+	title:SetJustifyH("LEFT")
+	title:SetWordWrap(false)
 	title:SetText(L.TITLE)
+	panelTitle = title
 
 	-- Right to left: close, options, view.
 	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
@@ -1024,9 +1314,19 @@ local function BuildHeader()
 		ns.SetSlider("volume", value == 0 and 3 or value - 1)
 	end)
 	soundButton:SetPoint("RIGHT", minimize, "LEFT", -HEADER_BUTTON.gap, 0)
+	-- The title stops short of the buttons, never under them (FitTitle).
+	title:SetPoint("RIGHT", soundButton, "LEFT", -6, 0)
 	soundButton.icon = soundButton:CreateTexture(nil, "ARTWORK")
-	soundButton.icon:SetPoint("TOPLEFT", 2, -2)
-	soundButton.icon:SetPoint("BOTTOMRIGHT", -2, 2)
+	soundButton.icon:SetPoint("TOPLEFT", 1, -3)
+	soundButton.icon:SetPoint("BOTTOMRIGHT", soundButton, "BOTTOMLEFT", 11, 3)
+	-- The level: three rising bars at the right, lit by UpdateSoundButton.
+	soundButton.levels = {}
+	for index, height in ipairs(VOLUME_BARS.heights) do
+		local bar = soundButton:CreateTexture(nil, "ARTWORK")
+		bar:SetSize(VOLUME_BARS.width, height)
+		bar:SetPoint("BOTTOMLEFT", soundButton, "BOTTOMLEFT", 12 + (index - 1) * (VOLUME_BARS.width + VOLUME_BARS.gap), 5)
+		soundButton.levels[index] = bar
+	end
 	UpdateSoundButton()
 
 	viewButton.bars = {}
@@ -1074,6 +1374,11 @@ local function BuildGutter()
 		button.icon:SetPoint("BOTTOMRIGHT", -inset, inset)
 		button.icon:SetTexture(filter.icon)
 		button.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		-- The same marks as the rows (data\\marks.lua), drawn in LayoutGutter.
+		button.look = filter.mark and ns.MarkLooks[filter.mark]
+		button.markText = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		button.markText:SetPoint("CENTER", 1, 0)
+		button.markText:Hide()
 		button:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
 		button.filter = filter
 		button:SetScript("OnClick", function()
@@ -1101,7 +1406,13 @@ local function LayoutGutter()
 		button:SetSize(icon, icon)
 		button:ClearAllPoints()
 		button:SetPoint("LEFT", (index - 1) * (icon + gap), 0)
+		if button.look then
+			button.icon:ClearAllPoints()
+			button.icon:SetPoint("CENTER")
+			ns.Look.DrawMark(button.icon, button.markText, button.look, icon - 2 * LAYOUT.gutterIconInset)
+		end
 	end
+	UpdateGutter() -- a hidden filter stays grayed after drawing
 end
 
 -- The tabs stay on one row, below the title bar.
@@ -1152,12 +1463,9 @@ local function BuildFilter()
 end
 
 -- ========= The party's XP bars ==============================================
+-- A player's bar is their own color (colors.lua), as their portrait's ring.
 local function BarColor(name)
-	local sum = 0
-	for index = 1, #name do
-		sum = (sum * 31 + name:byte(index)) % 65521
-	end
-	return COLORS.xpBars[sum % #COLORS.xpBars + 1]
+	return { ns.PlayerColors:For(name) }
 end
 
 local function ShowBarTip(bar)
@@ -1210,7 +1518,8 @@ end
 -- From one party bar to the next: the XP bar, its health and power under
 -- it, and the gap.
 BarStep = function()
-	return LAYOUT.xpBarHeight + LAYOUT.healthHeight + LAYOUT.powerHeight + LAYOUT.xpBarGap
+	local vitals = ns.IsEnabled("showVitals") and (LAYOUT.healthHeight + LAYOUT.powerHeight) or 0
+	return LAYOUT.xpBarHeight + vitals + LAYOUT.xpBarGap
 end
 
 local function CreateXpBar()
@@ -1297,7 +1606,7 @@ function Panel:UpdateXpBars()
 		return
 	end
 	local data = ns.ViewModel:PartyBars()
-	local shown = math.min(#data, LAYOUT.xpBarMax)
+	local shown = #data -- already capped (ViewModel.PartyCap)
 	for index = 1, shown do
 		local bar = xpBars[index] or CreateXpBar()
 		xpBars[index] = bar
@@ -1320,8 +1629,16 @@ function Panel:UpdateXpBars()
 		bar.level:SetText(entry.levelText)
 		bar.text:SetText(entry.text)
 		-- Health and power, when known (a friend on an older version sends none).
-		bar.health:SetShown(entry.health ~= nil)
-		bar.power:SetShown(entry.health ~= nil)
+		-- A member of your game group: the bar's frame in the party's color.
+		if entry.grouped then
+			local r, g, b = PartyColor()
+			bar:SetBackdropBorderColor(r, g, b, 1)
+		else
+			bar:SetBackdropBorderColor(unpack(COLORS.xpBarBorder))
+		end
+		local vitals = entry.health ~= nil and ns.IsEnabled("showVitals")
+		bar.health:SetShown(vitals)
+		bar.power:SetShown(vitals)
 		if entry.health then
 			bar.health:SetValue(entry.health)
 			bar.health:SetStatusBarColor(unpack(ns.HealthColor))
@@ -1780,6 +2097,7 @@ local function BuildResizeGrip()
 
 	frame:SetScript("OnSizeChanged", function()
 		emptyText:SetWidth(frame:GetWidth() - 40)
+		FitTitle()
 		if not Panel.sizing then
 			Panel:Refresh()
 		end
@@ -1812,6 +2130,7 @@ local function Build()
 	Panel:UpdateXpBars()
 	ns.Confetti:SetHost(frame)
 	BuildResizeGrip()
+	C_Timer.After(0, FitTitle) -- once laid out, the title fits its room
 
 	-- Remember visibility, and keep the relative times fresh while visible.
 	frame:SetScript("OnShow", function()
@@ -1819,6 +2138,7 @@ local function Build()
 		Panel:Refresh(true)
 	end)
 	frame:SetScript("OnHide", function()
+		if ns.StampView then ns.StampView:Close() end -- the stamp picker goes with it
 		ns.charDb.shown = false
 	end)
 	BuildShrink()
@@ -1976,6 +2296,14 @@ xpEvents:SetScript("OnEvent", function()
 	if frame then Panel:UpdateXpBars() end
 end)
 
+-- Your game group changed: mark its members afresh.
+Bus:On("GROUP_CHANGED", function()
+	if frame then
+		Panel:UpdateXpBars()
+		Panel:Refresh()
+	end
+end)
+
 Bus:On("PEERS_CHANGED", function()
 	if frame then
 		UpdateFilter()
@@ -2009,6 +2337,28 @@ Bus:On("SLIDER_CHANGED", function(id)
 		LayoutGutter()
 		PlaceUnderStrip()
 		Panel:Refresh()
+	end
+end)
+
+-- The Players shown slider: the bars and the side bar, to the new cap.
+Bus:On("SLIDER_CHANGED", function(id)
+	if id == "partyCap" and frame then
+		xpBarsShown = -1
+		Panel:UpdateXpBars()
+		if ns.Party then ns.Party:Redraw() end
+	end
+end)
+
+-- The Quest cards slider: the quest cards in their new layout.
+Bus:On("SLIDER_CHANGED", function(id)
+	if id == "questCardStyle" and frame then Panel:Refresh() end
+end)
+
+-- The Health and power switch changes the strip's spacing: lay it out again.
+Bus:On("SETTING_CHANGED", function(id)
+	if id == "showVitals" and frame then
+		xpBarsShown = -1
+		Panel:UpdateXpBars()
 	end
 end)
 

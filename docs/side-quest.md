@@ -1,7 +1,8 @@
 # Side quest
 
 The code name for the next Quest Party prototype, worked on the `side-quest`
-branch. It explores two things:
+branch. The name comes from the side bar on the right of the panel (the party's
+heads and each player's card), which is what it built. It explores two things:
 
 1. **Channel party state:** what Quest Party knows about each player on the
    channel, how it stays current, and when it is forgotten.
@@ -612,6 +613,8 @@ Reviewed 14 November 2026, before building.
 
 ## Backlog
 
+Open work is now tracked in `sprint-hub/backlog.md` (the Chaos Atlas convention), and finished work in `sprint-hub/completed.md`. The tables below are the side quest's history.
+
 Sandbox first: each step after it is tested against pretend players in game.
 Every step ships on `side-quest` with tests; IDs are for reference.
 
@@ -678,8 +681,8 @@ buttons) and the sandbox itself.
 | ID | Step | Done when |
 | --- | --- | --- |
 | D1 | Requests: one request, one answer on the channel; heard answers and pending requests stop asking; per-player limits | The storm rules hold in a 20 peer sandbox run |
-| D2 | Categories: Off or Friends and guild only per category, whispered for friends-only | |
-| D3 | Leveling and level cap profiles, chosen by level | |
+| D2 | Categories: Off or Friends and guild only per category, whispered for friends-only | Dropped 2026-11-18 |
+| D3 | Leveling and level cap profiles, chosen by level | Dropped 2026-11-18 |
 
 ### E. Scale and pruning
 
@@ -700,7 +703,10 @@ buttons) and the sandbox itself.
 1. Chat visible in the channel (A and B), or Quest Party-only (C)?
 2. Chat in its own tab, mixed into the feed, or both?
 
-## Next: more to share, on request (agreed 2026-11-15)
+## Next: more to share, on request (agreed 2026-11-15; dropped 2026-11-18)
+
+Dropped 2026-11-18: a player running a local script could ask everyone on the
+channel for everything, an opening for abuse. Kept here as history only.
 
 What makes Quest Party work (quests, leveling, kills, discoveries, deaths,
 professions, achievements) is always shared; gear is the one choice. Next, more

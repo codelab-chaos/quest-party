@@ -60,6 +60,9 @@ local function Allow(key)
 	return true
 end
 
+-- Shared with stamps (stamps.lua): one limit for everything said, per sender.
+Chat.Allow, Chat.YOU = Allow, YOU
+
 -- Seconds before you can chat again, or 0.
 function Chat:TimeoutLeft(player)
 	return TimeoutLeft(player or YOU)
@@ -69,8 +72,9 @@ end
 -- character, so yours goes out as a pretend player of your name, shown here
 -- as you and ignored by friends.
 local function SendAs()
-	return ns.IsSandbox() and UnitName("player") or nil
+	return ns.IsSandbox() and ns.MyName() or nil
 end
+Chat.SendAs = SendAs
 
 local function ValidIcon(icon)
 	icon = tonumber(icon)

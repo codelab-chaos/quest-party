@@ -28,7 +28,7 @@ end
 -- How a player looks in a portrait: { atlas, class }. Yourself from the game,
 -- anyone else from what they told the party.
 function PartyModel:Portrait(name)
-	if name == UnitName("player") or (ns.IsMe(name) and not ns.IsSandbox()) then
+	if name == ns.MyName() or (ns.IsMe(name) and not ns.IsSandbox()) then
 		local _, race = UnitRace("player")
 		local _, class = UnitClass("player")
 		return { atlas = PartyModel.RaceAtlas(race, UnitSex("player")), class = class }
@@ -51,6 +51,7 @@ local function Head(member, peer, now)
 		atlas = PartyModel.RaceAtlas((peer and peer.race) or member.race, (peer and peer.sex) or member.sex),
 		here = peer ~= nil,
 		virtual = (peer and peer.virtual) or member.emulated or nil,
+		playerId = (peer and peer.player) or member.playerId,
 		seenAgo = member.time and math.max(0, now - member.time) or nil,
 		arrived = peer and peer.arrived or nil,
 	}
@@ -86,13 +87,14 @@ function PartyModel:Heads()
 		return a.name < b.name
 	end)
 	if ns.IsSandbox() then
-		local name = UnitName("player")
+		local name = ns.MyName()
 		if not seen[name] then
 			local _, class = UnitClass("player")
 			local _, race = UnitRace("player")
 			local me = {
 				class = class, level = UnitLevel("player"), zone = GetRealZoneText(),
 				race = race, sex = UnitSex("player"), arrived = 0,
+				player = ns.Sharing.PlayerId(),
 			}
 			table.insert(heads, 1, Head(ns.Store:GetMember(name) or { name = name }, me, now))
 			heads[1].name = name
@@ -108,11 +110,25 @@ function PartyModel:Heads()
 		table.sort(gone, function(a, b)
 			return (a.seenAgo or math.huge) < (b.seenAgo or math.huge)
 		end)
+		-- One tab per player: a character whose player is already shown (here
+		-- on another character, or seen more lately on one) has no tab.
+		-- Their history stays; only the tab goes.
+		local players = { [ns.Sharing.PlayerId()] = true } -- your own other characters too
+		for _, head in ipairs(heads) do
+			if head.playerId then players[head.playerId] = true end
+		end
 		for _, head in ipairs(gone) do
-			heads[#heads + 1] = head
+			if not (head.playerId and players[head.playerId]) then
+				heads[#heads + 1] = head
+				if head.playerId then players[head.playerId] = true end
+			end
 		end
 	end
-	return heads
+	-- No more than the cap (ui\\view-model.lua): those here before those
+	-- gone, the latest seen first.
+	return ns.ViewModel.Cap(heads, ns.ViewModel.PartyCap(), function(head) return head.name end, function(head)
+		return head.here and math.huge or -(head.seenAgo or math.huge)
+	end)
 end
 
 -- "3/8": the sum of a quest's objectives.
@@ -288,6 +304,47 @@ function PartyModel:GearTotals(name)
 	return { lines = StatLines(totals), loading = loading }
 end
 
+-- A player's professions for their Info tab, each with its icon: all of
+-- them as they last said (yours from the skill list), and any others their
+-- skill-up rows told of (players on older versions). Highest first.
+function PartyModel.Professions(name, member)
+	local said
+	if ns.IsMe(name) then
+		said = ns.ProfessionsCollector and ns.ProfessionsCollector.list
+	else
+		local peer = ns.Session.peers[name]
+		said = (peer and peer.professions) or (member and member.professions)
+	end
+	local ranks, names = {}, {}
+	for _, item in ipairs(said or {}) do
+		local profession = ns.ProfessionById[item.id]
+		if profession then
+			local label = profession.localName or profession.name
+			ranks[label] = item.rank
+			names[label] = profession
+		end
+	end
+	for skill, level in pairs(member and member.skills or {}) do
+		local profession = ns.ProfessionNamed(skill)
+		local label = profession and (profession.localName or profession.name) or skill
+		if not ranks[label] or (tonumber(level) or 0) > ranks[label] then
+			ranks[label] = tonumber(level) or 0
+			names[label] = profession
+		end
+	end
+	local lines = {}
+	for label, rank in pairs(ranks) do
+		local profession = names[label]
+		local icon = profession and ("|TInterface\\Icons\\" .. profession.icon .. ":14:14:0:0:64:64:5:59:5:59|t ") or ""
+		lines[#lines + 1] = { label = icon .. label, value = tostring(rank), rank = rank, sortName = label }
+	end
+	table.sort(lines, function(a, b)
+		if a.rank ~= b.rank then return a.rank > b.rank end
+		return a.sortName < b.sortName
+	end)
+	return lines
+end
+
 -- The Info tab: sections of label and value lines, in order. Add a section
 -- here and the card shows it.
 local function Info(card, member)
@@ -306,15 +363,10 @@ local function Info(card, member)
 	experience[#experience + 1] = { label = L.INFO_XP_SESSION, value = ns.Comma(card.sessionXP) }
 	experience[#experience + 1] = { label = L.INFO_XP_TODAY, value = ns.Comma(card.todayXP) }
 	experience[#experience + 1] = { label = L.INFO_XP_WEEK, value = ns.Comma(card.weekXP) }
-	local professions = {}
-	for skill, level in pairs(member.skills or {}) do
-		professions[#professions + 1] = { label = skill, value = tostring(level) }
-	end
-	table.sort(professions, function(a, b) return a.label < b.label end)
 	return {
+		{ title = L.INFO_PROFESSIONS, lines = PartyModel.Professions(member.name, member), empty = L.INFO_NONE_HEARD },
 		{ title = L.INFO_ABOUT, lines = about },
 		{ title = L.INFO_EXPERIENCE, lines = experience },
-		{ title = L.INFO_PROFESSIONS, lines = professions, empty = L.INFO_NONE_HEARD },
 	}
 end
 

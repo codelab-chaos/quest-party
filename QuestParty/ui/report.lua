@@ -9,19 +9,35 @@
 local _, ns = ...
 local Bus, L = ns.Bus, ns.L
 
-local ReportView = { kind = nil, player = nil }
+-- stage: what clicking the party's fuel steps through: "whole" (one vat),
+-- "sliced" (by kind), "everyone" (each player's fuel by kind, a line each).
+local ReportView = { kind = nil, player = nil, stage = "whole" }
+local STAGES = { whole = "sliced", sliced = "everyone", everyone = "whole" }
 ns.ReportView = ReportView
+
+local DrawEveryone -- each player's fuel by kind (defined with the views)
 
 local LAYOUT = {
 	filters = 26,
 	dropdown = 140,
-	note = 26,
+	home = 22, -- the Party Fuel icon beside the menus
 	cellMinWidth = 44,
 	cellMinHeight = 144,
 	gap = 6,
 	labelHeight = 28, -- above the gauge
 	vialWidth = 44, -- the widest a gauge gets (narrower in a narrow cell)
 	vialMaxHeight = 240,
+	-- The vat grows with the panel: this share of its width (within the
+	-- least and most), all of its height, and its numbers with it.
+	vatShare = 0.6,
+	question = 18, -- "What is Party Fuel?" under the whole vat
+	vatMinWidth = 110,
+	vatMaxWidth = 360,
+	vatFontPer = 7, -- the vat's number: its width over this (within 18 to 40)
+	sectionGap = 3, -- between the sliced vat's sections
+	sectionMin = 24, -- the least a section gets, so its line fits
+	sectionFontPer = 11, -- a section's line: the vat's width over this (within 12 to 22)
+	vialFont = 13,
 	glassInset = 3,
 	scrollbar = 16,
 	pad = 4,
@@ -35,6 +51,7 @@ local COLORS = {
 	label = { 0.85, 0.85, 0.85 },
 	glass = { 0.60, 0.68, 0.77, 0.65 },
 	muted = { 0.5, 0.5, 0.55 },
+	vat = { 0.85, 0.12, 0.10 }, -- the party's fuel: a big red vat
 }
 
 local VIAL_BACKDROP = {
@@ -44,20 +61,22 @@ local VIAL_BACKDROP = {
 	insets = { left = 3, right = 3, top = 3, bottom = 3 },
 }
 
-local frame, note, chart, content
+local frame, home, chart, content
+local HOME_ICON = "Interface\\Icons\\INV_Potion_51" -- a red flask: the party's fuel
 local kindPicker, playerPicker
 local rows = {}
 
 -- A player's color: the palette's entry at their place in the report's list
 -- of players (data\themes.lua).
+-- A player's own color (colors.lua), as their XP bar and portrait ring.
 local function PlayerColor(name)
-	for index, player in ipairs(ns.Report:Players()) do
-		if player == name then
-			local color = ns.PlayerPalette[(index - 1) % #ns.PlayerPalette + 1]
-			return color[1], color[2], color[3]
-		end
+	return ns.PlayerColors:For(name)
+end
+
+local function KindOf(id)
+	for _, kind in ipairs(ns.StatKinds) do
+		if kind.id == id then return kind end
 	end
-	return unpack(COLORS.fill)
 end
 
 local function KindColor(id)
@@ -157,6 +176,12 @@ local function Row(index)
 	row.value:SetPoint("CENTER", row.glass, "CENTER", 0, 0)
 	row.value:SetJustifyH("CENTER")
 	row.value:SetWordWrap(true)
+	-- Under the vat's number: what was gained lately ("+340 last hour").
+	row.recent = row.track:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	row.recent:SetDrawLayer("OVERLAY", 7)
+	local recentFont, recentSize = row.recent:GetFont()
+	row.recent:SetFont(recentFont, recentSize, "OUTLINE")
+	row.recent:SetPoint("TOP", row.value, "BOTTOM", 0, -4)
 	local shine = row.track:CreateTexture(nil, "OVERLAY")
 	shine:SetPoint("TOPLEFT", 1, 0)
 	shine:SetPoint("BOTTOMLEFT", 1, 0)
@@ -184,11 +209,18 @@ local function Row(index)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:SetText(self.tip.title)
 		for _, line in ipairs(self.tip.lines) do
-			GameTooltip:AddDoubleLine(line[1], line[2], 1, 1, 1, 1, 0.82, 0)
+			if line[2] == "" then
+				GameTooltip:AddLine(line[1], 0.8, 0.8, 0.8, true) -- a note: wraps
+			else
+				GameTooltip:AddDoubleLine(line[1], line[2], 1, 1, 1, 1, 0.82, 0)
+			end
 		end
 		GameTooltip:Show()
 	end)
 	row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	row:SetScript("OnMouseUp", function(self)
+		if self.onClick then self.onClick() end
+	end)
 	rows[index] = row
 	return row
 end
@@ -229,18 +261,441 @@ local function Number(value)
 	return ns.Comma(math.floor(value + 0.5))
 end
 
+-- A total short enough for a gauge: 9,999, then 74.3k, then 1.2M. The full
+-- number is in the tooltip.
+local function Short(value)
+	value = math.floor(value + 0.5)
+	if value < 10000 then return ns.Comma(value) end
+	if value < 1000000 then return (("%.1fk"):format(value / 1000):gsub("%.0k", "k")) end
+	return (("%.1fM"):format(value / 1000000):gsub("%.0M", "M"))
+end
+ReportView.Short = Short
+
+local function SetValueFont(row, size)
+	local font = row.value:GetFont()
+	row.value:SetFont(font or "Fonts\\FRIZQT__.TTF", size, "OUTLINE")
+end
+
+-- The sliced vat's sections: one per kind with any, bottom up in the kinds'
+-- order, each as tall as its share of the fuel (but never less than
+-- sectionMin), with a small gap between. Its number and name in the middle,
+-- on one line.
+local function Section(row, index)
+	row.sections = row.sections or {}
+	local section = row.sections[index]
+	if section then return section end
+	section = CreateFrame("Frame", nil, row.track)
+	section.fill = section:CreateTexture(nil, "ARTWORK")
+	section.fill:SetAllPoints()
+	section.fill:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
+	section.fill:SetTexCoord(0, 1, 1, 1, 0, 0, 1, 0) -- the gloss across, as the vials'
+	-- One line, the number and its name ("451 Kills"): easy to read.
+	section.text = section:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	section.text:SetPoint("LEFT", 4, 0)
+	section.text:SetPoint("RIGHT", -4, 0)
+	section.text:SetJustifyH("CENTER")
+	section.text:SetWordWrap(false)
+	row.sections[index] = section
+	return section
+end
+
+local function HideSections(row, from)
+	for index = from or 1, #(row.sections or {}) do
+		row.sections[index]:Hide()
+	end
+end
+
+-- The least a section gets: room for its line at the vat's font size.
+local function SectionMin(row)
+	return math.max(LAYOUT.sectionMin, (row.sectionFont or 14) + 10)
+end
+
+-- Fills the vat's track with sections: items are { text, color, weight },
+-- bottom up, each as tall as its share of the weights (never less than
+-- sectionMin), with a small gap between.
+local function DrawSections(row, items)
+	local height = row.track:GetHeight() or 0
+	local width = row.track:GetWidth() or 0
+	local least = SectionMin(row)
+	local space = height - math.max(0, #items - 1) * LAYOUT.sectionGap
+	local spare = math.max(0, space - #items * least)
+	local total = 0
+	for _, item in ipairs(items) do total = total + math.max(0, item.weight) end
+	local bottom = 0
+	for index, item in ipairs(items) do
+		local section = Section(row, index)
+		local size = least + (total > 0 and spare * (math.max(0, item.weight) / total) or spare / #items)
+		section:ClearAllPoints()
+		section:SetPoint("BOTTOMLEFT", row.track, "BOTTOMLEFT", 0, bottom)
+		section:SetSize(width, math.max(1, size))
+		section.fill:SetVertexColor(item.color[1], item.color[2], item.color[3], 0.92)
+		local font = section.text:GetFont()
+		section.text:SetFont(font or "Fonts\\FRIZQT__.TTF", row.sectionFont or 14, "OUTLINE")
+		section.text:SetText(item.text)
+		section:Show()
+		bottom = bottom + size + LAYOUT.sectionGap
+	end
+	HideSections(row, #items + 1)
+end
+
+-- The tall a vat must be to hold these sections, each at least its least.
+local function SectionsHeight(row, count)
+	return count * SectionMin(row) + math.max(0, count - 1) * LAYOUT.sectionGap + LAYOUT.glassInset * 2
+end
+
+-- One wide vat in the middle: its label above, and either one liquid with a
+-- number in the middle (whole) or sections (items). Taller than the view when
+-- its sections need it; the view scrolls then.
+-- "What is Party Fuel?": a link under the whole vat, and what it says.
+local FUEL_ABOUT = ns.Globals.popup("FUEL_ABOUT")
+StaticPopupDialogs[FUEL_ABOUT] = {
+	text = L.FUEL_ABOUT .. "\n\n" .. L.FUEL_ABOUT_HOW,
+	button1 = OKAY,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
+local question
+local function Question()
+	if question then return question end
+	question = CreateFrame("Button", nil, content)
+	question:SetHeight(LAYOUT.question)
+	question.text = question:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	question.text:SetPoint("CENTER")
+	question.text:SetText(L.FUEL_QUESTION)
+	question:SetWidth(math.ceil(question.text:GetStringWidth() or 120) + 12)
+	question:SetHighlightTexture("Interface\\Buttons\\UI-Listbox-Highlight2", "ADD")
+	question:SetScript("OnClick", function() StaticPopup_Show(FUEL_ABOUT, ReportView.fuelText or "0") end)
+	return question
+end
+
+local function DrawVat(available, height, label, whole, items, tip, onClick, asking)
+	local row = Row(1)
+	local width = math.min(available, math.max(LAYOUT.vatMinWidth, math.min(LAYOUT.vatMaxWidth, available * LAYOUT.vatShare)))
+	local vatHeight = height - LAYOUT.labelHeight - 8 - (asking and LAYOUT.question + 4 or 0)
+	row.fontSize = math.floor(math.max(18, math.min(40, width / LAYOUT.vatFontPer)))
+	row.sectionFont = math.floor(math.max(12, math.min(22, width / LAYOUT.sectionFontPer)))
+	if items then
+		vatHeight = math.max(vatHeight, SectionsHeight(row, #items))
+	end
+	local rowHeight = vatHeight + LAYOUT.labelHeight + 8
+	content:SetSize(available, math.max(height, rowHeight))
+	local maxScroll = math.max(0, rowHeight - height)
+	chart:SetVerticalScroll(math.min(chart:GetVerticalScroll(), maxScroll))
+	chart.ScrollBar:SetShown(maxScroll > 0)
+	row:ClearAllPoints()
+	row:SetPoint("TOP", content, "TOP", 0, 0)
+	row:SetSize(width, rowHeight)
+	row.label:SetWidth(width)
+	row.label:SetText(label)
+	row.glass:SetSize(width - 8, vatHeight)
+	row.track:SetSize(width - 8 - LAYOUT.glassInset * 2, vatHeight - LAYOUT.glassInset * 2)
+	for index, mark in ipairs(row.marks) do
+		mark:ClearAllPoints()
+		mark:SetPoint("RIGHT", row.track, "BOTTOMRIGHT", 0, row.track:GetHeight() * index / 4)
+	end
+	if items then
+		Fill(row, {})
+		DrawSections(row, items)
+		row.value:SetText("")
+	else
+		HideSections(row)
+		if not whole then row.recent:Hide() end
+		Fill(row, { { whole.fill, unpack(whole.color) } })
+		SetValueFont(row, row.fontSize)
+		row.value:SetWidth(width)
+		row.value:SetTextColor(unpack(whole.muted and COLORS.muted or COLORS.total))
+		row.value:SetText(whole.text)
+		row.recent:SetText(whole.recent or "")
+		row.recent:SetShown(whole.recent ~= nil)
+	end
+	row.tip = tip
+	row.onClick = onClick
+	row:Show()
+	for index = 2, #rows do
+		rows[index]:Hide()
+	end
+	-- Under the whole vat only: what is Party Fuel?
+	if asking then
+		local link = Question()
+		link:ClearAllPoints()
+		link:SetPoint("TOP", row.glass, "BOTTOM", 0, -4)
+		link:Show()
+	elseif question then
+		question:Hide()
+	end
+end
+
+-- The sections of each view: a kind in its color, or a player in theirs.
+local function KindItems(report, withShare)
+	local items = {}
+	for _, data in ipairs(report.rows) do
+		if data.value > 0 then
+			local text = L.FUEL_SECTION:format(Short(data.value), data.label)
+			if withShare then text = text .. L.FUEL_SHARE:format(math.floor((data.share or 0) * 100 + 0.5)) end
+			-- Sized by fuel: the count by its kind's weight.
+			local kind = KindOf(data.id)
+			local weight = data.fuel or (data.value * (kind and kind.fuel or 1))
+			items[#items + 1] = { text = text, color = KindColor(data.id), weight = weight }
+		end
+	end
+	return items
+end
+
+local function PlayerItems(report)
+	local items = {}
+	for _, data in ipairs(report.rows) do
+		local r, g, b = PlayerColor(data.label)
+		items[#items + 1] = { text = L.FUEL_SECTION:format(Short(data.value), data.label), color = { r, g, b }, weight = data.value }
+	end
+	return items
+end
+
+-- ========= Everyone =========================================================
+-- Each player's fuel, a line each, most first: their name and fuel, then a
+-- bar sliced by kind (each kind's width its share of their fuel, with its
+-- number where it fits; all of it on hover). Over them, a link for each
+-- player that scrolls to them, and one back to the party's fuel. Clicking
+-- a player's bar opens their own view.
+local EVERYONE = {
+	nameHeight = 16,
+	barHeight = 22,
+	gap = 8,
+	link = 16, -- a link's height
+	linkGap = 10,
+	sectionMinText = 46, -- a section narrower than this shows no number
+}
+
+local everyonePool, linkPool = {}, {}
+
+local function EveryoneRow(index)
+	local line = everyonePool[index]
+	if line then return line end
+	line = CreateFrame("Button", nil, content)
+	line:SetHeight(EVERYONE.nameHeight + EVERYONE.barHeight)
+	line.name = line:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	line.name:SetPoint("TOPLEFT", 0, 0)
+	line.total = line:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	line.total:SetPoint("TOPRIGHT", 0, 0)
+	line.bar = CreateFrame("Frame", nil, line)
+	line.bar:SetPoint("TOPLEFT", 0, -EVERYONE.nameHeight)
+	line.bar:SetPoint("TOPRIGHT", 0, -EVERYONE.nameHeight)
+	line.bar:SetHeight(EVERYONE.barHeight)
+	line.back = line.bar:CreateTexture(nil, "BACKGROUND")
+	line.back:SetAllPoints()
+	line.back:SetColorTexture(unpack(COLORS.track))
+	line.parts = {}
+	line:SetScript("OnEnter", function(self)
+		if not self.person then return end
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText(Colored(self.person.name) .. ": " .. Number(self.person.fuel))
+		for _, kind in ipairs(self.person.kinds) do
+			GameTooltip:AddDoubleLine(kind.label, L.FUEL_LINE:format(Number(kind.value), Number(kind.fuel)), 1, 1, 1, 1, 0.82, 0)
+		end
+		GameTooltip:AddLine(L.FUEL_XP_EXPLAIN, 0.8, 0.8, 0.8, true)
+		GameTooltip:AddLine(L.FUEL_PLAYER_TIP, 0.75, 0.75, 1)
+		GameTooltip:Show()
+	end)
+	line:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	line:SetScript("OnClick", function(self)
+		if not self.person then return end
+		ReportView.player, ReportView.kind = self.person.name, nil
+		ReportView:Draw()
+	end)
+	everyonePool[index] = line
+	return line
+end
+
+local function Part(line, index)
+	local part = line.parts[index]
+	if part then return part end
+	part = CreateFrame("Frame", nil, line.bar)
+	part.fill = part:CreateTexture(nil, "ARTWORK")
+	part.fill:SetAllPoints()
+	part.fill:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
+	part.text = part:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	part.text:SetPoint("CENTER")
+	local font, size = part.text:GetFont()
+	part.text:SetFont(font or "Fonts\\FRIZQT__.TTF", size or 10, "OUTLINE")
+	part.text:SetWordWrap(false)
+	line.parts[index] = part
+	return part
+end
+
+local function Link(index, onClick)
+	local link = linkPool[index]
+	if not link then
+		link = CreateFrame("Button", nil, content)
+		link:SetHeight(EVERYONE.link)
+		link.text = link:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		link.text:SetPoint("LEFT")
+		link:SetHighlightTexture("Interface\\Buttons\\UI-Listbox-Highlight2", "ADD")
+		linkPool[index] = link
+	end
+	link:SetScript("OnClick", onClick)
+	return link
+end
+
+local function HideEveryone(fromLine, fromLink)
+	for index = fromLine or 1, #everyonePool do everyonePool[index]:Hide() end
+	for index = fromLink or 1, #linkPool do linkPool[index]:Hide() end
+end
+
+DrawEveryone = function(available, height)
+	for _, row in ipairs(rows) do row:Hide() end
+	if question then question:Hide() end
+	local everyone = ns.Report:Everyone()
+	-- The links: back to the party's fuel, then each player, wrapping.
+	local x, y, linkCount = 0, 0, 0
+	local tops = {}
+	local function AddLink(text, onClick)
+		linkCount = linkCount + 1
+		local link = Link(linkCount, onClick)
+		link.text:SetText(text)
+		local width = math.ceil(link.text:GetStringWidth() or 40) + 4
+		if x > 0 and x + width > available then
+			x, y = 0, y + EVERYONE.link
+		end
+		link:SetWidth(width)
+		link:ClearAllPoints()
+		link:SetPoint("TOPLEFT", content, "TOPLEFT", x, -y)
+		link:Show()
+		x = x + width + EVERYONE.linkGap
+	end
+	for index, person in ipairs(everyone) do
+		AddLink(Colored(person.name), function()
+			chart:SetVerticalScroll(math.min(tops[index] or 0, math.max(0, content:GetHeight() - chart:GetHeight())))
+		end)
+	end
+	local top = y + EVERYONE.link + EVERYONE.gap
+	for index, person in ipairs(everyone) do
+		local line = EveryoneRow(index)
+		line.person = person
+		tops[index] = top
+		line:ClearAllPoints()
+		line:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -top)
+		line:SetPoint("RIGHT", content, "RIGHT", 0, 0)
+		line.name:SetText(Colored(person.name))
+		line.total:SetText(L.FUEL_PLAYER_TOTAL:format(Short(person.fuel)))
+		local barWidth = available
+		local left = 0
+		for partIndex, kind in ipairs(person.kinds) do
+			local part = Part(line, partIndex)
+			local width = person.fuel > 0 and barWidth * kind.fuel / person.fuel or barWidth / #person.kinds
+			part:ClearAllPoints()
+			part:SetPoint("TOPLEFT", line.bar, "TOPLEFT", left, 0)
+			part:SetSize(math.max(1, width - 1), EVERYONE.barHeight)
+			local color = KindColor(kind.id)
+			part.fill:SetVertexColor(color[1], color[2], color[3], 0.92)
+			part.text:SetText(width >= EVERYONE.sectionMinText and L.FUEL_SECTION:format(Short(kind.value), kind.label) or "")
+			part:Show()
+			left = left + width
+		end
+		for partIndex = #person.kinds + 1, #line.parts do line.parts[partIndex]:Hide() end
+		line:Show()
+		top = top + EVERYONE.nameHeight + EVERYONE.barHeight + EVERYONE.gap
+	end
+	HideEveryone(#everyone + 1, linkCount + 1)
+	content:SetSize(available, math.max(height, top))
+	local maxScroll = math.max(0, top - height)
+	chart:SetVerticalScroll(math.min(chart:GetVerticalScroll(), maxScroll))
+	chart.ScrollBar:SetShown(maxScroll > 0)
+end
+
+-- Every view but one kind for one player is a sliced vat; that one is a vial.
+local function DrawFuel(self, report, available, height)
+	local lines = {}
+	if report.mode == "stacked" then
+		for _, data in ipairs(report.rows) do
+			lines[#lines + 1] = { data.label, L.FUEL_LINE:format(Short(data.value), Number(data.fuel)) }
+		end
+		if self.stage == "everyone" then
+			DrawEveryone(available, height)
+			return true
+		end
+		lines[#lines + 1] = { self.stage == "sliced" and L.FUEL_EVERYONE_TIP or L.FUEL_SPLIT_TIP, "" }
+		-- Gained lately: the last hour, day and week.
+		lines[#lines + 1] = { L.FUEL_RECENT_HOUR, "+" .. Number(ns.Stats:Recent(3600)) }
+		lines[#lines + 1] = { L.FUEL_RECENT_DAY, "+" .. Number(ns.Stats:Recent(86400)) }
+		lines[#lines + 1] = { L.FUEL_RECENT_WEEK, "+" .. Number(ns.Stats:Recent(7 * 86400)) }
+		lines[#lines + 1] = { self.note or L.REPORT_NOTE, "" }
+		lines[#lines + 1] = { L.FUEL_XP_EXPLAIN, "" }
+		lines[#lines + 1] = { L.FUEL_COUNT_EXPLAIN, "" }
+		local tip = { title = L.FUEL_VAT .. ": " .. Number(report.fuel), lines = lines }
+		local function Toggle()
+			ReportView.stage = STAGES[ReportView.stage] or "whole"
+			ReportView:Draw()
+		end
+		if self.stage == "sliced" then
+			DrawVat(available, height, L.FUEL_VAT .. ": " .. Short(report.fuel), nil, KindItems(report), tip, Toggle)
+		else
+			ReportView.fuelText = Number(report.fuel)
+			local hour = ns.Stats:Recent(3600)
+			DrawVat(available, height, L.FUEL_VAT, { fill = report.fuel > 0 and 1 or 0, color = COLORS.vat, text = Short(report.fuel), muted = report.fuel <= 0,
+				recent = hour > 0 and L.FUEL_LAST_HOUR:format(Short(hour)) or nil }, nil, tip, Toggle, true)
+		end
+		return true
+	end
+	if report.mode == "players" then
+		local kind = KindOf(self.kind)
+		for _, data in ipairs(report.rows) do
+			lines[#lines + 1] = { Colored(data.label), Number(data.value) }
+		end
+		local label = (kind and kind.name or "") .. ": " .. Short(report.total)
+		DrawVat(available, height, label, nil, PlayerItems(report), { title = label, lines = lines })
+		return true
+	end
+	if report.mode == "shares" and not self.kind then
+		for _, data in ipairs(report.rows) do
+			lines[#lines + 1] = { data.label, L.REPORT_SHARE:format(Number(data.value), math.floor((data.share or 0) * 100 + 0.5)) }
+		end
+		local label = Colored(self.player)
+		DrawVat(available, height, label, nil, KindItems(report, true), { title = self.player, lines = lines })
+		return true
+	end
+	return false
+end
+
+-- With all types and all players picked, Fuel starts over at the total.
+function ReportView:Reset()
+	if not self.kind and not self.player then self.stage = "whole" end
+end
+
+-- Home: all types, all players, the whole vat.
+function ReportView:Home()
+	self.kind, self.player, self.stage = nil, nil, "whole"
+	self:Draw()
+end
+
+-- Back to the party's total.
+function ReportView:Whole()
+	self.stage = "whole"
+	self:Draw()
+end
+
 function ReportView:Draw()
 	if not (frame and frame:IsShown()) then return end
 	kindPicker:Refresh()
 	playerPicker:Refresh()
 	local report = ns.Report:Build(self.kind, self.player)
-	note:SetText(report.total == 0 and L.REPORT_EMPTY or L.REPORT_NOTE)
-	local pickerWidth = math.min(LAYOUT.dropdown, math.max(80, (frame:GetWidth() - 8) / 2))
+	self.note = report.total == 0 and L.REPORT_EMPTY or L.REPORT_NOTE -- in the vat's tooltip
+	local pickerWidth = math.min(LAYOUT.dropdown, math.max(80, (frame:GetWidth() - 16 - LAYOUT.home) / 2))
 	kindPicker:SetWidth(pickerWidth)
 	playerPicker:SetWidth(pickerWidth)
 	local available = chart:GetWidth()
 	local height = chart:GetHeight()
 	if available <= 0 or height <= 0 then return end
+	if not (report.mode == "stacked" and self.stage == "everyone") then
+		HideEveryone()
+	end
+	if question and not (report.mode == "stacked" and self.stage == "whole") then
+		question:Hide()
+	end
+	if DrawFuel(self, report, available, height) then
+		return
+	end
+	if rows[1] then HideSections(rows[1]) end
 	local columns = math.max(1, math.min(#report.rows, math.floor((available + LAYOUT.gap) / (LAYOUT.cellMinWidth + LAYOUT.gap))))
 	local gridRows = math.max(1, math.ceil(#report.rows / columns))
 	local cellWidth = (available - (columns - 1) * LAYOUT.gap) / columns
@@ -262,6 +717,12 @@ function ReportView:Draw()
 		row:SetPoint("TOPLEFT", offset + column * (cellWidth + LAYOUT.gap), -gridRow * (cellHeight + LAYOUT.gap))
 		row:SetSize(cellWidth, cellHeight)
 		row.value:SetWidth(cellWidth)
+		SetValueFont(row, LAYOUT.vialFont)
+		-- In the split vials, a click pours them back into the vat.
+		row.onClick = report.mode == "stacked" and function()
+			ReportView.stage = "whole"
+			ReportView:Draw()
+		end or nil
 		row.value:SetTextColor(unpack(data.value > 0 and COLORS.total or COLORS.muted))
 		row.label:SetWidth(cellWidth)
 		local label = data.label
@@ -286,16 +747,18 @@ function ReportView:Draw()
 				lines[#lines + 1] = { Colored(segment.player), Number(segment.value) }
 			end
 			Fill(row, { { data.value > 0 and 1 or 0, kind[1], kind[2], kind[3] } })
-			row.value:SetText(Number(data.value))
+			row.value:SetText(Short(data.value))
+			lines[#lines + 1] = { L.REPORT_TOTAL, Number(data.value) }
+			lines[#lines + 1] = { L.FUEL_POUR_TIP, "" }
 			row.tip = { title = data.label, lines = lines }
 		else
 			local r, g, b = kind[1], kind[2], kind[3]
 			Fill(row, { { data.share or 0, r, g, b } })
 			if report.mode == "shares" then
 				-- The number, and the share under it: a gauge is narrow.
-				row.value:SetText(Number(data.value) .. "\n" .. math.floor((data.share or 0) * 100 + 0.5) .. "%")
+				row.value:SetText(Short(data.value) .. "\n" .. math.floor((data.share or 0) * 100 + 0.5) .. "%")
 			else
-				row.value:SetText(Number(data.value))
+				row.value:SetText(Short(data.value))
 			end
 		end
 		row:Show()
@@ -340,23 +803,36 @@ local function Build()
 	frame:Hide()
 	kindPicker = Picker(frame, LAYOUT.dropdown, KindChoices, function() return ReportView.kind or ALL end, function(value)
 		ReportView.kind = value ~= ALL and value or nil
+		ReportView:Reset()
 		ReportView:Draw()
 	end)
 	kindPicker:SetPoint("TOPLEFT", 0, 0)
 	playerPicker = Picker(frame, LAYOUT.dropdown, PlayerChoices, function() return ReportView.player or ALL end, function(value)
 		ReportView.player = value ~= ALL and value or nil
+		ReportView:Reset()
 		ReportView:Draw()
 	end)
 	playerPicker:SetPoint("LEFT", kindPicker, "RIGHT", 8, 0)
-	note = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	note:SetPoint("TOPLEFT", 2, -(LAYOUT.filters + 2))
-	note:SetPoint("TOPRIGHT", -2, -(LAYOUT.filters + 2))
-	note:SetHeight(LAYOUT.note)
-	note:SetJustifyH("LEFT")
-	note:SetJustifyV("TOP")
-	note:SetText(L.REPORT_NOTE)
+	-- Party Fuel, as an icon beside the menus: back to the total from
+	-- anywhere (all types, all players, the whole vat).
+	home = CreateFrame("Button", nil, frame)
+	home:SetSize(LAYOUT.home, LAYOUT.home)
+	home:SetPoint("LEFT", playerPicker, "RIGHT", 6, 0)
+	home.icon = home:CreateTexture(nil, "ARTWORK")
+	home.icon:SetAllPoints()
+	home.icon:SetTexture(HOME_ICON)
+	home.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	home:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+	home:SetScript("OnClick", function() ReportView:Home() end)
+	home:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+		GameTooltip:SetText(L.FUEL_VAT)
+		GameTooltip:AddLine(L.FUEL_HOME_TIP, 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	home:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	chart = CreateFrame("ScrollFrame", nil, frame, "ScrollFrameTemplate")
-	chart:SetPoint("TOPLEFT", LAYOUT.pad, -(LAYOUT.filters + LAYOUT.note + 4))
+	chart:SetPoint("TOPLEFT", LAYOUT.pad, -(LAYOUT.filters + 4))
 	chart:SetPoint("BOTTOMRIGHT", -(LAYOUT.pad + LAYOUT.scrollbar), LAYOUT.pad)
 	chart.ScrollBar:ClearAllPoints()
 	chart.ScrollBar:SetPoint("TOPLEFT", chart, "TOPRIGHT", 3, -2)
@@ -365,6 +841,13 @@ local function Build()
 	content = CreateFrame("Frame", nil, chart)
 	content:SetSize(1, 1)
 	chart:SetScrollChild(content)
+	-- In the list of everyone, a click on empty space goes back to the total.
+	content:EnableMouse(true)
+	content:SetScript("OnMouseUp", function()
+		if ReportView.stage == "everyone" and not ReportView.kind and not ReportView.player then
+			ReportView:Whole()
+		end
+	end)
 	-- Not while the panel is being resized: its redraw at the end draws this.
 	chart:HookScript("OnSizeChanged", function()
 		if not ns.Panel.sizing then ReportView:Draw() end
@@ -376,3 +859,4 @@ end
 
 Bus:On("READY", Build)
 Bus:On("ENTRY_RECEIVED", Changed)
+Bus:On("STORE_CHANGED", Changed) -- a reset, a clear

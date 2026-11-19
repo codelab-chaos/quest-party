@@ -52,7 +52,14 @@ function Harness.new(saved, character, debugBuild, serverTime, options)
 	end
 	env.GetTime = function() return world.now end
 	env.GetServerTime = env.GetTime
-	env.UnitName = function() return "Tester" end
+	env.UnitName = function(unit)
+		local index = unit and tonumber(unit:match("^%a+(%d+)$"))
+		if index and world.group[index] then
+			local first, second = world.group[index]:match("^(%S+)%s*(.*)$")
+			return first, second ~= "" and second or nil
+		end
+		return "Tester"
+	end
 	env.UnitClass = function() return "Mage", "MAGE" end
 	env.UnitRace = function() return "Human", "Human" end
 	env.UnitSex = function() return 3 end
@@ -87,6 +94,11 @@ function Harness.new(saved, character, debugBuild, serverTime, options)
 	env.IsInRaid = function() return world.raid == true end
 	env.UnitInParty = function(name) return world.party[name] == true end
 	env.UnitInRaid = env.UnitInParty
+	-- The game group, by unit (group.lua): world.group = { "Name", ... }.
+	world.group = {}
+	env.GetNumGroupMembers = function() return #world.group end
+	env.UnitExists = function(unit) local index = tonumber(unit:match("%d+$")) return index ~= nil and world.group[index] ~= nil end
+	env.GetRealmName = function() return "TestRealm" end
 	env.Ambiguate = function(name) return (name:gsub("%-TestRealm$", "")) end
 	env.issecretvalue = function(value) return value == "<secret>" end
 	env.GetAchievementInfo = function() return 1, "An Achievement", 10 end
@@ -161,10 +173,10 @@ function Harness.new(saved, character, debugBuild, serverTime, options)
 	}
 	local ns = {}
 	local modules = {
-		"core.lua", "locales/en-us.lua", "data/feed-types.lua", "data/filters.lua", "data/settings.lua", "data/themes.lua", "data/slots.lua", "data/chat.lua", "data/effects.lua", "data/stats.lua", "data/scenes.lua",
-		"store.lua", "stats.lua", "chat.lua", "report.lua", "scenes.lua", "magnet.lua", "vitals.lua", "particles.lua", "resolver.lua", "comms/protocol.lua", "comms/origin.lua", "comms/transport.lua", "comms/session.lua", "comms/sharing.lua",
-		"collectors/patterns.lua", "collectors/samples.lua", "collectors/collectors.lua", "collectors/gear.lua", "collectors/vitals.lua",
-		"emulator/script.lua", "emulator/recordings.lua", "emulator/emulator.lua", "emulator/scenarios.lua", "ui/view-model.lua", "ui/party-model.lua", "ui/confetti.lua", "ui/chat-echo.lua", "commands.lua",
+		"core.lua", "locales/en-us.lua", "data/professions.lua", "data/marks.lua", "data/feed-types.lua", "data/filters.lua", "data/settings.lua", "data/themes.lua", "data/slots.lua", "data/chat.lua", "data/effects.lua", "data/stats.lua", "data/scenes.lua", "data/stamps.lua",
+		"store.lua", "stats.lua", "chat.lua", "report.lua", "scenes.lua", "magnet.lua", "vitals.lua", "stamps.lua", "colors.lua", "group.lua", "particles.lua", "resolver.lua", "comms/protocol.lua", "comms/origin.lua", "comms/transport.lua", "comms/session.lua", "comms/sharing.lua",
+		"collectors/patterns.lua", "collectors/samples.lua", "collectors/collectors.lua", "collectors/gear.lua", "collectors/vitals.lua", "collectors/professions.lua",
+		"emulator/script.lua", "emulator/recordings.lua", "emulator/emulator.lua", "emulator/scenarios.lua", "ui/view-model.lua", "ui/quest-card.lua", "ui/party-model.lua", "ui/confetti.lua", "ui/chat-echo.lua", "ui/event-sounds.lua", "commands.lua",
 	}
 	if options.sandbox then
 		for _, path in ipairs(Harness.SANDBOX_MODULES) do

@@ -42,15 +42,16 @@ end
 -- icon per kind of row, to show or hide it in your feed. Only what you see changes; what is shared does not
 -- (Settings has those switches).
 --   settings  the feature switches of the rows it covers (see FeedCategory)
---   icon      its icon in the gutter
+--   mark      its square (data\marks.lua), as on the rows
+--   icon      its icon, where there is no mark
 ns.GutterFilters = {
-	{ id = "levels", label = L.GUTTER_LEVELING, settings = { "levels" }, icon = "Interface\\Icons\\XP_Icon" },
-	{ id = "discovery", label = L.GUTTER_DISCOVERY, settings = { "discovery" }, icon = "Interface\\Icons\\INV_Misc_Map_01" },
-	{ id = "kills", label = L.GUTTER_KILLS, settings = { "kills" }, icon = "Interface\\Icons\\INV_Misc_Bone_Skull_02" },
-	{ id = "achievements", label = L.GUTTER_ACHIEVEMENTS, settings = { "achievements" }, icon = "Interface\\Icons\\achievement_reputation_01" },
-	{ id = "deaths", label = L.GUTTER_DEATHS, settings = { "deaths" }, icon = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01" },
-	{ id = "professions", label = L.GUTTER_PROFESSIONS, settings = { "professions" }, icon = "Interface\\Icons\\INV_SideTab_Professions_c60" },
-	{ id = "quests", label = L.GUTTER_QUESTS, settings = { "quests" }, icon = "Interface\\Icons\\INV_Misc_Note_01" },
+	{ id = "levels", mark = "xp", label = L.GUTTER_LEVELING, settings = { "levels" }, icon = "Interface\\Icons\\XP_Icon" },
+	{ id = "discovery", mark = "discovery", label = L.GUTTER_DISCOVERY, settings = { "discovery" }, icon = "Interface\\Icons\\INV_Misc_Map_01" },
+	{ id = "kills", mark = "kills", label = L.GUTTER_KILLS, settings = { "kills" }, icon = "Interface\\Icons\\INV_Misc_Bone_Skull_02" },
+	{ id = "achievements", mark = "achievement", label = L.GUTTER_ACHIEVEMENTS, settings = { "achievements" }, icon = "Interface\\Icons\\achievement_reputation_01" },
+	{ id = "deaths", mark = "death", label = L.GUTTER_DEATHS, settings = { "deaths" }, icon = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01" },
+	{ id = "professions", mark = "skill", label = L.GUTTER_PROFESSIONS, settings = { "professions" }, icon = "Interface\\Icons\\INV_SideTab_Professions_c60" },
+	{ id = "quests", mark = "questTaken", label = L.GUTTER_QUESTS, settings = { "quests" }, icon = "Interface\\Icons\\INV_Misc_Note_01" },
 }
 
 ns.GutterBySetting = {}

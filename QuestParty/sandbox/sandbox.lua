@@ -82,8 +82,42 @@ local function SendGear(persona)
 	Sharing().SendGear(persona.gear or {}, persona.class, persona.name)
 end
 
+-- ========= Health and power, as a pretend player =============================
+-- Health drops while they fight (a kill lately) and comes back between
+-- fights; power follows their class: rage climbs in a fight and fades after,
+-- mana and energy spend in it and come back. Sent like a real client's: in
+-- 5% steps, only when changed, at most every VITALS_EVERY pretend seconds.
+local VITALS_EVERY = 6
+local FIGHT_SECONDS = 15
+local POWER = { WARRIOR = "RAGE", ROGUE = "ENERGY" }
+
+local function Vitals(persona)
+	if Sandbox.clock - (persona.vitalsAt or -math.huge) < VITALS_EVERY then return end
+	persona.vitalsAt = Sandbox.clock
+	local token = POWER[persona.class] or "MANA"
+	persona.health = persona.health or 100
+	persona.power = persona.power or (token == "RAGE" and 0 or 100)
+	local random = persona.random
+	local fighting = persona.lastKillAt and Sandbox.clock - persona.lastKillAt < FIGHT_SECONDS
+	if fighting then
+		persona.health = math.max(5, persona.health - random.int(5, 25))
+		persona.power = token == "RAGE" and math.min(100, persona.power + random.int(10, 30)) or math.max(0, persona.power - random.int(5, 20))
+	else
+		persona.health = math.min(100, persona.health + random.int(10, 25))
+		persona.power = token == "RAGE" and math.max(0, persona.power - random.int(10, 20)) or math.min(100, persona.power + random.int(10, 25))
+	end
+	local reading = { h = math.floor(persona.health / 5) * 5, p = math.floor(persona.power / 5) * 5, t = token }
+	if not ns.Vitals.Same(reading, persona.vitalsSent) then
+		persona.vitalsSent = reading
+		Sharing().Send(ns.Protocol.Kinds.VITALS, { h = reading.h, p = reading.p, t = reading.t }, "vitals", persona.name)
+	end
+end
+
 local function Act(persona, actions)
 	for _, action in ipairs(actions) do
+		if action.send == "entry" and action.type == "xp" and action.data and action.data.mob and action.data.mob ~= "" then
+			persona.lastKillAt = Sandbox.clock -- a fight: their health drops (Vitals)
+		end
 		if action.send == "entry" then
 			Sharing():SendVirtual(persona, action.type, action.data)
 		elseif action.send == "quest" then
@@ -171,6 +205,7 @@ local function Advance(persona)
 		Act(persona, ns.SandboxParty.Step(persona))
 		persona.nextAt = persona.nextAt + ns.SandboxParty.NextGap(persona)
 	end
+	Vitals(persona)
 	-- Gear changed: the whole set, at most once in the gear wait, as a real
 	-- player's goes (comms\sharing.lua).
 	if persona.gearPending and Sandbox.clock >= (persona.gearSentAt or -math.huge) + Sandbox:GearWait() then
@@ -247,7 +282,9 @@ local function WearMine(persona)
 	end
 end
 
-function Sandbox:StartParty(count, seed, speed)
+-- prepare(persona), when given, sets each pretend player up before they
+-- arrive (a quest they all share, for one).
+function Sandbox:StartParty(count, seed, speed, prepare)
 	count = math.max(1, math.min(200, tonumber(count) or 5))
 	seed = tonumber(seed) or 1
 	if not Sharing().loopback and count > CHANNEL_LIMIT then
@@ -266,6 +303,7 @@ function Sandbox:StartParty(count, seed, speed)
 		if self.wearMine then
 			WearMine(persona)
 		end
+		if prepare then prepare(persona) end
 		local random = persona.random
 		persona.leaveAt = arrival + random.int(world.session.min, world.session.max) * 60
 		Add(persona, arrival)
@@ -329,9 +367,7 @@ function Sandbox:Wipe()
 	if ns.db.commsLog then
 		wipe(ns.db.commsLog)
 	end
-	if ns.db.stats then
-		wipe(ns.db.stats)
-	end
+	ns.Stats:Clear()
 end
 
 -- ========= Answering, as the pretend players ================================

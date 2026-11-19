@@ -37,7 +37,7 @@ end
 -- The sandbox: this character's gear straight into its own store.
 local function KeepOwn(gear)
 	local _, class = UnitClass("player")
-	ns.Store:UpdateGear(UnitName("player"), class, gear)
+	ns.Store:UpdateGear(ns.MyName(), class, gear)
 end
 
 Bus:On("READY", function()

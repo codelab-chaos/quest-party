@@ -197,7 +197,7 @@ local BUBBLE_BACKDROP = {
 }
 
 local function IsMine(data)
-	return data.player == UnitName("player")
+	return data.player == ns.MyName()
 end
 
 -- Left or right, pseudo random but the same every time a message is drawn
@@ -301,7 +301,7 @@ local function InitRow(row, data)
 		row.who:SetPoint("TOP" .. side, row, "TOP" .. side, inward * LAYOUT.edge, 0)
 		row.ring:ClearAllPoints()
 		row.ring:SetPoint(side, row.who, side, 0, 0)
-		row.ring:SetVertexColor(ns.Look.ClassColor(data.class))
+		row.ring:SetVertexColor(ns.PlayerColors:For(data.player))
 		ns.Look.SetPortrait(row.portrait, ns.PartyModel:Portrait(data.player))
 		row.name:ClearAllPoints()
 		row.name:SetPoint(side, row.ring, right and "LEFT" or "RIGHT", inward * 4, 0)
@@ -344,7 +344,7 @@ local function InitRow(row, data)
 		elseif mine then
 			row.bubble:SetBackdropBorderColor(unpack(COLORS.bubbleMineEdge))
 		else
-			local r, g, b = ns.Look.ClassColor(data.class)
+			local r, g, b = ns.PlayerColors:For(data.player)
 			row.bubble:SetBackdropBorderColor(r, g, b, 0.9)
 		end
 		row.bubble:Show()
@@ -1076,6 +1076,10 @@ local function Build()
 	popButton = CreateFrame("Button", nil, frame)
 	popButton:SetSize(LAYOUT.popSize, LAYOUT.popSize)
 	popButton:SetPoint("RIGHT", frame, "TOPRIGHT", -LAYOUT.pad, headerMiddle)
+	-- Still being made: an ALPHA! stamp in the header, left of pop out.
+	frame.alpha = ns.Look.AlphaStamp(frame, "RIGHT", 0, 0)
+	frame.alpha:ClearAllPoints()
+	frame.alpha:SetPoint("RIGHT", popButton, "LEFT", -6, 0)
 	popButton:SetScript("OnClick", function() ChatView:SetPopped(not ChatView.popped) end)
 	popButton:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")

@@ -50,3 +50,41 @@ function Scenes:Coords(scene, width, height)
 	return (left + inset) / atlas.width, (left + cellWidth - inset) / atlas.width,
 		(top + inset) / atlas.height, (top + cellHeight - inset) / atlas.height
 end
+
+-- ========= Backdrops (the game's art, a trial) ==============================
+-- Which backdrop a card gets: by a number the card keeps (its sequence), so a
+-- card keeps its art and neighbors differ. Only the ones the game has (has is
+-- asked for each name).
+function Scenes:Backdrop(number, has)
+	local usable = {}
+	for _, name in ipairs(ns.CardBackdrops) do
+		if has(name) then usable[#usable + 1] = name end
+	end
+	if #usable == 0 then return nil end
+	return usable[(math.floor(number or 0) % #usable) + 1]
+end
+
+-- The part of a backdrop that fills a card width x height, never stretched:
+-- a band from its middle when the art is taller than the card's shape, or a
+-- slice along its width when wider, the slice chosen by number so cards
+-- differ. coords are the atlas's own (left, right, top, bottom) in its file,
+-- and its size in pixels. Returns left, right, top, bottom in the file.
+function Scenes:Slice(coords, pixelWidth, pixelHeight, width, height, number)
+	local left, right, top, bottom = coords[1], coords[2], coords[3], coords[4]
+	if not (width and height and width > 0 and height > 0 and pixelWidth > 0 and pixelHeight > 0) then
+		return left, right, top, bottom
+	end
+	local wanted, art = width / height, pixelWidth / pixelHeight
+	if art > wanted then
+		local share = wanted / art -- of the art's width that shows
+		local steps = 4
+		local at = (math.floor(number or 0) % steps) / (steps - 1) * (1 - share)
+		local span = right - left
+		return left + span * at, left + span * (at + share), top, bottom
+	end
+	local share = art / wanted -- of its height
+	local span = bottom - top
+	local from = top + span * (1 - share) / 2
+	return left, right, from, from + span * share
+end
+

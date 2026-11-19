@@ -298,6 +298,180 @@ local MOCK_EVENTS = {
 	{ icon = "Interface\\Icons\\Achievement_Quests_Completed_01", title = "Earned: Quest for the Quest Giver", meta = "Halys" },
 }
 
+-- ========= Card backdrops: which painted backdrops the game has =============
+-- Atlases a card could use as its scene (docs\\scenes.md): the garrison and
+-- class hall mission backdrops (a zone in three layers: Back, Mid, Fore) and
+-- the group finder's buttons and backgrounds. The game names them by zone or
+-- expansion, and only the game knows which it has: each candidate is asked
+-- (C_Texture.GetAtlasInfo), those it has are shown, and the list is saved
+-- (ns.db.atlasProbe) for reading after a /reload.
+local BACKDROP_ZONES = {
+	-- Draenor
+	"FrostfireRidge", "FrostfireSea", "ShadowmoonValley", "ShadowmoonSea", "Gorgrond", "Talador", "SpiresofArak",
+	"SpiresOfArak", "Nagrand", "TannanJungle", "Ashran", "Draenor", "BlackrockMountain", "Highmaul",
+	-- Legion
+	"Azsuna", "Valsharah", "ValSharah", "Highmountain", "Stormheim", "Suramar", "BrokenShore", "Argus", "Dalaran",
+	"Azshara", "Krokuun", "MacAree", "Antoran", "Eredath", "BrokenIsles",
+	-- Battle for Azeroth
+	"Drustvar", "TiragardeSound", "Tiragarde", "StormsongValley", "Stormsong", "Zuldazar", "Nazmir", "Voldun",
+	"KulTiras", "Kultiras", "Zandalar", "Nazjatar", "Mechagon", "Uldum", "Valley", "Boralus", "Darkshore", "Arathi",
+	-- Shadowlands
+	"Maw", "Bastion", "Maldraxxus", "Ardenweald", "Revendreth", "Oribos", "Korthia", "ZerethMortis",
+	-- Elsewhere
+	"Kalimdor", "EasternKingdoms", "Northrend", "Pandaria", "Outland", "Undercity", "Stormwind", "Orgrimmar",
+	"Ironforge", "Silvermoon", "Exodar", "Darnassus", "ThunderBluff", "Barrens", "Desolace", "Tanaris",
+}
+local BACKDROP_LAYERS = { "Back", "Mid", "Fore" }
+local GROUPFINDER = {
+	"groupfinder-button-raids-classic", "groupfinder-button-raids-bc", "groupfinder-button-raids-wrathlk",
+	"groupfinder-button-raids-wrath", "groupfinder-button-raids-cataclysm", "groupfinder-button-raids-mop",
+	"groupfinder-button-raids-wod", "groupfinder-button-raids-legion", "groupfinder-button-raids-bfa",
+	"groupfinder-button-raids-shadowlands", "groupfinder-button-raids-dragonflight", "groupfinder-button-dungeons",
+	"groupfinder-button-scenarios", "groupfinder-button-questing", "groupfinder-button-pvp",
+	"groupfinder-button-arenas", "groupfinder-button-battlegrounds", "groupfinder-button-ashran",
+	"groupfinder-button-custom", "groupfinder-button-rated-battlegrounds", "groupfinder-background-dungeons",
+	"groupfinder-background-raids", "groupfinder-background-scenarios", "groupfinder-background-questing",
+	"groupfinder-background-pvp", "groupfinder-background-arenas", "groupfinder-background-battlegrounds",
+}
+
+local function Candidates()
+	local names = {}
+	for _, zone in ipairs(BACKDROP_ZONES) do
+		for _, layer in ipairs(BACKDROP_LAYERS) do
+			names[#names + 1] = "_GarrMissionLocation-" .. zone .. "-" .. layer
+			names[#names + 1] = "GarrMissionLocation-" .. zone .. "-" .. layer
+		end
+		names[#names + 1] = "GarrMissionLocation-" .. zone
+	end
+	for _, name in ipairs(GROUPFINDER) do names[#names + 1] = name end
+	return names
+end
+
+-- Asks the game for each candidate: { name, width, height } of those it has.
+local function Probe()
+	local found = {}
+	local candidates = Candidates()
+	for _, name in ipairs(candidates) do
+		local info = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(name)
+		if info then
+			found[#found + 1] = { name = name, width = info.width, height = info.height }
+		end
+	end
+	ns.db.atlasProbe = { checked = #candidates, found = found, time = GetServerTime() }
+	return found, #candidates
+end
+
+local function BuildBackdrops()
+	Heading("Card backdrops", "which painted backdrops the game has")
+	local previews = {}
+	local note = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	note:SetPoint("TOPLEFT", LAYOUT.pad, -y)
+	note:SetPoint("RIGHT", content, "RIGHT", -LAYOUT.pad, 0)
+	note:SetJustifyH("LEFT")
+	note:SetText("Probe asks the game for each name; previews go at the bottom of the lab. /reload after it to save the list.")
+	y = y + 16
+	local listTop -- the lab's end, where the previews go (after every section)
+	Buttons({ { "Probe", function()
+		local found, checked = Probe()
+		-- A preview strip for each, card shaped, its name over it, after the
+		-- lab's last section.
+		listTop = listTop or content:GetHeight()
+		local top = listTop
+		for index, atlas in ipairs(found) do
+			local strip = previews[index]
+			if not strip then
+				strip = CreateFrame("Frame", nil, content)
+				strip.texture = strip:CreateTexture(nil, "ARTWORK")
+				strip.texture:SetAllPoints()
+				strip.label = strip:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+				strip.label:SetPoint("BOTTOMLEFT", 3, 2)
+				previews[index] = strip
+			end
+			strip:SetSize(LAYOUT.width - 60, 44)
+			strip:ClearAllPoints()
+			strip:SetPoint("TOPLEFT", LAYOUT.pad, -top)
+			strip.texture:SetAtlas(atlas.name)
+			strip.label:SetText(("%s  %dx%d"):format(atlas.name, atlas.width or 0, atlas.height or 0))
+			strip:Show()
+			top = top + 48
+		end
+		for index = #found + 1, #previews do previews[index]:Hide() end
+		content:SetHeight(math.max(content:GetHeight(), top + LAYOUT.pad))
+		return ("%d of %d found"):format(#found, checked)
+	end } })
+end
+
+-- The garrison's class and spec emblems: which the game has, to pick stamp
+-- emblems from (data\\stamps.lua). Names are GarrMission_ClassIcon-Class or
+-- -Class-Spec.
+local EMBLEM_CLASSES = {
+	DeathKnight = { "Blood", "Frost", "Unholy" }, DemonHunter = { "Havoc", "Vengeance" },
+	Druid = { "Balance", "Feral", "Guardian", "Restoration" }, Hunter = { "BeastMastery", "Marksmanship", "Survival" },
+	Mage = { "Arcane", "Fire", "Frost" }, Monk = { "Brewmaster", "Mistweaver", "Windwalker" },
+	Paladin = { "Holy", "Protection", "Retribution" }, Priest = { "Discipline", "Holy", "Shadow" },
+	Rogue = { "Assassination", "Combat", "Outlaw", "Subtlety" }, Shaman = { "Elemental", "Enhancement", "Restoration" },
+	Warlock = { "Affliction", "Demonology", "Destruction" }, Warrior = { "Arms", "Fury", "Protection" },
+}
+
+local function BuildEmblems()
+	Heading("Stamp emblems", "the garrison's class and spec emblems the game has")
+	local cells = {}
+	local gridTop = y
+	Buttons({ { "Probe", function()
+		local names = {}
+		local classes = {}
+		for class in pairs(EMBLEM_CLASSES) do classes[#classes + 1] = class end
+		table.sort(classes)
+		for _, class in ipairs(classes) do
+			names[#names + 1] = "GarrMission_ClassIcon-" .. class
+			for _, spec in ipairs(EMBLEM_CLASSES[class]) do
+				names[#names + 1] = "GarrMission_ClassIcon-" .. class .. "-" .. spec
+			end
+		end
+		local found = {}
+		for _, name in ipairs(names) do
+			if C_Texture.GetAtlasInfo(name) then found[#found + 1] = name end
+		end
+		-- A grid at the lab's end: each emblem with its name under it (hover
+		-- for the whole name).
+		local top = content:GetHeight()
+		local size, columns = 48, 6
+		local cellWidth = math.floor((LAYOUT.width - 60) / columns)
+		for index, name in ipairs(found) do
+			local cell = cells[index]
+			if not cell then
+				cell = CreateFrame("Frame", nil, content)
+				cell.texture = cell:CreateTexture(nil, "ARTWORK")
+				cell.texture:SetSize(size, size)
+				cell.texture:SetPoint("TOP")
+				cell.label = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+				cell.label:SetPoint("TOP", cell.texture, "BOTTOM", 0, -1)
+				cell.label:SetWidth(cellWidth)
+				cell.label:SetWordWrap(false)
+				cell:EnableMouse(true)
+				cell:SetScript("OnEnter", function(self)
+					GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+					GameTooltip:SetText(self.name)
+					GameTooltip:Show()
+				end)
+				cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+				cells[index] = cell
+			end
+			local column, row = (index - 1) % columns, math.floor((index - 1) / columns)
+			cell:SetSize(cellWidth, size + 14)
+			cell:ClearAllPoints()
+			cell:SetPoint("TOPLEFT", LAYOUT.pad + column * cellWidth, -(top + row * (size + 18)))
+			cell.texture:SetAtlas(name)
+			cell.name = name
+			cell.label:SetText((name:gsub("^GarrMission_ClassIcon%-", "")))
+			cell:Show()
+		end
+		for index = #found + 1, #cells do cells[index]:Hide() end
+		content:SetHeight(top + math.ceil(#found / columns) * (size + 18) + LAYOUT.pad)
+		return ("%d of %d found"):format(#found, #names)
+	end } })
+end
+
 local function BuildDock()
 	Heading("Magnetic event dock", "move the mouse to the panel's right edge")
 	local area = CreateFrame("Frame", nil, content, "BackdropTemplate")
@@ -369,7 +543,7 @@ local function Build()
 	content:SetWidth(LAYOUT.width - 34)
 	scroll:SetScrollChild(content)
 
-	for _, section in ipairs({ BuildDock, BuildModel, BuildHead, BuildSpellKit, BuildSpeech, BuildWaypoint, BuildBanner, BuildStamps, BuildEmote }) do
+	for _, section in ipairs({ BuildEmblems, BuildBackdrops, BuildDock, BuildModel, BuildHead, BuildSpellKit, BuildSpeech, BuildWaypoint, BuildBanner, BuildStamps, BuildEmote }) do
 		local ok, problem = pcall(section)
 		if not ok then
 			Heading("(a section could not be built)", tostring(problem))

@@ -3,12 +3,16 @@
 --
 -- A row is:
 --   { kind, icon, badge, title, right, lines, summary, progress, quest, highlight, pulse, sequence }
---   badge     drawn in place of the icon: { style, text }
+--   badge     drawn in place of the icon: { style, text } (a level's crest)
+--   mark      the square on the right, by id (data\marks.lua)
 --   kind      "feed", "progress" (one objective), "tracker" (a whole quest) or "member"
 --   lines     the detail lines under the title: { text, right, progress = { have, need } }
 --   summary   what to show after the title when the row is drawn on one line
 --   progress  overall { have, need }, drawn as a strip in the one-line view
 --   quest     set when the row is about a quest, so clicking it can jump to that quest
+--   shared    a quest you and someone else are both on: the row glows
+--   player, class  whose row it is: its avatar on the left
+--   grouped   that player is in your game party or raid: the row is marked
 --   pulse     set when the row changed in the last few seconds. It is a string unique
 --             to that change, so the panel can flash the row exactly once.
 -- Progress rows and feed rows share one timeline, ordered by when each last changed, so
@@ -60,6 +64,7 @@ local function MemberRow(member, now)
 	return {
 		kind = "member",
 		icon = ns.CardIcons.member,
+		mark = "joined",
 		title = ns.ColorName(member.name, member.class),
 		right = ns.Ago(now - (member.time or now)),
 		lines = lines,
@@ -68,12 +73,16 @@ local function MemberRow(member, now)
 end
 
 -- One unfinished objective: the two-line progress indicator used on the feed tabs.
+
 local function ProgressRow(record, objective, now)
 	local age = now - objective.time
 	local detail = L.PROGRESS_DETAIL:format(ns.ColorName(record.player, record.class), record.data.quest)
 	local progress = { have = objective.have, need = objective.need }
 	return {
 		kind = "progress",
+		mark = "questTaken", -- the game's yellow ! (data\marks.lua)
+		player = record.player, -- the row's avatar (ui\\panel.lua)
+		class = record.class,
 		sequence = objective.sequence,
 		icon = ns.CardKinds[record.kind].icon,
 		title = objective.name,
@@ -99,6 +108,46 @@ local function ProgressRows(kindName, now)
 	return rows
 end
 
+-- A quest a party is on, as sections: one per objective, in the quest's
+-- order. In each, the players still working on it, the latest to make
+-- progress first (a mini feed), and those done with it, collapsed together.
+--   { name, need, active = { { name, class, have, need, ago, me } },
+--     done = { the same, the latest done first } }
+function ViewModel.QuestSections(party, now)
+	local sections, byName = {}, {}
+	for _, member in ipairs(party) do
+		for _, objective in ipairs(member.objectives) do
+			local section = byName[objective.name]
+			if not section then
+				section = { name = objective.name, need = objective.need, order = objective.order or #sections + 1, active = {}, done = {} }
+				byName[objective.name] = section
+				sections[#sections + 1] = section
+			end
+			local entry = {
+				name = member.name,
+				class = member.class,
+				have = objective.have,
+				need = objective.need,
+				time = objective.time or 0,
+				ago = now - (objective.time or now),
+				me = member.me,
+			}
+			local list = objective.have >= objective.need and section.done or section.active
+			list[#list + 1] = entry
+		end
+	end
+	table.sort(sections, function(a, b) return a.order < b.order end)
+	local function Latest(a, b)
+		if a.time ~= b.time then return a.time > b.time end
+		return a.name < b.name
+	end
+	for _, section in ipairs(sections) do
+		table.sort(section.active, Latest)
+		table.sort(section.done, Latest)
+	end
+	return sections
+end
+
 -- One quest across the party. For each member on it: who, when they started and
 -- their kills, then a line per objective.
 local function TrackerRow(quest, records, now)
@@ -108,6 +157,12 @@ local function TrackerRow(quest, records, now)
 	local lines = {}
 	local overall = { have = 0, need = 0 }
 	local newest, sequence = records[1].time, 0
+	-- Two or more on it: a party doing it together, one column each
+	-- (ui\panel.lua, LayoutParty): who is ahead, who is done, what is left.
+	local party = #records >= 2 and {} or nil
+	-- One player on it: their objectives, for the quest card layouts
+	-- (ui\\quest-card.lua).
+	local objectiveList = {}
 	for _, record in ipairs(records) do
 		local data = record.data
 		local name = ns.ColorName(record.player, record.class)
@@ -129,17 +184,49 @@ local function TrackerRow(quest, records, now)
 			}
 			overall.have = overall.have + math.min(objective.have, objective.need)
 			overall.need = overall.need + objective.need
+			objectiveList[#objectiveList + 1] = { name = objective.name, have = objective.have, need = objective.need, done = done }
 		end
 		if #objectives == 0 then
 			lines[#lines + 1] = { text = L.TRACKER_NO_OBJECTIVES }
+		end
+		if party then
+			local have, need, parts = 0, 0, {}
+			for _, objective in ipairs(objectives) do
+				have = have + math.min(objective.have, objective.need)
+				need = need + objective.need
+				parts[#parts + 1] = { name = objective.name, have = objective.have, need = objective.need, time = objective.time, order = objective.order }
+			end
+			party[#party + 1] = {
+				name = record.player,
+				class = record.class,
+				have = have,
+				need = need,
+				done = need > 0 and have >= need,
+				objectives = parts,
+				me = ns.IsMe(record.player) or nil,
+			}
 		end
 
 		newest = math.max(newest, record.time)
 		sequence = math.max(sequence, record.sequence or 0)
 	end
 	local age = now - newest
+	local single = #records == 1 and records[1] or nil
+	local sections, doneCount = party and ViewModel.QuestSections(party, now) or nil, 0
+	for _, member in ipairs(party or {}) do
+		if member.done then doneCount = doneCount + 1 end
+	end
+	local ready = overall.need > 0 and overall.have >= overall.need
 	return {
 		kind = "tracker",
+		-- The game's yellow ! (data\marks.lua); its ? once every objective is
+		-- done, ready to hand in.
+		mark = ready and "questDone" or "questTaken",
+		ready = ready or nil,
+		player = single and single.player or nil, -- one player on it: their avatar
+		class = single and single.class or nil,
+		objectives = single and objectiveList or nil,
+		started = single and (now - single.created) or nil,
 		sequence = sequence,
 		icon = ns.CardKinds[records[1].kind].icon,
 		title = quest,
@@ -147,6 +234,9 @@ local function TrackerRow(quest, records, now)
 		lines = lines,
 		summary = L.TRACKER_MEMBERS:format(#records),
 		progress = overall.need > 0 and overall or nil,
+		party = party,
+		sections = sections, -- the party card's sections (ViewModel.QuestSections)
+		doneCount = party and doneCount or nil,
 		quest = quest,
 		questID = records[1].data.questID,
 		pulse = (age <= PULSE_SECONDS) and ("tracker/" .. quest .. "/" .. sequence),
@@ -155,14 +245,22 @@ end
 
 -- Groups one kind of card by quest, for the party tracker.
 local function TrackerRows(kindName, now)
-	local byQuest, order = {}, {}
+	-- A quest shows while anyone's card for it is still worth showing; then
+	-- everyone on it is in, finished ones too, so a party card shows who is done.
+	local active = {}
 	for _, record in ipairs(ns.Store:GetCards(kindName, true)) do
+		active[record.data.questID or record.data.quest] = true
+	end
+	local byQuest, order = {}, {}
+	for _, record in ipairs(ns.Store:GetCards(kindName)) do
 		local key = record.data.questID or record.data.quest
-		if not byQuest[key] then
-			byQuest[key] = {}
-			order[#order + 1] = key
+		if active[key] then
+			if not byQuest[key] then
+				byQuest[key] = {}
+				order[#order + 1] = key
+			end
+			table.insert(byQuest[key], record)
 		end
-		table.insert(byQuest[key], record)
 	end
 	local rows = {}
 	for _, key in ipairs(order) do
@@ -172,8 +270,19 @@ local function TrackerRows(kindName, now)
 	return rows
 end
 
+-- A row's badge: a fixed mark (a quest's ! or ?), or a field's value (a
+-- level-up's new level), drawn in place of the icon (ui\\panel.lua).
+local function Badge(def, entry)
+	local badge = def.badge
+	if not badge then return nil end
+	if badge.mark then return { style = badge.style, text = badge.mark } end
+	local value = entry.data[badge.field]
+	return value ~= nil and { style = badge.style, text = tostring(value) } or nil
+end
+
 local function FeedRow(entry, now)
 	local def = ns.FeedTypes[entry.type]
+	local stampKey = ns.Stamping:KeyFor(entry)
 	local title, detail, fields = ns.Resolver.Text(entry, def)
 	local subtitle = fields.player
 	if detail then
@@ -186,16 +295,27 @@ local function FeedRow(entry, now)
 	end
 	return {
 		kind = "feed",
+		player = entry.player, -- the row's avatar (ui\\panel.lua)
+		class = entry.class,
 		sequence = entry.sequence or 0,
 		icon = def.icon,
+		mark = def.mark, -- the square on the right (data\marks.lua)
+		markIcon = def.markIcon and def.markIcon(entry) or nil, -- its own art, if any
 		title = title,
 		right = ns.Ago(now - entry.time),
 		lines = { { text = subtitle, progress = progress } },
 		summary = subtitle,
 		progress = progress,
 		quest = entry.data.quest,
+		questID = entry.data.questID,
+		-- Stamps (stamps.lua): the card's key, what is on it, and the entry to
+		-- stamp it from here.
+		stampKey = stampKey,
+		stamps = ns.Stamping:For(stampKey),
+		entry = stampKey and entry or nil,
 		highlight = def.highlight,
-		badge = def.badge and entry.data[def.badge.field] ~= nil and { style = def.badge.style, text = tostring(entry.data[def.badge.field]) } or nil,
+		tint = def.tint, -- the row's light by kind (data\\themes.lua)
+		badge = Badge(def, entry),
 		pulse = (now - entry.time <= PULSE_SECONDS) and (entry.player .. "/" .. entry.time .. "/" .. title),
 	}
 end
@@ -212,7 +332,7 @@ end
 -- This player's own record: the game's numbers, with the last kill as the
 -- store saw it.
 local function Me()
-	local name = UnitName("player")
+	local name = ns.MyName()
 	local _, class = UnitClass("player")
 	local saved = ns.Store:GetMember(name) or {}
 	return {
@@ -227,6 +347,38 @@ local function Me()
 	}
 end
 
+-- ========= The players shown: a cap ========================================
+-- At most this many players show at once (the Players shown slider, 10 to
+-- 20): a busy channel stays readable and light to draw.
+function ViewModel.PartyCap()
+	return math.floor(ns.GetSlider("partyCap") or 10)
+end
+
+-- Keeps the cap's worth of a list, in its own order: you first, then your
+-- game group, then whoever was active most lately (recent gives a time,
+-- larger is later). name(item) names each.
+function ViewModel.Cap(list, cap, name, recent)
+	if #list <= cap then return list end
+	local ranked = {}
+	for index, item in ipairs(list) do
+		local who = name(item)
+		local rank = ns.IsMe(who) and 0 or (ns.Group:Has(who) and 1 or 2)
+		ranked[#ranked + 1] = { item = item, index = index, rank = rank, recent = recent(item) or 0 }
+	end
+	table.sort(ranked, function(a, b)
+		if a.rank ~= b.rank then return a.rank < b.rank end
+		if a.recent ~= b.recent then return a.recent > b.recent end
+		return a.index < b.index
+	end)
+	local keep = {}
+	for index = 1, cap do keep[ranked[index].index] = true end
+	local kept = {}
+	for index, item in ipairs(list) do
+		if keep[index] then kept[#kept + 1] = item end
+	end
+	return kept
+end
+
 function ViewModel:PartyBars()
 	local bars = {}
 	if not ns.IsEnabled("levels") then
@@ -239,6 +391,10 @@ function ViewModel:PartyBars()
 			members[#members + 1] = member
 		end
 	end
+	members = ViewModel.Cap(members, ViewModel.PartyCap(), function(member) return member.name end, function(member)
+		local peer = ns.Session.peers[member.name]
+		return (peer and peer.heard) or member.time
+	end)
 	for _, member in ipairs(members) do
 		do
 			local bar = {
@@ -248,6 +404,7 @@ function ViewModel:PartyBars()
 				lastXP = member.lastXP,
 				lastMob = member.lastMob,
 				me = member.me,
+				grouped = ns.Group:Has(member.name) or nil, -- in your game group
 			}
 			-- Health and power: yours from the game, a friend's from the channel.
 			local vitals
@@ -276,6 +433,29 @@ function ViewModel:PartyBars()
 	end
 	return bars
 end
+
+-- Quests you and someone else are both on: a quest card of yours and one of
+-- another player's. By quest id and by title (older entries have no id).
+function ViewModel:SharedQuests()
+	local mine, theirs = {}, {}
+	-- Every card, shown or not: being on the same quest counts before any
+	-- objective moves.
+	for _, record in ipairs(ns.Store:GetCards("quest")) do
+		local into = ns.IsMe(record.player) and mine or theirs
+		if record.data.questID then into["id:" .. record.data.questID] = true end
+		if record.data.quest then into["title:" .. record.data.quest] = true end
+	end
+	local shared = {}
+	for key in pairs(mine) do
+		if theirs[key] then shared[key] = true end
+	end
+	return shared
+end
+
+local function IsShared(shared, row)
+	return (row.questID and shared["id:" .. row.questID]) or (row.quest and shared["title:" .. row.quest]) or false
+end
+ViewModel.IsShared = IsShared
 
 function ViewModel:Build(filterId)
 	local filter = ns.FilterById[filterId] or ns.Filters[1]
@@ -331,6 +511,22 @@ function ViewModel:Build(filterId)
 		end
 		return first.index < second.index
 	end)
+	-- Quests you share with someone glow (ui\panel.lua), wherever they show,
+	-- and in the Quest tab they lead. Rows of players in your game group are
+	-- marked (grouped).
+	local shared = self:SharedQuests()
+	for _, row in ipairs(timeline) do
+		row.shared = IsShared(shared, row) or nil
+		row.grouped = row.player and ns.Group:Has(row.player) or nil
+	end
+	if filter.tracker and not filter.feed then
+		local first, rest = {}, {}
+		for _, row in ipairs(timeline) do
+			if row.shared then first[#first + 1] = row else rest[#rest + 1] = row end
+		end
+		timeline = first
+		for _, row in ipairs(rest) do timeline[#timeline + 1] = row end
+	end
 	for _, row in ipairs(timeline) do
 		rows[#rows + 1] = row
 	end

@@ -8,7 +8,7 @@ local _, ns = ...
 -- Nothing is sent to the channel: they never pass through the collectors.
 local function Me()
 	local _, class = UnitClass("player")
-	return UnitName("player"), class, UnitLevel("player") or 1
+	return ns.MyName(), class, UnitLevel("player") or 1
 end
 
 local function Entry(typeName, data)

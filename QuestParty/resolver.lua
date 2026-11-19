@@ -51,7 +51,8 @@ function Resolver.Fields(player, class, data, def)
 				fields.xpStatus = L.XP_KILLS_LEFT:format(data.level, ns.Comma(left), data.level + 1)
 			else
 				local remaining = math.max(0, math.min(100, 100 * (data.maxXP - data.currentXP) / data.maxXP))
-				fields.xpStatus = L.XP_STATUS:format(data.level, remaining, data.level + 1)
+				-- A whole number, rounded up: "1% to go", never "0%" while some is left.
+				fields.xpStatus = L.XP_STATUS:format(data.level, math.ceil(remaining), data.level + 1)
 			end
 		end
 	end
@@ -70,6 +71,15 @@ function Resolver.Text(entry, def)
 		fields.first, fields.gained = first, last - first
 		titleTemplate = merge.text
 		detailTemplate = fields.gained == 1 and merge.detailOne or merge.detail
+	end
+	-- A detail that only says something when its field is there (detailIf).
+	if def.detailIf and detailTemplate == def.detail then
+		local value = (entry.data or {})[def.detailIf]
+		if value == nil then
+			detailTemplate = nil
+		elseif value == 1 and def.detailOne then
+			detailTemplate = def.detailOne -- "+1 kill", not "+1 kills"
+		end
 	end
 	local detail = detailTemplate and ns.Fill(detailTemplate, fields) or nil
 	return ns.Fill(titleTemplate, fields), detail, fields

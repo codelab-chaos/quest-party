@@ -51,14 +51,17 @@ local L = ns.L
 
 ns.FeedTypes = {
 	quest_accepted = {
+		mark = "questTaken", -- the square on the right (data\marks.lua)
 		setting = "quests",
 		filters = { quests = true },
-		icon = "Interface\\Icons\\INV_Misc_Note_02",
+		icon = "Interface\\GossipFrame\\AvailableQuestIcon", -- the game's yellow !: a quest taken
+		tint = "accepted", -- the row's light (data\themes.lua): deep blue
 		text = L.FEED_QUEST_ACCEPTED,
 		chat = L.CHAT_QUEST_ACCEPTED,
 		card = { kind = "quest", keys = { "quest" }, mode = "open" },
 	},
 	quest_progress = {
+		mark = "questTaken", -- the square on the right (data\marks.lua)
 		setting = "questDetails",
 		filters = { quests = true },
 		-- A finished objective. A check mark, so it is not mistaken for the quest
@@ -67,19 +70,30 @@ ns.FeedTypes = {
 		text = L.FEED_QUEST_OBJECTIVE,
 		chat = L.CHAT_QUEST_OBJECTIVE,
 		card = { kind = "quest", keys = { "quest" }, mode = "objective" },
+		sound = 878, -- an objective done: IG_QUEST_LIST_COMPLETE (ui\event-sounds.lua)
+		-- The kills that finished it fold into it (store.lua, FoldKills): their
+		-- run's row goes, and this row says "+8 kills, +437 XP".
+		foldKills = { field = "objective", seconds = 5 * 60 },
+		detail = L.FEED_QUEST_OBJECTIVE_KILLS,
+		detailIf = "kills",
+		detailOne = L.FEED_QUEST_OBJECTIVE_KILL,
+		format = { killXP = true },
 	},
 	quest_complete = {
+		mark = "questDone", -- the square on the right (data\marks.lua)
 		setting = "quests",
 		filters = { quests = true, xp = true },
-		icon = "Interface\\Icons\\Achievement_Quests_Completed_06",
+		icon = "Interface\\GossipFrame\\ActiveQuestIcon", -- the game's yellow ?: a quest handed in
 		text = L.FEED_QUEST_COMPLETE,
 		detail = L.FEED_QUEST_COMPLETE_DETAIL,
 		chat = L.CHAT_QUEST_COMPLETE,
 		highlight = "quest",
 		format = { xp = true },
+		sound = 23404, -- UI_AUTO_QUEST_COMPLETE
 		card = { kind = "quest", keys = { "quest" }, mode = "close" },
 	},
 	quest_abandoned = {
+		mark = "questDropped", -- the square on the right (data\marks.lua)
 		setting = "quests",
 		filters = { quests = true },
 		icon = "Interface\\Icons\\INV_Misc_Note_02",
@@ -87,6 +101,7 @@ ns.FeedTypes = {
 		card = { kind = "quest", keys = { "quest" }, mode = "close" },
 	},
 	kill = {
+		mark = "xp", -- the square on the right (data\marks.lua)
 		setting = "kills",
 		-- Only kills made for a quest. Quest Tweet's equivalent was its quest details line.
 		requires = { "quest" },
@@ -109,6 +124,7 @@ ns.FeedTypes = {
 		chat = L.CHAT_LEVEL,
 		highlight = "level",
 		celebrate = true,
+		sound = 46893, -- a level-up flourish
 		badge = { style = "level", field = "level" }, -- the new level, on a gold ring
 		member = { level = "level" },
 	},
@@ -116,6 +132,7 @@ ns.FeedTypes = {
 	-- mob names the kill the XP came from, "" when it was not a kill or the
 	-- game did not name one.
 	xp = {
+		mark = "xp", -- the square on the right (data\marks.lua)
 		setting = "levels",
 		requires = { "level", "currentXP", "maxXP" },
 		filters = { xp = true },
@@ -136,6 +153,7 @@ ns.FeedTypes = {
 		merge = { keys = { "mob" }, seconds = 5 * 60, sum = { "xp" }, count = "gains" },
 	},
 	discovery = {
+		mark = "discovery", -- the square on the right (data\marks.lua)
 		setting = "discovery",
 		filters = { xp = true },
 		icon = "Interface\\Icons\\inv_misc_map02",
@@ -144,6 +162,9 @@ ns.FeedTypes = {
 		member = { zone = "zone" },
 	},
 	skill = {
+		mark = "skill", -- the square on the right (data\marks.lua)
+		-- its art: the profession's own icon (data\professions.lua)
+		markIcon = function(entry) return ns.ProfessionIcon(entry.data.skill) end,
 		setting = "professions",
 		filters = { professions = true },
 		icon = "Interface\\Icons\\INV_SideTab_Professions_c60",
@@ -158,6 +179,7 @@ ns.FeedTypes = {
 		},
 	},
 	death = {
+		mark = "death", -- the square on the right (data\marks.lua)
 		setting = "deaths",
 		filters = {},
 		icon = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01",
@@ -173,11 +195,14 @@ ns.FeedTypes = {
 	-- here, never sent (comms\sharing.lua).
 	-- No switch: always on, rate limited (ns.Timing.welcome*).
 	joined = {
+		mark = "joined", -- the square on the right (data\marks.lua)
+		tint = "joined", -- the row's light: blue
 		filters = {},
 		icon = "Interface\\Icons\\Ability_Warrior_BattleShout",
 		text = L.FEED_JOINED,
 	},
 	unknown = {
+		mark = "unknown", -- the square on the right (data\marks.lua)
 		setting = "otherUpdates",
 		requires = { "summary" },
 		filters = {},
@@ -185,6 +210,7 @@ ns.FeedTypes = {
 		text = L.FEED_UNKNOWN,
 	},
 	achievement = {
+		mark = "achievement", -- the square on the right (data\marks.lua)
 		setting = "achievements",
 		filters = { achievements = true },
 		icon = "Interface\\Icons\\achievement_reputation_01",
@@ -197,8 +223,10 @@ ns.FeedTypes = {
 -- Persistent cards. A card belongs to one player and is fed by the types above.
 --   setting  the feature switch that shows or hides this kind of card
 --   icon     card icon
+--   mark     its square (data\marks.lua)
 ns.CardKinds = {
 	quest = {
+		mark = "questTaken",
 		setting = "quests",
 		icon = "Interface\\GossipFrame\\AvailableQuestIcon",
 	},

@@ -135,6 +135,18 @@ end
 -- True when a sender's name is this player's own. On Forever a character has
 -- a first name and a surname, and messages carry both ("Bagoe Bones"), while
 -- UnitName gives them as two values.
+-- This character's name as everyone else sees it: on Forever a character
+-- has a first name and a surname, the game gives them as two values, and
+-- the channel carries both ("Unbearably Huggable"). Your own rows use this,
+-- so they read like everyone else's. Without a surname, the first name.
+function ns.MyName()
+	local first, second = UnitName("player")
+	if type(second) == "string" and second ~= "" and second ~= (GetRealmName and GetRealmName()) then
+		return first .. " " .. second
+	end
+	return first
+end
+
 function ns.IsMe(name)
 	if type(name) ~= "string" then
 		return false
