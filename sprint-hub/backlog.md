@@ -171,10 +171,10 @@ Five stories, in the order they are built. Local planning entries; no Atlas card
 install stays on the released 0.2.0 until 0.3.5 ships; the sandbox runs 0.3.5. Local planning entries; no Atlas
 cards created yet.
 
-- **push-main-035** (chore, next): push `main` (15 commits ahead of `origin/main`), then rename or delete
-  `v023_chat`.
-- **release-035** (story, next): tag `v0.3.5`, GitHub release with the packaged ZIP, CurseForge upload (manual, as
-  for 0.2.0); then deploy it to the regular install.
+- **push-main-035** (chore, done 2026-11-18): `main` pushed. Still open: rename or delete the `v023_chat` and
+  `side-quest` branches (both behind `main`).
+- **release-035** (story, done 2026-11-18): tagged `v0.3.5`, GitHub release with the packaged ZIP and the change
+  list from CHANGELOG.md; the regular install runs it. Still open: the CurseForge upload (manual, as for 0.2.0).
 
 ## Bugs (2026-11-17)
 
