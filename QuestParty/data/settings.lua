@@ -30,6 +30,7 @@ ns.Settings = {
 	{ id = "chatEcho", group = "display", label = L.SET_CHAT_ECHO, tip = L.SET_CHAT_ECHO_TIP, default = true },
 	{ id = "chatOrder", group = "display", label = L.SET_CHAT_ORDER, tip = L.SET_CHAT_ORDER_TIP, default = true },
 	{ id = "stampFade", group = "display", label = L.SET_STAMP_FADE, tip = L.SET_STAMP_FADE_TIP, default = false },
+	{ id = "titleChannel", group = "display", label = L.SET_TITLE_CHANNEL, tip = L.SET_TITLE_CHANNEL_TIP, default = true },
 	{ id = "showVitals", group = "display", label = L.SET_SHOW_VITALS, tip = L.SET_SHOW_VITALS_TIP, default = true },
 	{ id = "cardBackdrops", group = "display", label = L.SET_CARD_BACKDROPS, tip = L.SET_CARD_BACKDROPS_TIP, default = true },
 }

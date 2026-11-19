@@ -7,6 +7,9 @@ CurseForge's changelog field using Markdown formatting.
 
 ### Added
 
+- Quest Party has a page in the game's own Options, under AddOns, with a button that opens Quest Party's settings.
+- The title can name the channel you share on, in grey after Quest Party (Show channel in title in Settings, on by default; switch it off before screenshots so they do not invite strangers), running under the header buttons; on a narrow panel Quest Party collapses to QP.
+- A kill row's multiplier ("x4") is orange, so it stands out.
 - The Quest tab has a short row at the top of its list with a small gear that cycles the quest cards' layout (Segmented, Grid, Ring, List), the current one named beside it.
 
 ### Changed

@@ -318,7 +318,7 @@ test("kills of one creature add up in one row, and other XP in another", functio
 	equal(feed[1].data.xp, 243)
 	equal(feed[1].data.gains, 3)
 	local rows = w.ns.ViewModel:Build("xp")
-	equal(rows[2].title, "Kills Wandering Spirit x3 for 243 XP")
+	equal(rows[2].title, "Kills Wandering Spirit |cffff8c1ax3|r for 243 XP") -- the multiplier in orange
 	-- 1000 - 413 = 587 to go, at 81 a kill.
 	equal(rows[2].summary, "Tester, Lv 20, 8 kills to 21")
 	equal(rows[1].title, "Kills Rotting Ghoul for 70 XP")
@@ -2362,6 +2362,14 @@ test("no automatic party discovery, friend linking or sharing before a channel e
 	equal(w.ns.Session.Link, nil)
 	equal(w.popup, nil)
 	equal(#w.sent, 0)
+end)
+
+test("the channel's name in the title is shown by default, and can be switched off for screenshots", function()
+	local w = Harness.new()
+	equal(w.ns.SettingById.titleChannel.default, true)
+	equal(w.ns.IsEnabled("titleChannel"), true)
+	w.ns.SetEnabled("titleChannel", false)
+	equal(w.ns.IsEnabled("titleChannel"), false)
 end)
 
 test("dev mode is off by default, in every install, until /qp debug on", function()

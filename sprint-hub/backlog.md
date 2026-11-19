@@ -1,3 +1,12 @@
+## 0.3.8 (planned)
+
+- **power-charge-event** (story, 0.3.8): a timed party event, such as 10 minutes to get as many kills as possible.
+  How it starts is to be designed: someone kicks it off, a random trigger, or a smart trigger from what the party is
+  doing (active factors). Each client keeps track of the event and every participant's stats from the feed, as Fuel
+  does. With no channel history, the start message must carry what every client needs to agree on the window (an
+  id, when it started, how long it runs, what counts); someone joining mid-event sees it from the next presence or
+  its end. Designed for fun, as if there are no cheaters (see party-minigames).
+
 ## 0.3.6 (branch `v036`, from 2026-11-18)
 
 Rule (owner, 2026-11-18): there is no sandbox, just the next version, tested in the one Quest Party install from
@@ -231,4 +240,7 @@ From the side quest (code name for the side bar on the right: the party's heads 
 ## Later
 
 - **party-minigames** (idea, tbd): light minigames for the party, which are what Party Fuel is spent on (multipliers,
-  team pets and the like come from them). Design to be decided; designs to start from in `docs/side-quest.md`.
+  team pets and the like come from them). Designs to start from in `docs/side-quest.md`. Owner's intent
+  (2026-11-18): Fuel is for fun, a side quest for playing the game: a very small incremental game or cosmetics, and
+  reports for the data lovers. Each client counts its own Fuel from what it hears (never synced), so no anti-cheat:
+  a player faking events only inflates their own slice, and mute handles anyone annoying.

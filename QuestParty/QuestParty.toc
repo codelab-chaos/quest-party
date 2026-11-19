@@ -55,6 +55,7 @@ ui\confetti.lua
 ui\stamps.lua
 ui\quest-card.lua
 ui\panel.lua
+ui\game-options.lua
 ui\look.lua
 ui\party.lua
 ui\particles.lua

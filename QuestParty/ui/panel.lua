@@ -236,14 +236,20 @@ local panelTitle
 
 -- The title in full when it fits beside the header buttons, else its short
 -- form; the font string cuts anything still too long.
+-- The title: Quest Party, then (with Show channel in title on) the channel you
+-- share on, in grey. It runs
+-- under the header buttons, which sit over whatever does not fit; when even
+-- "Quest Party" would not show before them, it is QP.
 local function FitTitle()
 	if not panelTitle then return end
+	local channel = ns.IsEnabled("titleChannel") and ns.Session and ns.Session.state == "connected" and ns.db.connection and ns.db.connection.name
+	local after = channel and channel ~= "" and ("  |cff9d9d9d" .. channel .. "|r") or ""
 	panelTitle:SetText(L.TITLE)
-	local room = panelTitle:GetWidth() or 0
 	local wanted = panelTitle.GetUnboundedStringWidth and panelTitle:GetUnboundedStringWidth() or panelTitle:GetStringWidth()
-	if room > 0 and wanted > room then
-		panelTitle:SetText(L.TITLE_SHORT)
-	end
+	local left, buttons = panelTitle:GetLeft(), panelTitle.buttons and panelTitle.buttons:GetLeft()
+	local room = (type(left) == "number" and type(buttons) == "number") and (buttons - 6 - left) or 0
+	local name = (room > 0 and wanted > room) and L.TITLE_SHORT or L.TITLE
+	panelTitle:SetText(name .. after)
 end
 local BarStep -- from one party bar to the next (defined with the bars)
 
@@ -1327,8 +1333,9 @@ local function BuildHeader()
 		ns.SetSlider("volume", value == 0 and 3 or value - 1)
 	end)
 	soundButton:SetPoint("RIGHT", minimize, "LEFT", -HEADER_BUTTON.gap, 0)
-	-- The title stops short of the buttons, never under them (FitTitle).
-	title:SetPoint("RIGHT", soundButton, "LEFT", -6, 0)
+	-- The title runs under the buttons, which sit over it (FitTitle).
+	title:SetPoint("RIGHT", frame, "RIGHT", -LAYOUT.inset, 0)
+	title.buttons = soundButton -- the leftmost button: where the name must end
 	soundButton.icon = soundButton:CreateTexture(nil, "ARTWORK")
 	soundButton.icon:SetPoint("TOPLEFT", 1, -3)
 	soundButton.icon:SetPoint("BOTTOMRIGHT", soundButton, "BOTTOMLEFT", 11, 3)
@@ -2218,6 +2225,17 @@ function Panel:GetFrame()
 	return frame
 end
 
+-- Opens the panel on its Settings, wherever it was (docked, hidden): from the
+-- game's own Options (ui\game-options.lua).
+function Panel:OpenSettings()
+	if not frame then return end
+	if ns.charDb.docked then
+		self:Restore()
+	end
+	frame:Show()
+	self:ShowOptions(true)
+end
+
 function Panel:Toggle()
 	if not frame then return end
 	if ns.charDb.docked then
@@ -2375,6 +2393,11 @@ end)
 
 Bus:On("CONNECTION_CHANGED", function()
 	UpdateConnectionOptions(false)
+	FitTitle() -- the channel's name after the title
+end)
+
+Bus:On("SETTING_CHANGED", function(id)
+	if id == "titleChannel" then FitTitle() end
 end)
 
 -- The Filter icon size slider: resize the filter row and move the list.

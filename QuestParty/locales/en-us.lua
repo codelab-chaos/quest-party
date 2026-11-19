@@ -3,7 +3,7 @@ local _, ns = ...
 
 ns.L = {
 	TITLE = "Quest Party",
-	TITLE_SHORT = "Quest Party", -- when the panel is too narrow for the title
+	TITLE_SHORT = "QP", -- when the panel is too narrow for the full name
 
 	-- Filter tabs
 	FILTER_FEED = "Feed",
@@ -151,7 +151,7 @@ ns.L = {
 	XP_GAIN = "+%s XP",
 	-- Quest Tweet's kill line: "kills %1 for %2 exp".
 	XP_KILL = "Kills %s for %s XP",
-	XP_KILLS = "Kills %s x%d for %s XP",
+	XP_KILLS = "Kills %s |cffff8c1ax%d|r for %s XP", -- the multiplier in orange, to stand out
 	XP_GAINS = "+%s XP in %d gains",
 	XP_UPDATED = "XP progress updated",
 	XP_LEVEL = "Level %d",
@@ -368,6 +368,9 @@ ns.L = {
 	DEV_BURST = "Burst of %d: %s. First refused: %s.",
 	SET_PARTY_CAP = "Players shown",
 	SET_PARTY_CAP_TIP = "The most players shown at once in the XP bars and the side bar (10 to 20). Past it, you, your game group and whoever was active most lately are kept.",
+	GAME_OPTIONS_OPEN = "Open Quest Party's settings",
+	SET_TITLE_CHANNEL = "Show channel in title",
+	SET_TITLE_CHANNEL_TIP = "Shows the channel you share on after Quest Party in the title bar. Turn it off before screenshots, so they do not invite strangers into your channel.",
 	SET_SHOW_VITALS = "Health and power",
 	SET_SHOW_VITALS_TIP = "Thin health and power bars for the players here now: under their XP bars and on their card.",
 	SET_CARD_BACKDROPS = "Card backdrops",
