@@ -6,13 +6,13 @@ How our `.toc` file should look for WoW Forever, based on Blizzard's own UI sour
 
 ## Reference source
 
-- Local checkout: `/home/chadneff/git/hub/wow-ui-source` (a clone of Gethe/wow-ui-source).
+- Local checkout: `$WOW_UI_SOURCE` (a clone of Gethe/wow-ui-source).
 - The checkout sits on the `live` branch (retail 12.1.5, build 70783). Forever lives on `origin/forever`.
 - Forever build at time of writing: `1.60.1.70888` (commit `4cd0ab752`, 2026-11-10).
 - Read it without switching branches:
 
 ```sh
-cd /home/chadneff/git/hub/wow-ui-source
+cd "$WOW_UI_SOURCE"
 git show origin/forever:version.txt
 git grep -n 'SendAddonMessage' origin/forever -- '*.lua'
 git show origin/forever:Interface/AddOns/Blizzard_Minimap/Blizzard_Minimap.toc

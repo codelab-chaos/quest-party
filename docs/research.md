@@ -76,7 +76,7 @@ See `idea.md` for the enhancement list.
 
 ## Local reference: Blizzard UI source
 
-- `/home/chadneff/git/hub/wow-ui-source` holds Blizzard's UI code. Forever is on the `origin/forever` branch (build `1.60.1.70888`, 2026-11-10). The checkout itself sits on `live` (retail).
+- A local wow-ui-source checkout (`$WOW_UI_SOURCE`) holds Blizzard's UI code. Forever is on the `origin/forever` branch (build `1.60.1.70888`, 2026-11-10). The checkout itself sits on `live` (retail).
 - Read it with `git show origin/forever:<path>` and `git grep <pattern> origin/forever`, so the checkout stays untouched.
 - It confirms the addon message APIs, the lockdown check and the `Chat` restriction type listed above. It does not confirm which chat types the server accepts.
 - See `toc.md` for the TOC write-up built from it.
