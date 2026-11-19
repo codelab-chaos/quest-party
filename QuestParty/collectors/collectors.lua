@@ -41,25 +41,18 @@ end
 
 -- Shows the entry in our own panel and sends it out. A type whose feature switch
 -- is off is neither shown nor sent.
--- The sandbox build shows everything of this character's in its own panel,
--- as a real client does, but sends none of it: its messages are its pretend
--- players'.
+-- Everything of yours is sent to the channel, and shows in your own panel
+-- when it comes back, exactly as anyone else's: you are a player like any
+-- other, and without a channel there is no feed.
 
 local function Emit(typeName, data)
 	local def = ns.FeedTypes[typeName]
 	if not def or not ns.IsEnabled(def.setting) then
 		return
 	end
-	if not ns.IsSandbox() then
-		Bus:Fire("ENTRY_OUTGOING", { type = typeName, data = Copy(data) })
-	end
-	-- Into this player's own feed, exactly as anyone else's entry arrives:
-	-- your own events show and behave like everyone's (always, in the
-	-- sandbox: Include self is hard-coded on there).
-	if ns.IsEnabled("showSelf") then
-		local _, class = UnitClass("player")
-		Bus:Fire("ENTRY_RECEIVED", { type = typeName, player = ns.MyName(), class = class, data = Copy(data) })
-	end
+	-- Out to the channel. It shows in your own feed when it comes back, read
+	-- like everyone's (comms\\sharing.lua): the channel is the feed.
+	Bus:Fire("ENTRY_OUTGOING", { type = typeName, data = Copy(data) })
 end
 
 -- ========= Quest log lookups ================================================
@@ -239,17 +232,19 @@ end
 -- Baseline each local quest once its log data is available. Later log changes
 -- go through the normal collector, so genuine progress still produces events.
 local function HydrateOwnQuests(force)
-	if not ns.IsEnabled("showSelf") or not ns.IsEnabled("quests") then return end
-	local player = ns.MyName()
-	local _, class = UnitClass("player")
+	if not ns.IsEnabled("quests") then return end
 	for _, quest in ipairs(Collectors:GetQuestSnapshot()) do
 		if quest.objectivesReady and not turnedIn[quest.questID] and (force or not progressSeen[quest.questID]) then
-			ns.Store:HydrateQuest(player, class, quest, ns.IsEnabled("questDetails"))
+			-- Where it stands now, so later changes are new progress; your
+			-- cards come from the channel (the quest states we send).
 			local seen = {}
 			for _, objective in ipairs(quest.objectives) do
 				seen[objective.index] = { objective = objective.objective, have = objective.have, need = objective.need, time = GetTime() }
 			end
 			progressSeen[quest.questID], watchedQuests[quest.questID] = seen, true
+			-- How it stands goes to the channel, which makes your card when it
+			-- comes back (comms\\sharing.lua), as a friend's does.
+			Bus:Fire("OWN_QUEST_READ", quest)
 		end
 	end
 end
@@ -455,17 +450,11 @@ function Collectors:RunTest()
 end
 
 Bus:On("READY", function()
-	-- The sandbox ignores this character's regular Quest Party now (comms\
-	-- origin.lua). What it saved from it before, under the full name the
-	-- channel carries ("Bagoe Bones", not the game's "Bagoe"), goes.
 	-- Your own records saved under the first name alone (before the surname
 	-- was used) move to the full name the channel carries.
 	local first = UnitName("player")
 	if first ~= ns.MyName() then
 		ns.Store:RenamePlayer(first, ns.MyName())
-	end
-	if ns.IsSandbox() then
-		ns.Store:ForgetOtherSelves(ns.MyName())
 	end
 	-- This character is yours: filed under your player id, so on your next
 	-- character it has no tab of its own (ui\party-model.lua).
@@ -485,7 +474,7 @@ Bus:On("READY", function()
 end)
 
 Bus:On("SETTING_CHANGED", function(id, enabled)
-	if ready and enabled and (id == "showSelf" or id == "quests" or id == "questDetails") then
+	if ready and enabled and (id == "quests" or id == "questDetails") then
 		HydrateOwnQuests(true)
 	end
 end)

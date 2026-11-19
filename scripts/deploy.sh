@@ -7,13 +7,11 @@
 #
 # Usage:
 #   scripts/deploy.sh            copy the addon
-#   scripts/deploy.sh --sandbox  copy the sandbox build, QuestPartySandbox
 #   scripts/deploy.sh --dry-run  show what would change, copy nothing
-#   scripts/deploy.sh --force    copy the regular addon from a branch other than main
 #
-# The regular install (QuestParty) is what you play with: it takes only the
-# main branch, so work in progress on other branches cannot land on it by
-# accident. Deploy those with --sandbox.
+# One build: whatever branch is checked out is what you test, in your one
+# Quest Party install (the next version, on its branch). Dev mode's tools
+# wake with /qp debug on (off by default, as everywhere).
 set -euo pipefail
 
 ADDON_NAME="QuestParty"
@@ -28,13 +26,9 @@ fail() {
 
 # No permission or owner syncing: the Windows drive cannot store them.
 rsync_flags=(--recursive --links --times --delete --itemize-changes)
-sandbox=false
-force=false
 for arg in "$@"; do
 	case "$arg" in
 		--dry-run) rsync_flags+=(--dry-run) ;;
-		--sandbox) sandbox=true ;;
-		--force) force=true ;;
 		*) fail "unknown option: $arg" ;;
 	esac
 done
@@ -51,22 +45,11 @@ addons_dir="${addons_dir%/}"
 [[ -f "$SOURCE_DIR/$ADDON_NAME.toc" ]] || fail "addon not found at $SOURCE_DIR"
 
 branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
-if [[ "$sandbox" == false && "$force" == false && "$branch" != "main" ]]; then
-	fail "on branch $branch: the regular install takes only main. Use --sandbox (or --force to override)"
-fi
 
 # --delete only removes stale files inside the addon's own folder.
 # Saved variables live in the WTF folder and are never touched.
-if [[ "$sandbox" == true ]]; then
-	# The sandbox is written out first: the same source under its own names.
-	stage="$(mktemp -d)"
-	trap 'rm -rf "$stage"' EXIT
-	python3 "$REPO_ROOT/scripts/package.py" --sandbox --stage "$stage/QuestPartySandbox" >/dev/null
-	ADDON_NAME="QuestPartySandbox"
-	SOURCE_DIR="$stage/QuestPartySandbox"
-fi
 rsync "${rsync_flags[@]}" "$SOURCE_DIR/" "$addons_dir/$ADDON_NAME/"
 
 version="$(sed -n 's/^## Version: *//p' "$SOURCE_DIR/$ADDON_NAME.toc" | tr -d '\r')"
-echo "deploy: $ADDON_NAME $version -> $addons_dir/$ADDON_NAME"
+echo "deploy: $ADDON_NAME $version ($branch) -> $addons_dir/$ADDON_NAME"
 echo "deploy: type /reload in game (restart the client if files were added or the TOC changed)"

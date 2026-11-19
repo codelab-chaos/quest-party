@@ -1,106 +1,24 @@
 -- Transport: sends and receives raw addon messages, the game's own way for an
 -- addon to talk to the same addon on other players' machines. Nothing here
--- shows in anyone's chat. It knows nothing about what the messages mean. Outgoing messages go through a queue that respects the game's
--- throttle and waits out chat lockdown (instances, some combat states).
+-- shows in anyone's chat. It knows nothing about what the messages mean.
+-- Each outgoing message is sent once, straight away; the game's answer is not
+-- judged: the channel is the truth, what comes back on it.
 local _, ns = ...
 local Bus = ns.Bus
 
 local PREFIX = "QuestParty" -- 16 characters at most
 
-local LIMITS = {
-	burst = 8, -- messages allowed at once
-	perSecond = 1, -- refill rate after a burst
-	queue = 60, -- older messages are dropped past this
-	retrySeconds = 1,
-}
-
-local Transport = { queue = {}, tokens = LIMITS.burst, last = 0, waiting = false, prefix = PREFIX }
+local Transport = { prefix = PREFIX }
 ns.Transport = Transport
 
--- The name the game gives a send result, such as "InvalidChatType".
-local function ResultName(result)
-	for name, value in pairs(Enum and Enum.SendAddonMessageResult or {}) do
-		if value == result then
-			return name
-		end
-	end
-	return tostring(result)
-end
-
--- True when the game took the message. Older clients answer true or false.
-local function Accepted(result)
-	local results = Enum and Enum.SendAddonMessageResult
-	if type(result) == "number" then
-		return result == (results and results.Success or 0)
-	end
-	return result ~= false
-end
-
--- Results that mean "try again later" instead of "this message failed".
-local function ShouldRetry(result)
-	local results = Enum and Enum.SendAddonMessageResult
-	if not results or type(result) ~= "number" then
-		return false
-	end
-	return result == results.AddonMessageThrottle
-		or result == results.ChannelThrottle
-		or result == results.AddOnMessageLockdown
-end
-
-local function Refill()
-	local now = GetTime()
-	Transport.tokens = math.min(LIMITS.burst, Transport.tokens + (now - Transport.last) * LIMITS.perSecond)
-	Transport.last = now
-end
-
-local function Pump()
-	Transport.waiting = false
-	Refill()
-	local queue = Transport.queue
-	while queue[1] and Transport.tokens >= 1 do
-		if C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown() then
-			break
-		end
-		local message = queue[1]
-		local result = C_ChatInfo.SendAddonMessage(PREFIX, message.text, message.chatType, message.target)
-		if ShouldRetry(result) then
-			break
-		end
-		table.remove(queue, 1)
-		Transport.tokens = Transport.tokens - 1
-		if Accepted(result) then
-			Bus:Fire("COMMS_SENT", message)
-		else
-			Bus:Fire("COMMS_SEND_FAILED", ResultName(result), message)
-		end
-	end
-	if queue[1] and not Transport.waiting then
-		Transport.waiting = true
-		C_Timer.After(LIMITS.retrySeconds, Pump)
-	end
-end
-
--- chatType is "PARTY", "RAID", "WHISPER" or "CHANNEL". target is the character
--- for a whisper, and the channel's number for a channel.
--- key, when given, says what the message is the latest word on. A message
--- still waiting under the same key is out of date, so it is replaced where it
--- stands instead of both being sent.
-function Transport:Send(text, chatType, target, key)
-	local queue = self.queue
-	if key then
-		for _, waiting in ipairs(queue) do
-			if waiting.key == key and waiting.chatType == chatType and waiting.target == target then
-				waiting.text = text
-				Pump()
-				return
-			end
-		end
-	end
-	queue[#queue + 1] = { text = text, chatType = chatType, target = target, key = key }
-	while #queue > LIMITS.queue do
-		table.remove(queue, 1)
-	end
-	Pump()
+-- Sends one message straight away. chatType is "PARTY", "RAID", "WHISPER"
+-- or "CHANNEL"; target is the character for a whisper, the channel's number
+-- for a channel. The game's answer is not judged: the channel is the truth,
+-- what comes back on it (/qp share: sent against came back).
+function Transport:Send(text, chatType, target)
+	local message = { text = text, chatType = chatType, target = target }
+	C_ChatInfo.SendAddonMessage(PREFIX, text, chatType, target)
+	Bus:Fire("COMMS_SENT", message)
 end
 
 local frame = CreateFrame("Frame")
@@ -129,6 +47,5 @@ frame:SetScript("OnEvent", function(_, _, prefix, text, chatType, sender, _, _, 
 end)
 
 Bus:On("INIT", function()
-	Transport.last = GetTime()
 	C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
 end)

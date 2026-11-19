@@ -20,6 +20,8 @@ local LAYOUT = {
 	headerHeight = 30,
 	filterHeight = 18,
 	filterGap = 3,
+	cycleSize = 14, -- the Quest tab's layout gear
+	questBarHeight = 18, -- the Quest tab's own row at the top of its list
 	tabMinWidth = 64, -- tabs fit their labels, at least this wide
 	tabPad = 14, -- either side of a tab's label
 	-- The filter row: a row of icons along the bottom of the panel, under the
@@ -233,7 +235,7 @@ local frame, scrollBox, scrollBar, listView, emptyText, optionsView, optionsButt
 local panelTitle
 
 -- The title in full when it fits beside the header buttons, else its short
--- form ("QP Sandbox"); the font string cuts anything still too long.
+-- form; the font string cuts anything still too long.
 local function FitTitle()
 	if not panelTitle then return end
 	panelTitle:SetText(L.TITLE)
@@ -893,8 +895,14 @@ local function StripHeight()
 	return xpBarsShown * BarStep() - LAYOUT.xpBarGap + LAYOUT.xpStripGap
 end
 
+-- The Quest tab has a short row of its own at the top of its list, with the
+-- quest cards' layout gear (BuildFilter).
+local function QuestBarHeight()
+	return ns.charDb.filter == ns.QuestTab and LAYOUT.questBarHeight or 0
+end
+
 local function ListTop()
-	return LAYOUT.headerHeight + StripHeight() + LAYOUT.filterHeight + 6
+	return LAYOUT.headerHeight + StripHeight() + LAYOUT.filterHeight + 6 + QuestBarHeight()
 end
 
 local function ListHeight()
@@ -1049,6 +1057,13 @@ local function UpdateFilter()
 			tab:SetPoint("TOPLEFT", left, 0)
 			left = left + width + LAYOUT.filterGap
 		end
+	end
+	-- The Quest tab's own row, with the layout gear: on that tab only.
+	local questBar = filterBar and filterBar.questBar
+	if questBar then
+		questBar:SetShown(ns.charDb.filter == ns.QuestTab)
+		local step = ns.QuestCardStyles[math.floor(ns.GetSlider("questCardStyle") or 0)]
+		questBar.label:SetText(step and step.label or "")
 	end
 end
 
@@ -1456,6 +1471,40 @@ local function BuildFilter()
 		tab:SetScript("OnLeave", function() GameTooltip:Hide() end)
 		filterTabs[filter.id] = tab
 	end
+	-- The Quest tab's own short row, at the top of its list: a small gear
+	-- on the right cycles the quest cards' layout (ui\\quest-card.lua):
+	-- Segmented, Grid, Ring, List, its name beside it.
+	local questBar = CreateFrame("Frame", nil, frame)
+	questBar:SetPoint("TOPLEFT", filterBar, "BOTTOMLEFT", 0, -4)
+	questBar:SetPoint("TOPRIGHT", filterBar, "BOTTOMRIGHT", -(LAYOUT.scrollBarWidth + 4), -4)
+	questBar:SetHeight(LAYOUT.questBarHeight - 4)
+	local cycle = CreateFrame("Button", nil, questBar)
+	cycle:SetPoint("RIGHT", -4, 0)
+	cycle:SetSize(LAYOUT.cycleSize, LAYOUT.cycleSize)
+	cycle.icon = cycle:CreateTexture(nil, "ARTWORK")
+	cycle.icon:SetAllPoints()
+	cycle.icon:SetTexture(HEADER_BUTTON.optionsIcon)
+	cycle.icon:SetDesaturated(true)
+	cycle.icon:SetVertexColor(unpack(HEADER_BUTTON.glyph)) -- gold, as the title bar's gear
+	cycle:SetHighlightTexture(HEADER_BUTTON.optionsIcon, "ADD")
+	local function CycleTip(self)
+		local step = ns.QuestCardStyles[math.floor(ns.GetSlider("questCardStyle") or 0)]
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:SetText(L.QUEST_CARD_CYCLE:format(step and step.label or ""))
+		GameTooltip:AddLine(L.QUEST_CARD_CYCLE_TIP, 1, 1, 1, true)
+		GameTooltip:Show()
+	end
+	cycle:SetScript("OnClick", function(self)
+		local count = #ns.QuestCardStyles + 1 -- steps from 0
+		ns.SetSlider("questCardStyle", ((ns.GetSlider("questCardStyle") or 0) + 1) % count)
+		CycleTip(self)
+	end)
+	cycle:SetScript("OnEnter", CycleTip)
+	cycle:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	questBar.label = questBar:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	questBar.label:SetPoint("RIGHT", cycle, "LEFT", -4, 0)
+	questBar.cycle = cycle
+	filterBar.questBar = questBar
 	filterBar:SetScript("OnSizeChanged", LayoutFilter)
 	LayoutFilter()
 end
@@ -1893,7 +1942,7 @@ local function BuildSwitches(content, width, group, y)
 	local column = (width - 4) / 2
 	local index = 0
 	for _, setting in ipairs(ns.Settings) do
-		if setting.group == group.id and ns.Switchable(setting) then
+		if setting.group == group.id then
 			local check = CreateFrame("CheckButton", nil, content, "UICheckButtonTemplate")
 			check:SetSize(SETTINGS.checkSize, SETTINGS.checkSize)
 			check:SetPoint("TOPLEFT", 2 + (index % 2) * column, -(y + math.floor(index / 2) * SETTINGS.rowHeight))
@@ -1950,8 +1999,8 @@ local function BuildData(content, y)
 	return y + 22 + SETTINGS.sectionGap
 end
 
--- Test runs, in debug mode only: a scenario to choose (emulator\scenarios.lua,
--- or the sandbox's), Clear on go, and GO and STOP.
+-- Test runs, in debug mode only: a scenario to choose (dev\scenarios.lua),
+-- Clear on go (the pretend players only), and GO and STOP.
 local function ScenarioChooser(content)
 	local runner = ns.ScenarioRunner
 	local ok, dropdown = pcall(CreateFrame, "DropdownButton", nil, content, "WowStyle1DropdownTemplate")
@@ -2309,7 +2358,7 @@ Bus:On("PEERS_CHANGED", function()
 	end
 end)
 
-Bus:On("EMULATOR_STATE", function()
+Bus:On("DEV_STATE", function()
 	if frame then
 		UpdateEmulatorButton()
 	end
@@ -2348,7 +2397,10 @@ end)
 
 -- The Quest cards slider: the quest cards in their new layout.
 Bus:On("SLIDER_CHANGED", function(id)
-	if id == "questCardStyle" and frame then Panel:Refresh() end
+	if id == "questCardStyle" and frame then
+		UpdateFilter() -- the Quest tab's row names the new layout
+		Panel:Refresh()
+	end
 end)
 
 -- The Health and power switch changes the strip's spacing: lay it out again.

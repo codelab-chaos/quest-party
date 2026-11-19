@@ -22,7 +22,7 @@ class PackagingTests(unittest.TestCase):
                 self.assertTrue(all(name.startswith("QuestParty/") for name in release.namelist()))
                 toc = release.read("QuestParty/QuestParty.toc").decode()
                 self.assertIn("## Version: 0.2.0-rc.1\n", toc)
-                self.assertIn("## X-Debug: false\n", toc)
+                self.assertNotIn("X-Debug", toc) # dev mode is off by default, everywhere
                 self.assertEqual(release.read("QuestParty/LICENSE"), (ROOT / "LICENSE").read_bytes())
                 for line in toc.splitlines():
                     if line.strip() and not line.startswith("#"):
@@ -33,35 +33,24 @@ class PackagingTests(unittest.TestCase):
             self.assertEqual(filename, archive.name)
         self.assertEqual((ROOT / "QuestParty/QuestParty.toc").read_bytes(), original)
 
-    def test_sandbox_archive(self):
+    def test_one_build_ships_dev_mode(self):
+        """No sandbox build: the release carries dev mode, woken only by /qp debug."""
         with tempfile.TemporaryDirectory() as output:
-            archive = package.build("v0.2.0-rc.1", output, sandbox=True)
+            archive = package.build("v0.2.0-rc.1", output)
             with zipfile.ZipFile(archive) as release:
                 names = release.namelist()
-                self.assertTrue(all(name.startswith("QuestPartySandbox/") for name in names))
-                toc = release.read("QuestPartySandbox/QuestPartySandbox.toc").decode()
-                self.assertIn("## X-Sandbox: true\n", toc)
-                self.assertIn("## X-Debug: true\n", toc)
-                self.assertIn("## SavedVariables: QuestPartySandboxDB\n", toc)
-                self.assertIn("## SavedVariablesPerCharacter: QuestPartySandboxCharDB\n", toc)
-                self.assertIn("sandbox\\sandbox.lua", toc)
-                for line in package.toc_files(toc):
-                    self.assertIn("QuestPartySandbox/" + line, names)
-                self.assertNotIn("QuestPartySandbox/QuestParty.toc", names)
-        with tempfile.TemporaryDirectory() as output:
-            release = package.build("v0.2.0-rc.1", output)
-            with zipfile.ZipFile(release) as archive:
-                self.assertFalse(any("/sandbox/" in name for name in archive.namelist()))
+                toc = release.read("QuestParty/QuestParty.toc").decode()
+                self.assertIn("dev\\dev.lua", toc)
+                self.assertIn("QuestParty/dev/dev.lua", names)
+                self.assertNotIn("X-Sandbox", toc)
+                self.assertFalse(any("sandbox" in name.lower() for name in names))
 
-    def test_sandbox_stage_and_harness_agree(self):
-        with tempfile.TemporaryDirectory() as output:
-            staged = package.stage_sandbox(Path(output) / "QuestPartySandbox")
-            self.assertTrue((staged / "QuestPartySandbox.toc").is_file())
-            self.assertFalse((staged / "QuestParty.toc").exists())
-        fragment = (ROOT / "QuestParty/sandbox/files.toc").read_text()
-        listed = [line.strip().replace("\\", "/") for line in fragment.splitlines() if line.strip() and not line.startswith("#")]
+    def test_harness_loads_dev_mode_as_the_toc_does(self):
+        toc = (ROOT / "QuestParty/QuestParty.toc").read_text()
+        dev = [line for line in package.toc_files(toc) if line.startswith("dev/")]
+        self.assertTrue(dev)
         harness = (ROOT / "tests/harness.lua").read_text()
-        for path in listed:
+        for path in dev:
             self.assertIn(f'"{path}"', harness)
 
     def test_versions(self):

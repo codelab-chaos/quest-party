@@ -39,7 +39,7 @@ return function(Harness, options)
 		if path:match("^ui/.*%.lua$") then
 			local chunk = assert(loadfile("QuestParty/" .. path))
 			setfenv(chunk, env)
-			local ok, problem = pcall(chunk, options and options.sandbox and "QuestPartySandbox" or "QuestParty", ns)
+			local ok, problem = pcall(chunk, "QuestParty", ns)
 			if not ok then problems[#problems + 1] = problem end
 		end
 	end

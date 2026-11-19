@@ -1,6 +1,14 @@
 -- Sharing: the bridge between the feed and the channel. It sends this
 -- player's feed entries to everyone on the Quest Party channel, and turns what
--- they send into feed entries here. It also keeps the list of who is sharing.
+-- comes back into feed entries here. It also keeps the list of who is sharing.
+--
+-- QUEST PARTY RELIES ON A CHANNEL: the channel is the feed. Every client,
+-- this one included, sends to it and reads what comes back, through the same
+-- code: your own messages come back from the server and are read like anyone
+-- else's, so you see yourself as everyone does. Only who is here (hello,
+-- answer, presence, request) and your health and power (read from the game
+-- for your own bar) are not read again (SELF_LOCAL).
+-- Without a channel there is no feed.
 --
 -- Messages travel as addon messages, the game's own way for an addon to talk
 -- to itself on other players' machines. They are addressed to the channel the
@@ -21,23 +29,18 @@
 --          is still here. A player not heard from for a while is dropped.
 --   ENTRY  one feed entry: t is its type, c the sender's class, s a short
 --          plain summary written by the sender (see resolver.lua), the rest
---          is the entry's data. From the emulator it also carries as, the
+--          is the entry's data. From dev mode it also carries as, the
 --          name of the pretend player it stands for. A message that would be
 --          too long is sent without its summary.
 --   QUEST  where one of the sender's quests stands now: id, quest (its name),
 --          c class, and for each objective o1 its name, h1 how many, n1 of
 --          how many (then o2, h2, n2 and so on).
 --
--- Every message may carry as, the pretend player it stands for (from the
--- emulator or the sandbox; see comms\origin.lua). Messages about how things
--- stand (HELLO, ACK, PRESENCE, QUEST, GEAR) carry n, a number that only grows
--- for each sender, so an old or repeated one never replaces newer news.
+-- Every message may carry as, the pretend player it stands for (from dev
+-- mode; see comms\origin.lua).
 --   GEAR   equipped items: s<slot> is the item in that slot ("item:enchant:suffix"
 --          numbers, "" for empty). One slot when it changes; the whole set, a
---          few slots a message, when answering a newcomer or a request.
---   REQUEST  "tell me how you stand": to names the player asked. Only that
---          player answers, on the channel, so everyone hears the answer. See
---          the rules in docs\side-quest.md (No storms).
+--          few slots a message, at the handshake.
 --
 -- Two kinds of thing are shared. Things that happened (ENTRY) are said once,
 -- as they happen. How things stand (QUEST) is said in full: by everyone when
@@ -51,22 +54,10 @@ local Protocol = ns.Protocol
 local Kinds = Protocol.Kinds
 
 local CHAT_TYPE = "CHANNEL"
-local HELLO_DELAY = 2 -- seconds after connecting, so the channel has settled
--- How long to wait before saying how our quests stand, in seconds: somewhere
--- between these, picked at random, so that everyone answering one hello does
--- not speak at the same moment.
-local STATE_DELAY = { min = 1, max = 4 }
--- The same for the ACK that answers a hello.
-local ACK_DELAY = { min = 0.5, max = 3 }
 -- How often PRESENCE goes out, and how long a player may be silent before
 -- they are taken to have gone, in seconds.
 local PRESENCE_SECONDS = 5 * 60
 local SILENT_SECONDS = 3 * PRESENCE_SECONDS + 60
--- A REQUEST is answered once a minute at most for each player asking.
-local ANSWER_GAP_SECONDS = 60
--- n counts in eighths of a second from this time, so it keeps growing across
--- reloads without getting long.
-local SEQUENCE_EPOCH = 1780000000
 -- Keys of an ENTRY that are about the message, not the entry's data.
 local TYPE_KEY, CLASS_KEY = "t", "c"
 -- On an ENTRY from the emulator: the pretend player it stands for.
@@ -79,13 +70,11 @@ local SUMMARY_KEY = "s"
 --           channel's messages to everyone on it, the sender included, so
 --           this counts messages that made the whole trip
 -- received  messages from other players
--- refused   messages the game would not send
-local Sharing = { sent = 0, echoed = 0, received = 0, refused = 0, log = {} }
+local Sharing = { sent = 0, echoed = 0, received = 0, log = {} }
 ns.Sharing = Sharing
 
 local announced = false -- HELLO was sent for this connection
 local replaying = false -- reading the log again: nothing may be sent
-local complained = false -- a refused send was already reported for it
 
 local function Session()
 	return ns.Session
@@ -153,44 +142,28 @@ local function MyFields()
 	return fields
 end
 
--- The next n for a sender (this character, or a pretend player).
-local sequences = {}
-local function NextSequence(sender)
-	local base = math.floor((GetServerTime() - SEQUENCE_EPOCH) * 8)
-	local value = math.max((sequences[sender or ""] or 0) + 1, base)
-	sequences[sender or ""] = value
-	return value
-end
-Sharing.NextSequence = NextSequence
-
--- Kinds that say how things stand, and so carry n.
-local STATEFUL = { [Kinds.HELLO] = true, [Kinds.ACK] = true, [Kinds.PRESENCE] = true, [Kinds.QUEST] = true, [Kinds.GEAR] = true, [Kinds.VITALS] = true }
 
 -- Sends one message to the channel. Returns false when there is no channel to
 -- send to, or the message is too long for the game to carry.
--- key says what the message is the latest word on (see Transport:Send).
--- as, when given, is the pretend player the message stands for. The sandbox
--- never speaks as this character: only as its pretend players.
--- In loopback (Sharing.loopback, the sandbox's scale runs) nothing goes on the
--- wire: the message is read back here as if the server had sent it.
+-- as, when given, is the pretend player the message stands for (dev mode).
+-- In loopback (Sharing.loopback, dev mode's scale runs) a pretend player's
+-- message never goes on the wire: it is read back here as if the server had
+-- sent it.
 local Dispatch
-local function Send(kind, fields, key, as)
+local SELF_LOCAL -- our own kinds not read again when they come back (Dispatch)
+local Read -- one message, through its handler (defined with the handlers)
+local function Send(kind, fields, as)
 	if replaying then
 		return false
 	end
 	local virtual = as or fields[VIRTUAL_KEY]
-	if not virtual and ns.IsSandbox() then
-		return false
-	end
 	fields[VIRTUAL_KEY] = virtual
-	if STATEFUL[kind] and fields.n == nil then
-		fields.n = NextSequence(virtual)
-	end
 	local text = Protocol.Encode(kind, fields)
 	if not text then
 		return false
 	end
-	if Sharing.loopback then
+	-- Loopback is for pretend players only: yours always go to the channel.
+	if Sharing.loopback and virtual then
 		Sharing.sent = Sharing.sent + 1
 		C_Timer.After(0, function()
 			Dispatch(text, CHAT_TYPE, ns.MyName(), nil, true, true)
@@ -201,7 +174,7 @@ local function Send(kind, fields, key, as)
 	if session.state ~= "connected" or not session.channelId then
 		return false
 	end
-	ns.Transport:Send(text, CHAT_TYPE, session.channelId, key and virtual and (virtual .. ":" .. key) or key)
+	ns.Transport:Send(text, CHAT_TYPE, session.channelId)
 	return true
 end
 Sharing.Send = Send
@@ -266,10 +239,6 @@ Bus:On("INIT", function()
 	end
 end)
 
--- Who went, and when: a message from them still in flight lands after they
--- went, and must not bring them back (a new hello does).
-local LEFT_SECONDS = 10
-local leftAt = {}
 
 -- Health and power from a message's h, p and t, or nil when it has none
 -- that make sense.
@@ -285,14 +254,12 @@ local function ReadVitals(fields)
 end
 
 local function AddPeer(name, fields, virtual)
+	if ns.IsMe(name) and not virtual then
+		return -- you are never your own peer: your own news is read, not you
+	end
 	local peers = Session().peers
 	local peer = peers[name]
 	local isNew = not peer
-	-- Someone who just went is not brought back by anything still in flight
-	-- (a quest, gear, health); only a hello does that (it clears leftAt).
-	if isNew and leftAt[name] and GetTime() - leftAt[name] < LEFT_SECONDS then
-		return
-	end
 	if isNew then
 		peer = { name = name }
 		peers[name] = peer
@@ -353,15 +320,8 @@ local function AddPeer(name, fields, virtual)
 end
 
 local answered = {} -- newcomers whose hello we answered, by name
-local freshness = {} -- the newest n heard, by sender and what it was about
-local lastAnswer = {} -- when we last answered a REQUEST, by who asked
 
 
--- True when a message other than a hello may add this sender to the party:
--- not someone who went a moment ago.
-local function MayRejoin(name)
-	return not (leftAt[name] and GetTime() - leftAt[name] < LEFT_SECONDS)
-end
 
 local function DropPeer(name)
 	local peers = Session().peers
@@ -369,10 +329,9 @@ local function DropPeer(name)
 	if not peer then
 		return
 	end
-	leftAt[name] = GetTime()
 	LastHeard()[name] = nil -- gone: coming back is a real arrival, welcomed
 	peers[name] = nil
-	answered[name], freshness[name], lastAnswer[name] = nil, nil, nil
+	answered[name] = nil
 	ns.Print(L.PEER_LEFT:format(ns.ColorName(name, peer.class)))
 	Bus:Fire("PEERS_CHANGED")
 end
@@ -380,15 +339,13 @@ end
 local function DropEveryone()
 	local peers = Session().peers
 	wipe(answered)
-	wipe(freshness)
-	wipe(lastAnswer)
 	if next(peers) then
 		wipe(peers)
 		Bus:Fire("PEERS_CHANGED")
 	end
 end
 
--- For pretend players that go without leaving the channel (the sandbox's).
+-- For pretend players that go without leaving the channel (dev mode's).
 function Sharing:Forget(name)
 	DropPeer(name)
 end
@@ -419,15 +376,15 @@ end
 -- Sends an entry. When it is too long for one message with its summary, it
 -- goes without one: the summary only matters to clients that do not know the
 -- type, and the entry itself matters to everyone.
-local function SendEntry(fields, key)
-	if Send(Kinds.ENTRY, fields, key) then
+local function SendEntry(fields)
+	if Send(Kinds.ENTRY, fields) then
 		return true
 	end
 	if fields[SUMMARY_KEY] == nil then
 		return false
 	end
 	fields[SUMMARY_KEY] = nil
-	return Send(Kinds.ENTRY, fields, key)
+	return Send(Kinds.ENTRY, fields)
 end
 
 -- Reads an ENTRY's fields back: its type, the sender's class, its data and the
@@ -465,26 +422,6 @@ local function OnOurChannel(chatType, channelId)
 end
 
 -- ========= Outgoing =========================================================
--- Entry types that only say where a count stands, and the data that names
--- what is being counted. Of several waiting to go out for the same thing, only
--- the newest is worth sending.
-local LATEST_ONLY = {
-	quest_progress = { "questID", "quest", "objectiveIndex", "objective" },
-	skill = { "skill" }, -- a friend's panel merges a run of them into one row anyway
-}
-
-local function LatestKey(entry)
-	local names = LATEST_ONLY[entry.type]
-	if not names then
-		return nil
-	end
-	local parts = { entry.type }
-	for _, name in ipairs(names) do
-		parts[#parts + 1] = tostring(entry.data[name])
-	end
-	return table.concat(parts, ":")
-end
-
 -- XP from kills, held back and added up per creature (ns.Timing.kill*), so
 -- grinding sends one message a creature, not one a kill. gains says how many
 -- kills it stands for.
@@ -538,7 +475,7 @@ Bus:On("ENTRY_OUTGOING", function(entry)
 		return
 	end
 	local _, class = UnitClass("player")
-	SendEntry(EntryFields(entry.type, class, entry.data), LatestKey(entry))
+	SendEntry(EntryFields(entry.type, class, entry.data))
 end)
 
 -- ========= How our quests stand =============================================
@@ -553,7 +490,7 @@ local function SendQuest(quest, class, as)
 			local objective = objectives[index]
 			fields["o" .. index], fields["h" .. index], fields["n" .. index] = objective.objective, objective.have, objective.need
 		end
-		if Send(Kinds.QUEST, fields, "quest:" .. tostring(quest.questID), as) then
+		if Send(Kinds.QUEST, fields, as) then
 			return
 		end
 	end
@@ -576,16 +513,15 @@ local function SendGear(gear, class, as, slots, changed)
 	end
 	for first = 1, #list, GEAR_SLOTS_PER_MESSAGE do
 		local fields = { c = class or "" }
-		local keyParts, worn = {}, slots ~= nil
+		local worn = slots ~= nil
 		for index = first, math.min(#list, first + GEAR_SLOTS_PER_MESSAGE - 1) do
 			local slot = list[index]
 			fields["s" .. slot] = gear[slot] or ""
-			keyParts[#keyParts + 1] = slot
 			worn = worn or fields["s" .. slot] ~= "" or (changed ~= nil and changed[slot] == true)
 		end
 		-- In a whole set, a message of nothing but empty slots says nothing new.
 		if worn then
-			Send(Kinds.GEAR, fields, "gear:" .. table.concat(keyParts, ","), as)
+			Send(Kinds.GEAR, fields, as)
 		end
 	end
 end
@@ -602,44 +538,37 @@ function Sharing.SendSay(icons, saying, effect, class, as)
 	for index, icon in ipairs(icons or {}) do
 		if IMAGE_KEYS[index] then fields[IMAGE_KEYS[index]] = icon end
 	end
-	return Send(Kinds.SAY, fields, nil, as)
+	return Send(Kinds.SAY, fields, as)
 end
 
 -- A stamp on a feed card (stamps.lua): the card's key and the stamp's id.
 function Sharing.SendStamp(key, id, as)
-	return Send(Kinds.STAMP, { k = key, s = id }, nil, as)
+	return Send(Kinds.STAMP, { k = key, s = id }, as)
 end
 
-local stating = false -- a statement of our quests is already on its way
-
--- Says how each quest we are working on stands, a moment from now.
+-- Says how each quest we are working on stands, and our gear.
 local function StateQuests()
-	if stating then
+	if Session().state ~= "connected" then
 		return
 	end
-	stating = true
-	C_Timer.After(STATE_DELAY.min + math.random() * (STATE_DELAY.max - STATE_DELAY.min), function()
-		stating = false
-		if Session().state ~= "connected" or not ns.IsEnabled("quests") then
-			return
-		end
-		local _, class = UnitClass("player")
+	local _, class = UnitClass("player")
+	if ns.IsEnabled("quests") then
 		for _, quest in ipairs(ns.Collectors:GetQuestSnapshot()) do
 			-- Only the quests being worked on: the rest is not worth a message each.
 			if quest.objectivesReady and ns.QuestUnderway(quest.objectives) then
 				SendQuest(quest, class)
 			end
 		end
-		if ns.Gear and ns.IsEnabled("shareGear") then
-			SendGear(ns.Gear:Snapshot(), class)
-		end
-	end)
+	end
+	if ns.Gear and ns.IsEnabled("shareGear") then
+		SendGear(ns.Gear:Snapshot(), class)
+	end
 end
 
--- Our own gear, the whole set when it changes (collectors\gear.lua), at most
--- once in ns.Timing.gearSeconds: the first change goes at once, later ones
--- wait for the time to be up and go out together, as one set.
-local gearSentAt, gearTimer
+-- Our own gear, the whole set when it changes (collectors\gear.lua),
+-- debounced: it goes out ns.Timing.gearSeconds after the last change, so a
+-- whole outfit swapped at once is one set.
+local gearTimer
 local gearChanged = {} -- slots changed since the last set went out
 
 local function SendMyGear()
@@ -647,7 +576,6 @@ local function SendMyGear()
 	if Session().state ~= "connected" or not ns.IsEnabled("shareGear") then
 		return
 	end
-	gearSentAt = GetTime()
 	local _, class = UnitClass("player")
 	local changed = gearChanged
 	gearChanged = {}
@@ -656,15 +584,11 @@ end
 
 Bus:On("GEAR_CHANGED", function(slot)
 	gearChanged[slot] = true
-	if gearTimer or Session().state ~= "connected" or not ns.IsEnabled("shareGear") then
-		return -- already waiting to send, or nowhere to send it
+	if Session().state ~= "connected" or not ns.IsEnabled("shareGear") then
+		return -- nowhere to send it
 	end
-	local wait = gearSentAt and (gearSentAt + ns.Timing.gearSeconds - GetTime()) or 0
-	if wait <= 0 then
-		SendMyGear()
-	else
-		gearTimer = C_Timer.NewTimer(wait, SendMyGear)
-	end
+	if gearTimer then gearTimer:Cancel() end -- another change: wait again
+	gearTimer = C_Timer.NewTimer(ns.Timing.gearSeconds, SendMyGear)
 end)
 
 -- The emulator's pretend players (emulator\emulator.lua) use the same
@@ -677,7 +601,7 @@ function Sharing:SendVirtual(persona, typeName, data)
 	return SendEntry(EntryFields(typeName, persona.class, data, persona.name))
 end
 
--- The rest of the protocol for a pretend player (the sandbox's personas):
+-- The rest of the protocol for a pretend player (dev mode's personas):
 -- fields are the hello's, as the persona stands now.
 function Sharing:SendHelloAs(persona, kind)
 	local fields = {}
@@ -685,81 +609,32 @@ function Sharing:SendHelloAs(persona, kind)
 		fields[key] = value
 	end
 	fields.c = persona.class or ""
-	return Send(kind or Kinds.HELLO, fields, nil, persona.name)
-end
-
--- A REQUEST to one player: "tell me how you stand". Not sent when an answer
--- was heard a moment ago, or someone else's request is already waiting.
-local REQUEST_QUIET_SECONDS = 10
-local requested = {} -- when a request to each player was last sent or heard
-function Sharing:Request(name)
-	local now = GetTime()
-	if requested[name] and now - requested[name] < REQUEST_QUIET_SECONDS then
-		return false
-	end
-	requested[name] = now
-	return Send(Kinds.REQUEST, { to = name })
+	return Send(kind or Kinds.HELLO, fields, persona.name)
 end
 
 -- ========= Incoming, from other players =====================================
 local handlers = {}
 
--- True when n is not older than the newest heard from sender about key, and
--- remembers it. Messages without n (from older versions) always count.
-local function Fresh(sender, key, n)
-	if type(n) ~= "number" or replaying then
-		return true
-	end
-	local known = freshness[sender]
-	if not known then
-		known = {}
-		freshness[sender] = known
-	end
-	if known[key] and n < known[key] then
-		return false
-	end
-	known[key] = n
-	return true
-end
-
--- Answers a newcomer's hello once: an ACK after a short random wait, so a
--- big party does not answer at the same moment, then how our quests stand.
--- In the sandbox, its pretend players answer instead (PEER_HELLO).
+-- Answers a newcomer's hello once: an ACK, then how our quests stand.
+-- Dev mode's pretend players answer too (PEER_HELLO).
 local function Welcome(sender)
 	if answered[sender] then
 		return
 	end
 	answered[sender] = true
 	Bus:Fire("PEER_HELLO", sender)
-	if ns.IsSandbox() then
-		return
-	end
-	C_Timer.After(ACK_DELAY.min + math.random() * (ACK_DELAY.max - ACK_DELAY.min), function()
-		if answered[sender] then
-			Send(Kinds.ACK, MyFields())
-		end
-	end)
+	Send(Kinds.ACK, MyFields())
 	StateQuests() -- so the newcomer sees where we are
 end
 
 handlers[Kinds.HELLO] = function(sender, fields, virtual)
-	if not Fresh(sender, "hello", fields.n) then
-		return
-	end
-	leftAt[sender] = nil -- a hello is a real return
 	AddPeer(sender, fields, virtual)
 	Welcome(sender)
 end
 
--- An answer or a presence: news of someone here, unless they just went (a
--- late one, still in flight).
+-- An answer or a presence: news of someone here.
 handlers[Kinds.ACK] = function(sender, fields, virtual)
-	if not Session().peers[sender] and not MayRejoin(sender) then
-		return
-	end
-	if Fresh(sender, "hello", fields.n) then
-		AddPeer(sender, fields, virtual)
-	end
+	AddPeer(sender, fields, virtual)
 end
 
 handlers[Kinds.PRESENCE] = handlers[Kinds.ACK]
@@ -769,13 +644,12 @@ handlers[Kinds.ENTRY] = function(sender, fields, virtual)
 	if not typeName then
 		return
 	end
-	-- Someone who was here before us, and whose ACK we missed, still counts;
-	-- someone who just went is not brought back by a late message.
+	-- Someone who was here before us, and whose ACK we missed, still counts.
 	local peer = Session().peers[sender]
-	if not peer and MayRejoin(sender) then
+	if not peer then
 		AddPeer(sender, { c = class }, virtual)
 		peer = Session().peers[sender]
-	elseif peer then
+	else
 		peer.heard = GetTime()
 	end
 	Bus:Fire("ENTRY_RECEIVED", { type = typeName, player = sender, class = class or (peer and peer.class), data = data, emulated = virtual or nil })
@@ -784,14 +658,14 @@ end
 -- Health and power: the newest replaces what was known.
 handlers[Kinds.VITALS] = function(sender, fields, virtual)
 	local vitals = ReadVitals(fields)
-	if not vitals or not Fresh(sender, "vitals", fields.n) then
+	if not vitals then
 		return
 	end
 	local peer = Session().peers[sender]
 	if not peer then
-		if not MayRejoin(sender) then return end
 		AddPeer(sender, {}, virtual)
 		peer = Session().peers[sender]
+		if not peer then return end -- you: your own bar reads the game
 	end
 	peer.vitals = vitals
 	peer.heard = GetTime()
@@ -833,7 +707,7 @@ handlers[Kinds.GEAR] = function(sender, fields, virtual)
 	local gear = {}
 	for key, value in pairs(fields) do
 		local slot = type(key) == "string" and tonumber(key:match("^s(%d+)$"))
-		if slot and ns.EquipmentSlotById[slot] and type(value) == "string" and Fresh(sender, "gear" .. slot, fields.n) then
+		if slot and ns.EquipmentSlotById[slot] and type(value) == "string" then
 			-- Only numbers and colons: anything else is not an item.
 			gear[slot] = value:match("^[%d:]*$") or ""
 		end
@@ -844,37 +718,14 @@ handlers[Kinds.GEAR] = function(sender, fields, virtual)
 	if not Session().peers[sender] then
 		AddPeer(sender, { c = class }, virtual)
 	end
-	ns.Store:UpdateGear(sender, class or Session().peers[sender].class, gear)
-end
-
--- Someone asking a player how they stand. Only that player answers, at most
--- once a minute for each asker; everyone else notes that an answer is coming.
-handlers[Kinds.REQUEST] = function(sender, fields)
-	local to = type(fields.to) == "string" and fields.to or nil
-	if not to then
-		return
-	end
-	requested[to] = GetTime()
-	local now = GetTime()
-	if lastAnswer[sender] and now - lastAnswer[sender] < ANSWER_GAP_SECONDS then
-		return
-	end
-	if ns.IsMe(to) and not ns.IsSandbox() then
-		lastAnswer[sender] = now
-		StateQuests()
-	else
-		-- One of the sandbox's pretend players, if it has one by that name.
-		Bus:Fire("STATE_REQUESTED", to, sender)
-	end
+	local peer = Session().peers[sender]
+	ns.Store:UpdateGear(sender, class or (peer and peer.class), gear)
 end
 
 -- Where one of a friend's quests stands. It replaces what was known of it.
 handlers[Kinds.QUEST] = function(sender, fields, virtual)
 	local id, title = fields.id, fields.quest
 	if type(id) ~= "number" or type(title) ~= "string" or title == "" or not ns.IsEnabled("quests") then
-		return
-	end
-	if not Fresh(sender, "quest" .. id, fields.n) then
 		return
 	end
 	local objectives = {}
@@ -889,14 +740,15 @@ handlers[Kinds.QUEST] = function(sender, fields, virtual)
 	if not Session().peers[sender] then
 		AddPeer(sender, { c = class }, virtual)
 	end
-	ns.Store:HydrateQuest(sender, class or Session().peers[sender].class, { questID = id, quest = Clean(title), objectives = objectives }, ns.IsEnabled("questDetails"))
+	local peer = Session().peers[sender]
+	ns.Store:HydrateQuest(sender, class or (peer and peer.class), { questID = id, quest = Clean(title), objectives = objectives }, ns.IsEnabled("questDetails"))
 end
 
 -- Reads one message from another player (real or pretend). Returns true when
 -- it was one of ours. A handler that fails is reported once and the message
 -- dropped: one bad message must never stop the rest.
 local reportedFailure = false
-local function Read(text, sender, virtual)
+function Read(text, sender, virtual)
 	local kind, fields = Protocol.Decode(text)
 	local handler = kind and handlers[kind]
 	if not handler then
@@ -919,14 +771,20 @@ end
 
 -- Every message on the channel comes here: from other players, and our own
 -- back from the server. comms\origin.lua says who it is from.
--- loopback is the sandbox's own message read back without the wire.
+-- loopback is dev mode's own message read back without the wire.
+-- Our own kinds not read again when they come back (see Dispatch).
+SELF_LOCAL = {
+	[Kinds.HELLO] = true, [Kinds.ACK] = true, [Kinds.PRESENCE] = true,
+	[Kinds.VITALS] = true,
+}
+
 function Dispatch(text, chatType, sender, channelId, fromMe, loopback)
 	if not loopback and not OnOurChannel(chatType, channelId) then
 		return
 	end
 	local kind, fields = Protocol.Decode(text)
 	local as = kind and type(fields[VIRTUAL_KEY]) == "string" and fields[VIRTUAL_KEY] ~= "" and Clean(fields[VIRTUAL_KEY]) or nil
-	local origin, from = ns.Origin(sender, fromMe, as, ns.IsSandbox(), ns.IsDebug())
+	local origin, from = ns.Origin(sender, fromMe, as, ns.IsDebug())
 	if fromMe and not loopback then
 		Log("back", text)
 		if kind then
@@ -937,10 +795,14 @@ function Dispatch(text, chatType, sender, channelId, fromMe, loopback)
 		-- everything that arrives on the channel under Quest Party's name.
 		Log("in", Clean(text), sender)
 	end
-	-- Our own decal back from the server: it shows in our chat too, now that
-	-- it has made the trip.
-	if origin == "self" and kind == Kinds.SAY then
-		Read(text, ns.MyName(), false)
+	-- Our own message back from the channel: read like everyone's, so what
+	-- you see of yourself is what everyone sees. Only who is here (hello,
+	-- answer, presence, request) and your health and power (read from the
+	-- game for your own bar) are not read again (SELF_LOCAL).
+	if origin == "self" then
+		if kind and not SELF_LOCAL[kind] then
+			Read(text, ns.MyName(), false)
+		end
 		return
 	end
 	if origin ~= "peer" then
@@ -1009,7 +871,7 @@ end)
 -- is up. The transport keeps only the newest under its key, too.
 local vitalsDebounce, vitalsTimer
 local function SendVitals(reading)
-	Send(Kinds.VITALS, { h = reading.h, p = reading.p, t = reading.t }, "vitals")
+	Send(Kinds.VITALS, { h = reading.h, p = reading.p, t = reading.t })
 end
 
 Bus:On("VITALS_CHANGED", function(reading)
@@ -1031,7 +893,7 @@ end)
 -- ========= The connection ===================================================
 Bus:On("CONNECTION_CHANGED", function()
 	if Session().state ~= "connected" then
-		announced, complained = false, false
+		announced = false
 		DropEveryone()
 		return
 	end
@@ -1039,12 +901,8 @@ Bus:On("CONNECTION_CHANGED", function()
 		return -- still connected: only the channel's number changed
 	end
 	announced = true
-	C_Timer.After(HELLO_DELAY, function()
-		if announced and not ns.IsSandbox() then
-			Send(Kinds.HELLO, MyFields())
-			StateQuests() -- so those already here see where we are
-		end
-	end)
+	Send(Kinds.HELLO, MyFields())
+	StateQuests() -- so those already here see where we are
 end)
 
 -- Every few minutes: our presence, and anyone silent too long has gone.
@@ -1052,9 +910,7 @@ local function Sweep()
 	if Session().state ~= "connected" then
 		return
 	end
-	if not ns.IsSandbox() then
-		Send(Kinds.PRESENCE, MyFields())
-	end
+	Send(Kinds.PRESENCE, MyFields())
 	local now = GetTime()
 	for name, peer in pairs(Session().peers) do
 		if peer.heard and now - peer.heard > SILENT_SECONDS then
@@ -1068,25 +924,26 @@ Bus:On("READY", function()
 	C_Timer.NewTicker(PRESENCE_SECONDS, Sweep)
 end)
 
--- Our professions changed (already settled: collectors\\professions.lua):
--- everyone hears, in a presence.
-Bus:On("PROFESSIONS_CHANGED", function()
-	if Session().state == "connected" and not ns.IsSandbox() then
-		Send(Kinds.PRESENCE, MyFields())
+-- One of our quests read from the log for the first time (collectors.lua):
+-- how it stands goes out if it is being worked on, as at hello, or if a card
+-- of it is already out there (it may have moved on since: a reload).
+Bus:On("OWN_QUEST_READ", function(quest)
+	if Session().state ~= "connected" or not ns.IsEnabled("quests") then return end
+	local known = false
+	for _, card in ipairs(ns.Store:GetCards("quest")) do
+		if ns.IsMe(card.player) and card.data.questID == quest.questID then known = true end
+	end
+	if known or ns.QuestUnderway(quest.objectives) then
+		local _, class = UnitClass("player")
+		SendQuest(quest, class)
 	end
 end)
 
--- The game refused a message outright. Say so once per connection, with the
--- game's own reason, since nothing else would show that sharing is not working.
-Bus:On("COMMS_SEND_FAILED", function(result, message)
-	if not message or message.chatType ~= CHAT_TYPE then
-		return
-	end
-	Sharing.refused = Sharing.refused + 1
-	Sharing.lastRefusal = result
-	if not complained then
-		complained = true
-		ns.Print(L.SHARE_REFUSED:format(tostring(result)))
+-- Our professions changed (already settled: collectors\\professions.lua):
+-- everyone hears, in a presence.
+Bus:On("PROFESSIONS_CHANGED", function()
+	if Session().state == "connected" then
+		Send(Kinds.PRESENCE, MyFields())
 	end
 end)
 
@@ -1096,11 +953,7 @@ function Sharing:Status()
 	if session.state ~= "connected" then
 		return L.SHARE_STATUS_OFF
 	end
-	local line = L.SHARE_STATUS:format(config.name, self.sent, self.echoed, self.received, session:Count())
-	if self.refused > 0 then
-		line = line .. L.SHARE_STATUS_REFUSED:format(self.refused, tostring(self.lastRefusal))
-	end
-	return line
+	return L.SHARE_STATUS:format(config.name, self.sent, self.echoed, self.received, session:Count())
 end
 
 -- Someone leaving the channel is no longer sharing.

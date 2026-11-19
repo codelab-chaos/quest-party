@@ -934,11 +934,6 @@ function Party:Open(name)
 	end
 	self.selected = name
 	self.opening = true
-	-- Nothing of their gear yet: ask them, once (comms\sharing.lua Request).
-	local member = ns.Store:GetMember(name)
-	if ns.Session.peers[name] and not (member and member.gear) then
-		ns.Sharing:Request(name)
-	end
 	self:Redraw()
 end
 

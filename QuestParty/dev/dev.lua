@@ -1,10 +1,11 @@
--- Sandbox: plays pretend Quest Party players from this one character, for
--- testing a party without a second account. Only in the sandbox build
--- (QuestPartySandbox), which collects nothing of its own.
+-- Dev mode's pretend players (with /qp debug on): Quest Party players played
+-- from this one character, to test a party without a second account. They
+-- are marked pretend everywhere (emulated), never count toward Fuel, and Wipe
+-- forgets only them.
 --
 -- Two sources of pretend players:
---   party      made up from a seed (sandbox\party.lua), as many as wanted
---   recording  a real session played back (sandbox\recording.lua)
+--   party      made up from a seed (dev\party.lua), as many as wanted
+--   recording  a real session played back (dev\recording.lua)
 --
 -- Two ways their messages travel (Sharing.loopback):
 --   channel    over the real channel, marked with the pretend player (as), so
@@ -17,7 +18,7 @@
 local addonName, ns = ...
 local Bus, L = ns.Bus, ns.L
 
-local Sandbox = {
+local Dev = {
 	running = false,
 	speed = 1,
 	personas = {}, -- by name
@@ -25,7 +26,7 @@ local Sandbox = {
 	started = 0,
 	clock = 0, -- seconds of pretend play so far
 }
-ns.Sandbox = Sandbox
+ns.Dev = Dev
 
 local TICK_SECONDS = 0.25
 local PRESENCE_SECONDS = 5 * 60 -- pretend seconds, as for real players
@@ -42,11 +43,11 @@ local function ChannelUsable()
 		return true
 	end
 	if ns.Session.state ~= "connected" then
-		return false, L.SANDBOX_NO_CHANNEL
+		return false, L.DEV_NO_CHANNEL
 	end
 	for name, peer in pairs(ns.Session.peers) do
 		if not peer.virtual and not ns.IsMe(name) then
-			return false, L.SANDBOX_FRIENDS_HERE:format(name)
+			return false, L.DEV_FRIENDS_HERE:format(name)
 		end
 	end
 	return true
@@ -66,18 +67,18 @@ end
 
 -- ========= Speaking as a persona ============================================
 local function SendHello(persona, kind)
-	persona.hello = ns.SandboxParty.Hello(persona)
+	persona.hello = ns.DevParty.Hello(persona)
 	Sharing():SendHelloAs(persona, kind)
 end
 
 local function SendQuests(persona)
-	for _, quest in ipairs(ns.SandboxParty.Quests(persona)) do
+	for _, quest in ipairs(ns.DevParty.Quests(persona)) do
 		Sharing().SendQuest(quest, persona.class, persona.name)
 	end
 end
 
 local function SendGear(persona)
-	persona.gearSentAt = Sandbox.clock
+	persona.gearSentAt = Dev.clock
 	persona.gearPending = nil
 	Sharing().SendGear(persona.gear or {}, persona.class, persona.name)
 end
@@ -92,13 +93,13 @@ local FIGHT_SECONDS = 15
 local POWER = { WARRIOR = "RAGE", ROGUE = "ENERGY" }
 
 local function Vitals(persona)
-	if Sandbox.clock - (persona.vitalsAt or -math.huge) < VITALS_EVERY then return end
-	persona.vitalsAt = Sandbox.clock
+	if Dev.clock - (persona.vitalsAt or -math.huge) < VITALS_EVERY then return end
+	persona.vitalsAt = Dev.clock
 	local token = POWER[persona.class] or "MANA"
 	persona.health = persona.health or 100
 	persona.power = persona.power or (token == "RAGE" and 0 or 100)
 	local random = persona.random
-	local fighting = persona.lastKillAt and Sandbox.clock - persona.lastKillAt < FIGHT_SECONDS
+	local fighting = persona.lastKillAt and Dev.clock - persona.lastKillAt < FIGHT_SECONDS
 	if fighting then
 		persona.health = math.max(5, persona.health - random.int(5, 25))
 		persona.power = token == "RAGE" and math.min(100, persona.power + random.int(10, 30)) or math.max(0, persona.power - random.int(5, 20))
@@ -109,14 +110,14 @@ local function Vitals(persona)
 	local reading = { h = math.floor(persona.health / 5) * 5, p = math.floor(persona.power / 5) * 5, t = token }
 	if not ns.Vitals.Same(reading, persona.vitalsSent) then
 		persona.vitalsSent = reading
-		Sharing().Send(ns.Protocol.Kinds.VITALS, { h = reading.h, p = reading.p, t = reading.t }, "vitals", persona.name)
+		Sharing().Send(ns.Protocol.Kinds.VITALS, { h = reading.h, p = reading.p, t = reading.t }, persona.name)
 	end
 end
 
 local function Act(persona, actions)
 	for _, action in ipairs(actions) do
 		if action.send == "entry" and action.type == "xp" and action.data and action.data.mob and action.data.mob ~= "" then
-			persona.lastKillAt = Sandbox.clock -- a fight: their health drops (Vitals)
+			persona.lastKillAt = Dev.clock -- a fight: their health drops (Vitals)
 		end
 		if action.send == "entry" then
 			Sharing():SendVirtual(persona, action.type, action.data)
@@ -138,7 +139,7 @@ local function PlayMessage(persona, text)
 	if not kind then
 		return
 	end
-	fields.as, fields.n = nil, nil
+	fields.as = nil
 	local Kinds = ns.Protocol.Kinds
 	if kind == Kinds.ENTRY then
 		local typeName = fields.t
@@ -150,14 +151,14 @@ local function PlayMessage(persona, text)
 			persona.hello = Copy(fields)
 		end
 		fields.c = persona.class
-		Sharing().Send(kind, fields, nil, persona.name)
+		Sharing().Send(kind, fields, persona.name)
 	end
 end
 
 -- ========= Arriving, playing, leaving =======================================
 local function Arrive(persona)
 	persona.here = true
-	persona.nextPresence = Sandbox.clock + PRESENCE_SECONDS
+	persona.nextPresence = Dev.clock + PRESENCE_SECONDS
 	if persona.recording then
 		return -- its first recorded message is its hello
 	end
@@ -170,8 +171,10 @@ local function Leave(persona)
 	persona.here = false
 	persona.gone = true
 	-- Here the pretend player simply goes. A Quest Party elsewhere notices
-	-- when it falls silent, as with anyone whose log-off it missed.
-	Sharing():Forget(persona.name)
+	-- when it falls silent, as with anyone whose log-off it missed. In
+	-- loopback their last messages are read a tick later, so the leave waits
+	-- a tick too and lands after them, in order.
+	C_Timer.After(0, function() Sharing():Forget(persona.name) end)
 end
 
 local function Advance(persona)
@@ -179,14 +182,14 @@ local function Advance(persona)
 		return
 	end
 	if not persona.here then
-		if Sandbox.clock >= persona.arriveAt then
+		if Dev.clock >= persona.arriveAt then
 			Arrive(persona)
 		end
 		return
 	end
 	if persona.recording then
 		local messages = persona.recording.messages
-		while persona.next <= #messages and Sandbox.clock >= persona.nextAt do
+		while persona.next <= #messages and Dev.clock >= persona.nextAt do
 			PlayMessage(persona, messages[persona.next].text)
 			persona.next = persona.next + 1
 			local following = messages[persona.next]
@@ -194,33 +197,33 @@ local function Advance(persona)
 		end
 		-- Done: it stays a moment, so its last messages are read before it goes.
 		if persona.next > #messages then
-			persona.leaveAt = persona.leaveAt or (Sandbox.clock + 30)
-			if Sandbox.clock >= persona.leaveAt then
+			persona.leaveAt = persona.leaveAt or (Dev.clock + 30)
+			if Dev.clock >= persona.leaveAt then
 				Leave(persona)
 			end
 		end
 		return
 	end
-	while Sandbox.clock >= persona.nextAt do
-		Act(persona, ns.SandboxParty.Step(persona))
-		persona.nextAt = persona.nextAt + ns.SandboxParty.NextGap(persona)
+	while Dev.clock >= persona.nextAt do
+		Act(persona, ns.DevParty.Step(persona))
+		persona.nextAt = persona.nextAt + ns.DevParty.NextGap(persona)
 	end
 	Vitals(persona)
 	-- Gear changed: the whole set, at most once in the gear wait, as a real
 	-- player's goes (comms\sharing.lua).
-	if persona.gearPending and Sandbox.clock >= (persona.gearSentAt or -math.huge) + Sandbox:GearWait() then
+	if persona.gearPending and Dev.clock >= (persona.gearSentAt or -math.huge) + Dev:GearWait() then
 		SendGear(persona)
 	end
-	if Sandbox.clock >= persona.nextPresence then
-		persona.nextPresence = Sandbox.clock + PRESENCE_SECONDS
+	if Dev.clock >= persona.nextPresence then
+		persona.nextPresence = Dev.clock + PRESENCE_SECONDS
 		SendHello(persona, ns.Protocol.Kinds.PRESENCE)
 	end
-	if Sandbox.clock >= persona.leaveAt then
+	if Dev.clock >= persona.leaveAt then
 		Leave(persona)
 	end
 end
 
-function Sandbox:Tick(elapsed)
+function Dev:Tick(elapsed)
 	if not self.running then
 		return
 	end
@@ -237,15 +240,15 @@ function Sandbox:Tick(elapsed)
 end
 
 local function Add(persona, arriveAt)
-	Sandbox.personas[persona.name] = persona
-	Sandbox.order[#Sandbox.order + 1] = persona.name
+	Dev.personas[persona.name] = persona
+	Dev.order[#Dev.order + 1] = persona.name
 	persona.arriveAt = arriveAt
-	persona.nextAt = arriveAt + (persona.recording and 0 or ns.SandboxParty.NextGap(persona))
+	persona.nextAt = arriveAt + (persona.recording and 0 or ns.DevParty.NextGap(persona))
 end
 
 -- The gear wait, in pretend seconds: a scenario's gearSeconds (real seconds,
 -- so a test run shows it soon), or the real rule's wait in pretend time.
-function Sandbox:GearWait()
+function Dev:GearWait()
 	if self.gearSeconds then
 		return self.gearSeconds * self.speed
 	end
@@ -253,17 +256,17 @@ function Sandbox:GearWait()
 end
 
 local function Begin(speed)
-	Sandbox.speed = math.max(0.1, tonumber(speed) or Sandbox.speed or 1)
-	Sandbox.clock = 0
-	Sandbox.running = true
-	Sandbox.started = GetTime()
-	Sandbox.sentAtStart = Sharing().sent
+	Dev.speed = math.max(0.1, tonumber(speed) or Dev.speed or 1)
+	Dev.clock = 0
+	Dev.running = true
+	Dev.started = GetTime()
+	Dev.sentAtStart = Sharing().sent
 	if not ticker then
 		ticker = C_Timer.NewTicker(TICK_SECONDS, function()
-			Sandbox:Tick(TICK_SECONDS)
+			Dev:Tick(TICK_SECONDS)
 		end)
 	end
-	Bus:Fire("EMULATOR_STATE", true)
+	Bus:Fire("DEV_STATE", true)
 end
 
 -- Starts a made-up party: count players from seed, at a speed.
@@ -271,7 +274,7 @@ end
 -- Pretend players wear your equipped items (wearMine, on by default): every
 -- slot you have filled is your real item, so their cards look like a real
 -- player's; slots you have empty keep the world's starter items.
-Sandbox.wearMine = true
+Dev.wearMine = true
 
 local function WearMine(persona)
 	for _, slot in ipairs(ns.EquipmentSlotIds) do
@@ -284,11 +287,11 @@ end
 
 -- prepare(persona), when given, sets each pretend player up before they
 -- arrive (a quest they all share, for one).
-function Sandbox:StartParty(count, seed, speed, prepare)
+function Dev:StartParty(count, seed, speed, prepare)
 	count = math.max(1, math.min(200, tonumber(count) or 5))
 	seed = tonumber(seed) or 1
 	if not Sharing().loopback and count > CHANNEL_LIMIT then
-		return false, L.SANDBOX_TOO_MANY:format(CHANNEL_LIMIT)
+		return false, L.DEV_TOO_MANY:format(CHANNEL_LIMIT)
 	end
 	local usable, problem = ChannelUsable()
 	if not usable then
@@ -297,9 +300,9 @@ function Sandbox:StartParty(count, seed, speed, prepare)
 	self:Stop()
 	wipe(self.personas)
 	wipe(self.order)
-	local world = ns.SandboxWorld
+	local world = ns.DevWorld
 	local arrival = 0
-	for _, persona in ipairs(ns.SandboxParty.Make(seed, count)) do
+	for _, persona in ipairs(ns.DevParty.Make(seed, count)) do
 		if self.wearMine then
 			WearMine(persona)
 		end
@@ -316,15 +319,15 @@ end
 
 -- Plays recordings back as pretend players: one by its id, or "all" of
 -- them together, each starting when it did that evening.
-function Sandbox:StartRecording(name, speed)
+function Dev:StartRecording(name, speed)
 	local chosen = {}
-	for id, recording in pairs(ns.SandboxRecordings) do
+	for id, recording in pairs(ns.DevRecordings) do
 		if name == "all" or name == nil or id == name then
 			chosen[#chosen + 1] = recording
 		end
 	end
 	if #chosen == 0 then
-		return false, L.SANDBOX_NO_RECORDING
+		return false, L.DEV_NO_RECORDING
 	end
 	table.sort(chosen, function(a, b) return (a.start or 0) < (b.start or 0) end)
 	local usable, problem = ChannelUsable()
@@ -343,7 +346,7 @@ function Sandbox:StartRecording(name, speed)
 	return true
 end
 
-function Sandbox:Stop()
+function Dev:Stop()
 	if not self.running then
 		return
 	end
@@ -354,31 +357,33 @@ function Sandbox:Stop()
 			Leave(persona)
 		end
 	end
-	Bus:Fire("EMULATOR_STATE", false)
+	Bus:Fire("DEV_STATE", false)
 end
 
--- Forgets everything the sandbox has seen, to run again from nothing.
-function Sandbox:Wipe()
+-- Forgets the pretend players and everything they did, to run again from
+-- nothing. Only theirs: your own feed, cards, friends and Fuel are real and
+-- stay (pretend players never count toward Fuel: stats.lua).
+function Dev:Wipe()
 	self:Stop()
+	local names = {}
+	for _, name in ipairs(self.order) do names[name] = true end
+	for _, member in ipairs(ns.Store:GetMembers()) do
+		if member.emulated then names[member.name] = true end
+	end
+	for name in pairs(names) do
+		ns.Store:ForgetName(name)
+		Sharing():Forget(name)
+	end
 	wipe(self.personas)
 	wipe(self.order)
-	ns.Store:Clear()
-	Sharing():ForgetEveryone()
-	if ns.db.commsLog then
-		wipe(ns.db.commsLog)
-	end
-	ns.Stats:Clear()
 end
 
 -- ========= Answering, as the pretend players ================================
 -- Someone said hello: each pretend player here answers it once, as a real
 -- Quest Party would, after a short random wait.
 Bus:On("PEER_HELLO", function(sender)
-	if not ns.IsSandbox() then
-		return
-	end
-	for _, name in ipairs(Sandbox.order) do
-		local persona = Sandbox.personas[name]
+	for _, name in ipairs(Dev.order) do
+		local persona = Dev.personas[name]
 		if persona.here and name ~= sender and not persona.recording then
 			C_Timer.After(0.5 + math.random() * 2.5, function()
 				if persona.here then
@@ -391,19 +396,10 @@ Bus:On("PEER_HELLO", function(sender)
 	end
 end)
 
--- Someone asked one of the pretend players how it stands.
-Bus:On("STATE_REQUESTED", function(to)
-	local persona = Sandbox.personas[to]
-	if ns.IsSandbox() and persona and persona.here and not persona.recording then
-		SendQuests(persona)
-		SendGear(persona)
-	end
-end)
-
 -- ========= Measuring ========================================================
 -- What a run costs: this addon's memory (its own, apart from any other
 -- addon's), the store's counts, and the messages.
-function Sandbox:Measure()
+function Dev:Measure()
 	if UpdateAddOnMemoryUsage then
 		UpdateAddOnMemoryUsage()
 	end
@@ -444,11 +440,11 @@ end
 -- Sends count messages as fast as the game takes them, past Quest Party's own
 -- queue, and counts the game's answers: how many it took before it said
 -- "throttled". The messages are of a kind no Quest Party reads.
-function Sandbox:BurstTest(count)
+function Dev:BurstTest(count)
 	count = math.max(1, math.min(40, tonumber(count) or 20))
 	local session = ns.Session
 	if session.state ~= "connected" then
-		return nil, L.SANDBOX_NO_CHANNEL
+		return nil, L.DEV_NO_CHANNEL
 	end
 	local results, firstRefusal = {}, nil
 	local names = {}
@@ -465,3 +461,12 @@ function Sandbox:BurstTest(count)
 	end
 	return { sent = count, results = results, firstRefusal = firstRefusal }
 end
+
+-- Dev mode off: every dev tool goes quiet. A run stops, its pretend players
+-- leave, and loopback is off again.
+Bus:On("DEBUG_CHANGED", function(enabled)
+	if not enabled then
+		Dev:Stop()
+		ns.Sharing.loopback = false
+	end
+end)

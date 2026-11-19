@@ -4,10 +4,15 @@ Quest Party brings your adventures in **World of Warcraft: Forever** into one
 compact, live feed. Follow quest objectives, level-ups, achievements, discoveries,
 and profession gains without losing ongoing progress in a stream of chat.
 
+> **Quest Party relies on a channel.** Everything is the channel's feed: every
+> player's client, yours included, sends what happens to the channel and reads
+> what comes back from it. Your own events show in your panel when they come
+> back from the channel, exactly as your friends see them. Without a channel
+> joined there is no feed: join one in Settings first.
+
 - **Persistent quest cards** keep objectives and item counts visible across
-  reloads, even without a channel connection. Your own quests refresh from your
-  quest log; cached cards stay visible and turn gray after five minutes without
-  an update.
+  reloads. Your own quests go to the channel as you work on them and come back
+  as your cards, as your friends see them.
 - **Two tabs, Feed and Party**, with a row of icons along the bottom of the panel (Leveling,
   Discovery, Kills, Achievements, Deaths, Professions, Quests) to hide or show
   those rows in your feed. They only change what you see; friends still get your updates.
@@ -115,11 +120,10 @@ Arguments in square brackets are optional.
 | `/qp debug [on/off]` | Enable or disable debug mode; omit the argument to toggle it. |
 
 Available switches: `shareGear`, `partyHeads`, `rememberPlayers`, `otherUpdates`,
-`confetti`, `chatEcho`, `chatOrder`, and `showSelf`. In the sandbox (`/qps`)
-your own events always show; `showSelf` has no switch there.
+`confetti`, `chatEcho` and `chatOrder`. Your own events always show, like
+everyone's: you are a player like any other.
 
-For example, `/qp set showSelf off` turns off **Include self**,
-`/qp set shareGear off` stops sharing your gear, and
+For example, `/qp set shareGear off` stops sharing your gear, and
 `/qp set chatOrder off` puts the newest entries at the top.
 
 ### Debug commands
@@ -129,48 +133,39 @@ scenario, Clear on go, GO and STOP) are also in Settings while debug mode is ena
 
 | Command | What it does |
 | --- | --- |
-| `/qp emu` | Start or stop the sample party emulator. While you are connected to a channel, its pretend players are sent over it with the real protocol and shown only when the server sends them back, so it tests how your client picks up another client's messages. With no channel they are shown directly. |
 | `/qp listen` | Show or hide the listener: a small window that lists the hidden messages on the channel as they pass, marked sent, came back, or from a player. It shows only Quest Party's own messages, since the game gives an addon nobody else's. |
 | `/qp stats` | Show what you and your friends have done over the last 7 days: XP, kills, quests, levels, skill-ups, achievements and deaths. An advanced feature for now: the daily tallies are only kept while debug mode is on. |
 | `/qp replay` | Read the saved messages from other players again, as if they had just arrived, to rebuild the panel from real traffic. Nothing is sent. The last 200 messages are kept across reloads. |
-| `/qp emu start` | Start the emulator. |
-| `/qp emu stop` | Stop the emulator. |
-| `/qp emu step` | Play the next sample entry once. |
-| `/qp emu burst [n]` | Play sample entries immediately; defaults to 10. |
-| `/qp emu speed [n]` | Set playback speed from 0.25× to 20×; defaults to 1×. |
-| `/qp emu play [name]` | Play a recorded session instead of the sample party, once, from its start: `evening` is two real players' 22 minutes from 14 November 2026, brought up to what 0.2.0 sends (about a minute at 20×). With no name it lists the recordings; `sample` goes back to the sample party. Rebuild the recordings from a saved file with `scripts/make-recordings.py <path to QuestParty.lua>`. |
 | `/qp test` | Replay sample game events as your own character. They are shared with your channel like real progress, so leave the channel first if friends are on it. |
 | `/qp testloc <target>` | Show one test in your own panel only; nothing is sent. Targets: `confetti`, `level`, `death`, `quest`, `kill`, or `all`. With no target it lists them. |
 
-### The sandbox
+### Dev mode
 
-The sandbox is a second build of Quest Party, **QuestPartySandbox**, that plays
-pretend players from your own character, for testing a party without a second
-account. It is a developer's tool only. It has its own saved variables, its own
-panel and its own commands (`/qps`), shows your own quests from its own tracking
-but sends nothing of yours, and never sends as your character: every message
-names the pretend player it stands for. Friends' clients ignore those messages,
-and your own Quest Party shows them only in debug mode. The sandbox in turn
-ignores your own Quest Party when both are loaded, so you never show twice.
+Dev mode is debug mode's toolbox for testing a party without a second
+account: pretend players played from your own character. It is part of every
+build, off by default in every install: `/qp dev on` (or `/qp debug on`)
+shows the tools, `/qp dev off` hides them again. There is no separate test build: what you test is the next version.
 
-Install it with `scripts/deploy.sh --sandbox`, or build a ZIP with
-`python3 scripts/package.py --sandbox`. It is never part of a release. Your
-Quest Party can be enabled alongside it or not.
-
-Over the channel, use a channel of your own (such as `qpsandbox`): Quest Party
-0.2.0 and older would take a pretend player's hello or quest for yours, so the
-sandbox refuses channel runs while a friend is on the channel. Loopback has no
-such limit.
+Pretend players are marked as pretend everywhere: they show only in debug
+mode, never count toward Party Fuel, and wiping a run forgets only them. Your
+own feed, friends and Fuel are never touched. Over the channel, use a channel
+of your own: Quest Party 0.2.0 and older would take a pretend player's hello
+or quest for yours, so channel runs are refused while a friend is on the
+channel. Loopback has no such limit.
 
 | Command | What it does |
 | --- | --- |
-| `/qps party [count] [seed] [speed]` | Start a made-up party: `count` players from `seed` (the same seed makes the same party), at `speed` (10 plays an hour in six minutes). Over the channel, at most 4. |
-| `/qps replay [name\|all] [speed]` | Play back real recorded players, all together by default: two players from one evening of leveling, brought up to what 0.3.5 sends, in time with each other. `scripts/make-recordings.py` builds them from a saved message log. |
-| `/qps loopback on` | Read the pretend players' messages straight back, with no network, for parties of 20, 50 or 100. `off` sends them over the channel again. |
-| `/qps measure` | What the run costs: this addon's memory, messages, read time and what is saved. |
-| `/qps burst [count]` | Send a quick burst past the queue and report the game's answers, to measure the send budget. Nothing reads these messages. |
-| `/qps stop` | Stop; the pretend players leave. |
-| `/qps wipe` | Forget everything the sandbox saved, to run again from nothing. |
+| `/qp dev party [count] [seed] [speed]` | Start a made-up party: `count` players from `seed` (the same seed makes the same party), at `speed` (10 plays an hour in six minutes). Over the channel, at most 4. |
+| `/qp dev replay [name\|all] [speed]` | Play back real recorded players, all together by default. `scripts/make-dev-recordings.py` builds them from a saved message log. |
+| `/qp dev loopback on` | Read the pretend players' messages straight back, with no network, for parties of 20, 50 or 100. `off` sends them over the channel again. |
+| `/qp dev measure` | What the run costs: this addon's memory, messages, read time and what is saved. |
+| `/qp dev burst [count]` | Send a quick burst past the queue and report the game's answers, to measure the send budget. Nothing reads these messages. |
+| `/qp dev stop` | Stop; the pretend players leave. |
+| `/qp dev wipe` | Forget the pretend players and everything they did. |
+
+The same runs are in Settings while debug mode is on: pick a scenario (a small
+party, a party of 8, crowds of 20 and 50, ten players on one shared quest,
+recordings), then GO and STOP.
 
 ## Builds and releases
 
@@ -227,7 +222,7 @@ run the game's frame renderer or prove live server API behavior.
 
 Before tagging a public release, smoke-test in WoW: `/reload`, open and close
 Settings, change each tab and gutter icon, resize the panel, switch row views,
-enable `/qp debug on`, and run the Sample party test run from Settings.
+enable `/qp debug on`, and run a test run from Settings.
 Then run `/qp debug off` and confirm the run stops and the Debug section
 disappears. Channel sharing needs two characters on the same channel:
 make progress on one, check it shows on the other, and check `/qp share` on both.
@@ -235,9 +230,9 @@ The tests cannot prove the server carries addon messages on a custom channel.
 Check for Lua errors with `/console scriptErrors 1` before reloading.
 
 For local installation, `scripts/deploy.sh` uses the AddOns path in
-`.deploy-target` (ignored by Git) or `WOW_ADDONS_DIR`. The regular install takes
-only the `main` branch, so work in progress cannot replace the build you play
-with; deploy other branches with `--sandbox` (or `--force` on purpose).
+`.deploy-target` (ignored by Git) or `WOW_ADDONS_DIR`. It installs whatever
+branch is checked out: work on the next version is tested in your one Quest
+Party.
 
 To shrink a saved file with the game closed, `scripts/prune-saved.py` shows what
 it holds and, with `--write`, removes the message log, the feed, friends' quest

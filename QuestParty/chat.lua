@@ -68,13 +68,6 @@ function Chat:TimeoutLeft(player)
 	return TimeoutLeft(player or YOU)
 end
 
--- The marker the sandbox puts on what you send: it never speaks as this
--- character, so yours goes out as a pretend player of your name, shown here
--- as you and ignored by friends.
-local function SendAs()
-	return ns.IsSandbox() and ns.MyName() or nil
-end
-Chat.SendAs = SendAs
 
 local function ValidIcon(icon)
 	icon = tonumber(icon)
@@ -153,7 +146,7 @@ function Chat:Send(icons, saying, effect)
 		return false, L.CHAT_TIMEOUT:format(math.ceil(seconds))
 	end
 	local _, class = UnitClass("player")
-	if not ns.Sharing.SendSay(icons, saying, effect, class, SendAs()) then
+	if not ns.Sharing.SendSay(icons, saying, effect, class) then
 		return false, L.CHAT_NO_CHANNEL
 	end
 	return true
@@ -429,7 +422,11 @@ Bus:On("CHAT_SAY", function(say)
 	if Chat:IsMuted(say.player) then
 		return
 	end
-	local allowed, seconds, began = Allow(say.player)
+	-- Others' spam is held back here; yours was limited once, when you sent.
+	local allowed, seconds, began = true, 0, false
+	if not ns.IsMe(say.player) then
+		allowed, seconds, began = Allow(say.player)
+	end
 	if not allowed then
 		if began then
 			-- Said once, here only: their messages are hidden for a while.

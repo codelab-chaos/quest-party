@@ -1,4 +1,4 @@
--- Real Quest Party sessions, for the sandbox to play back as pretend
+-- Real Quest Party sessions, for dev mode to play back as pretend
 -- players: what each player's client sent over one evening of leveling
 -- (14 November 2026), with the seconds between messages, brought up to what
 -- Quest Party 0.3.5 sends. Played together they are two 0.3.5 clients on one
@@ -9,7 +9,7 @@
 --   text   the message as it goes over the wire
 local _, ns = ...
 
-ns.SandboxRecordings = {
+ns.DevRecordings = {
 	tirisfal = {
 		-- a level 11 paladin in Tirisfal Glades (the owner's side)
 		name = "Replay Paladin",

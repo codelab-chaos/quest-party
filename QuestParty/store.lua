@@ -598,7 +598,7 @@ function Store:Expire(now)
 	return cards, members
 end
 
--- What the saved state holds, for pruning and the sandbox's measurements.
+-- What the saved state holds, for pruning and dev mode's measurements.
 function Store:Counts()
 	local cards, members = 0, 0
 	for _ in pairs(db.cards) do cards = cards + 1 end
@@ -692,20 +692,6 @@ function Store:RenamePlayer(old, new)
 		Bus:Fire("STORE_CHANGED")
 	end
 	return moved
-end
-
--- Forgets every name that is this character but not the one given: the
--- sandbox's leftovers from hearing this character's regular Quest Party.
-function Store:ForgetOtherSelves(keep)
-	local names = {}
-	for name in pairs(db.members) do names[name] = true end
-	for _, record in pairs(db.cards) do names[record.player] = true end
-	for _, entry in ipairs(db.feed) do names[entry.player] = true end
-	for name in pairs(names) do
-		if name ~= keep and ns.IsMe(name) then
-			self:ForgetName(name)
-		end
-	end
 end
 
 function Store:GetMembers()

@@ -3,6 +3,27 @@
 Features and fixes shipped in each release. Copy a version's section into
 CurseForge's changelog field using Markdown formatting.
 
+## Unreleased (0.3.6)
+
+### Added
+
+- The Quest tab has a short row at the top of its list with a small gear that cycles the quest cards' layout (Segmented, Grid, Ring, List), the current one named beside it.
+
+### Changed
+
+- Plainer messaging: you say hello and answer newcomers straight away (no random waits), messages no longer carry ordering numbers, the "tell me how you stand" request is gone (everything comes at the handshake), the 10-second "just left" window is gone, and your gear goes out 30 seconds after your last change.
+- Every feed card can be stamped: kills, XP, skill-ups, joins and dropped quests too.
+- Quest Party relies on a channel: the channel is the feed. Your own events, quests, gear and KekChat go to the channel and show in your panel when they come back from the channel, read by exactly the same code as everyone else's, so you see yourself as your friends do (your kills, for example, now arrive in the same batches they get). Without a channel joined there is no feed.
+- One Quest Party, no sandbox build: the separate QuestPartySandbox addon is gone. Its pretend players, recorded sessions and test runs are dev mode, part of every build, off by default and turned on with `/qp dev on` (or `/qp debug on`) (`/qp dev party`, `/qp dev replay`, `/qp dev stop` and the rest, and the test runs in Settings). The older emulator (`/qp emu`) is replaced by them.
+- You are a player like any other, always: your own events, gear, head and card go through the same path as everyone's. Include self is no longer a switch.
+- Pretend players never count toward Party Fuel, and wiping a dev run forgets only them: your own feed, friends and Fuel are never touched.
+- Turning dev mode off quiets every dev tool: a run stops and its pretend players leave, loopback goes off, the lab and listener close, and the commands and test runs refuse until it is on again. Loopback only ever holds back pretend players' messages; yours always go to the channel.
+
+### Fixed
+
+- Your own messages could get stuck: Forever answers a channel send with a throttle code yet delivers it, so Quest Party kept resending the first message and everything behind it (your KekChat, your events) never went out. Every message is now sent once, straight away: no queue, pacing or retries, and the game's answer is not judged. The channel is the truth; /qp share compares sent with came back.
+- Your own head was missing from the side bar, so your own card could not be opened, and your card's Equipped tab was empty: only the sandbox build kept them.
+
 ## 0.3.5 - 2026-11-18
 
 A new look for the feed, a party side bar with player cards, stamps, KekChat,

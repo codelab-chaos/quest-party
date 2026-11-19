@@ -2,7 +2,7 @@
 -- docs\idea.md, "What the Forever client gives us") before building it in.
 -- One section per idea; where success is doubtful, two buttons try two ways.
 -- Every action runs protected and says what happened on the status line.
--- Debug mode only: /qp lab (or /qps lab in the sandbox). Nothing is sent.
+-- Debug mode only: /qp lab. Nothing is sent.
 local _, ns = ...
 local L = ns.L
 
@@ -563,3 +563,8 @@ function Lab:Toggle()
 	end
 	frame:SetShown(not frame:IsShown())
 end
+
+-- Dev mode off: the lab closes with the rest of the tools.
+ns.Bus:On("DEBUG_CHANGED", function(enabled)
+	if not enabled and frame then frame:Hide() end
+end)

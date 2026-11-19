@@ -1,10 +1,10 @@
--- The sandbox's made-up world, as data: names, who can be what, where they
+-- Dev mode's made-up world, as data: names, who can be what, where they
 -- level, what they do and how often. Change this file to try other parties;
 -- no code changes needed. Rates are per hour of play, taken roughly from a
 -- real two hour session (14 November 2026).
 local _, ns = ...
 
-ns.SandboxWorld = {
+ns.DevWorld = {
 	-- Pretend players' names are built from these.
 	firstParts = { "Bram", "Cor", "Dele", "Ely", "Fen", "Gal", "Hal", "Isa", "Jor", "Kel", "Lio", "Mae", "Nor", "Orin", "Pell", "Quen", "Ros", "Syl", "Tam", "Ulf", "Vae", "Wyn", "Yor", "Zel" },
 	lastParts = { "wick", "dor", "ra", "ith", "an", "mir", "eth", "wyn", "ric", "a", "ion", "us", "el", "ar", "ys" },

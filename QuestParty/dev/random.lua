@@ -1,9 +1,9 @@
--- A seeded random source: the same seed gives the same numbers, so a sandbox
+-- A seeded random source: the same seed gives the same numbers, so a dev
 -- run can be repeated exactly to compare a change before and after. Pure.
 local _, ns = ...
 
 local Random = {}
-ns.SandboxRandom = Random
+ns.DevRandom = Random
 
 -- A park-miller generator: small, and the same in every Lua.
 local MODULUS, MULTIPLIER = 2147483647, 16807

@@ -37,48 +37,12 @@ function ns.ConfirmClear()
 	StaticPopup_Show(CONFIRM_CLEAR)
 end
 
-local emulatorCommands = {
-	start = function()
-		ns.Emulator:Start()
-		local channel = ns.Emulator:Channel()
-		ns.Print(channel and L.CMD_EMU_STARTED_CHANNEL:format(channel) or L.CMD_EMU_STARTED)
-	end,
-	stop = function()
-		ns.Emulator:Stop()
-		ns.Print(L.CMD_EMU_STOPPED)
-	end,
-	step = function()
-		ns.Emulator:Step()
-	end,
-	burst = function(arg)
-		ns.Emulator:Burst(tonumber(arg) or 10)
-	end,
-	play = function(name)
-		if not name then
-			ns.Print(L.CMD_EMU_RECORDINGS:format(table.concat(ns.Emulator:Recordings(), ", ")))
-			return
-		end
-		name = name:lower()
-		local recording = name ~= "sample" and name or nil
-		if not ns.Emulator:Use(recording) then
-			ns.Print(L.CMD_EMU_NO_RECORDING:format(name, table.concat(ns.Emulator:Recordings(), ", ")))
-			return
-		end
-		ns.Emulator:Start()
-		ns.Print(L.CMD_EMU_PLAYING:format(recording or "sample", ns.Emulator.speed))
-	end,
-	speed = function(arg)
-		ns.Emulator:SetSpeed(tonumber(arg) or 1)
-		ns.Print(L.CMD_EMU_SPEED:format(ns.Emulator.speed))
-	end,
-}
-
 local function PrintHelp()
 	ns.Print(L.CMD_HELP)
 	ns.Print(L.CMD_HELP_TOGGLE)
 	ns.Print(L.CMD_HELP_DEBUG)
 	if ns.IsDebug() then
-		ns.Print(L.CMD_HELP_EMU)
+		ns.Print(L.CMD_HELP_DEV)
 		ns.Print(L.CMD_HELP_LISTEN)
 		ns.Print(L.CMD_HELP_STATS)
 		ns.Print(L.CMD_HELP_REPLAY)
@@ -101,7 +65,7 @@ end
 -- Switch ids are matched without case.
 local function FindSwitch(name)
 	for _, setting in ipairs(ns.Settings) do
-		if setting.id:lower() == name and ns.Switchable(setting) then
+		if setting.id:lower() == name then
 			return setting
 		end
 	end
@@ -115,18 +79,6 @@ local commands = {
 		value = value and value:lower()
 		ns.SetDebug(value == "on" or (value ~= "off" and not ns.IsDebug()))
 		ns.Print(ns.IsDebug() and L.CMD_DEBUG_ON or L.CMD_DEBUG_OFF)
-	end,
-	emu = function(sub, arg)
-		if not ns.IsDebug() then
-			ns.Print(L.CMD_DEBUG_REQUIRED)
-			return
-		end
-		local handler = emulatorCommands[(sub or ""):lower()]
-		if handler then
-			handler(arg)
-		else
-			ns.Emulator:Toggle()
-		end
 	end,
 	clear = function()
 		ns.ConfirmClear()
@@ -145,7 +97,7 @@ local commands = {
 	set = function(name, value)
 		if not name then
 			for _, setting in ipairs(ns.Settings) do
-				if ns.Switchable(setting) then PrintSwitch(setting) end
+				PrintSwitch(setting)
 			end
 			return
 		end
@@ -250,12 +202,11 @@ local commands = {
 }
 commands.repos = commands.reset
 
--- The sandbox build answers to its own commands, so both can be loaded at once.
-local SLASH = ns.IsSandbox() and { "/qps", "/qpsandbox" } or { "/qp", "/questparty" }
+local SLASH = { "/qp", "/questparty" }
 for index, command in ipairs(SLASH) do
 	_G["SLASH_" .. ns.Globals.slashKey .. index] = command
 end
--- Other modules (the sandbox) add commands of their own here.
+-- Other modules (dev mode: /qp dev) add commands of their own here.
 ns.Commands = commands
 SlashCmdList[ns.Globals.slashKey] = function(text)
 	local words = {}

@@ -18,13 +18,11 @@ local SECONDS_PER_DAY = 24 * 60 * 60
 
 -- The key naming a feed entry's card, or nil when it cannot be stamped.
 function Stamping:KeyFor(entry)
-	local fields = entry and ns.StampKeys[entry.type]
-	if not fields or not entry.player or type(entry.data) ~= "table" then return nil end
+	if not entry or not entry.player or not entry.type or type(entry.data) ~= "table" then return nil end
 	local parts = { entry.player, entry.type }
-	for _, field in ipairs(fields) do
+	for _, field in ipairs(ns.StampKeys[entry.type] or {}) do
 		local value = entry.data[field]
-		if value == nil then return nil end
-		parts[#parts + 1] = (tostring(value):gsub("[|~]", "/"))
+		parts[#parts + 1] = value == nil and "" or (tostring(value):gsub("[|~]", "/"))
 	end
 	local key = table.concat(parts, SEPARATOR)
 	if #key > ns.StampRules.maxText then return nil end
@@ -111,7 +109,7 @@ function Stamping:Send(entry, id)
 	if not key or not ns.StampById[id] then
 		return false, L.CHAT_PICK
 	end
-	if not (ns.Sharing.loopback or ns.Session.state == "connected") and not ns.IsSandbox() then
+	if not (ns.Sharing.loopback or ns.Session.state == "connected") then
 		return false, L.CHAT_NO_CHANNEL
 	end
 	if not self:May(key, ns.MyName(), id) then
@@ -121,8 +119,8 @@ function Stamping:Send(entry, id)
 	if not allowed then
 		return false, L.CHAT_TIMEOUT:format(math.ceil(seconds))
 	end
-	self:Add(key, id, ns.MyName())
-	ns.Sharing.SendStamp(key, id, ns.Chat.SendAs())
+	-- Out to the channel; it lands on the card when it comes back, as anyone's.
+	ns.Sharing.SendStamp(key, id)
 	return true
 end
 
@@ -130,9 +128,9 @@ end
 -- as in KekChat.
 function Stamping:Receive(sender, key, id)
 	if type(key) ~= "string" or #key > ns.StampRules.maxText or not ns.StampById[id] then return end
-	if sender == ns.MyName() then return end -- ours, already on the card (the sandbox hears its own)
 	if ns.Chat:IsMuted(sender) then return end
-	if not ns.Chat.Allow(sender) then return end
+	-- Others' spam is held back; yours was limited once, when you sent.
+	if not ns.IsMe(sender) and not ns.Chat.Allow(sender) then return end
 	self:Add(key, id, sender)
 end
 

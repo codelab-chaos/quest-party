@@ -3,8 +3,7 @@
 ## Notes: Share quest progress, levels and achievements with your party in a live feed.
 ## Author: Wizwonk
 ## X-License: MIT
-## X-Debug: true
-## Version: 0.3.5
+## Version: 0.3.6
 ## AllowLoadGameType: forever
 ## ExcludeLoadGameType: standard, classic
 ## Category: Quests
@@ -50,10 +49,6 @@ collectors\collectors.lua
 collectors\gear.lua
 collectors\vitals.lua
 collectors\professions.lua
-emulator\script.lua
-emulator\recordings.lua
-emulator\emulator.lua
-emulator\scenarios.lua
 ui\view-model.lua
 ui\party-model.lua
 ui\confetti.lua
@@ -72,3 +67,11 @@ ui\listener.lua
 ui\chat-echo.lua
 ui\event-sounds.lua
 commands.lua
+# Dev mode (with /qp debug on): pretend players, recordings and test runs.
+dev\random.lua
+dev\world.lua
+dev\party.lua
+dev\recording.lua
+dev\dev.lua
+dev\commands.lua
+dev\scenarios.lua

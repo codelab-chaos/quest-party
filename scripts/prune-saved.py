@@ -12,8 +12,8 @@ the original beside it as .bak. The same pruning is in game under Options
                                                      forget quest cards but your own
   scripts/prune-saved.py PATH --feed --write        empty the feed
 
-PATH is WTF/Account/<ACCOUNT>/SavedVariables/QuestParty.lua (or
-QuestPartySandbox.lua). The game rewrites the file on logout, so close it first.
+PATH is WTF/Account/<ACCOUNT>/SavedVariables/QuestParty.lua. The game
+rewrites the file on logout, so close it first.
 """
 
 import argparse

@@ -32,10 +32,7 @@ ns.Settings = {
 	{ id = "stampFade", group = "display", label = L.SET_STAMP_FADE, tip = L.SET_STAMP_FADE_TIP, default = false },
 	{ id = "showVitals", group = "display", label = L.SET_SHOW_VITALS, tip = L.SET_SHOW_VITALS_TIP, default = true },
 	{ id = "cardBackdrops", group = "display", label = L.SET_CARD_BACKDROPS, tip = L.SET_CARD_BACKDROPS_TIP, default = true },
-	{ id = "showSelf", group = "display", label = L.SET_SHOW_SELF, tip = L.SET_SHOW_SELF_TIP, default = true, sandboxOn = true },
 }
--- sandboxOn: in the sandbox build, always on, with no switch at all (not in
--- Settings, not in /qps set). The sandbox's own events must always show.
 
 -- The sections of the Settings window that hold switches, in order.
 ns.SettingGroups = {
@@ -80,11 +77,6 @@ for _, slider in ipairs(ns.SettingSliders) do
 	ns.SliderById[slider.id] = slider
 end
 
--- Whether a switch exists in this build: a sandboxOn one does not in the
--- sandbox.
-function ns.Switchable(setting)
-	return not (setting.sandboxOn and ns.IsSandbox())
-end
 
 ns.SettingById = {}
 for _, setting in ipairs(ns.Settings) do
@@ -112,9 +104,9 @@ ns.Timing = {
 	-- this long passes with no more kills of it, or at the longest after
 	-- killLongestSeconds. Grinding with a big party would flood the channel.
 	killQuietSeconds = 8,
-	-- When your gear changes, the whole set goes out, at most this often;
-	-- changes in between wait and go out together.
-	gearSeconds = 3 * 60,
+	-- When your gear changes, the whole set goes out this long after the last
+	-- change (a debounce): a whole outfit swapped at once is one set.
+	gearSeconds = 30,
 	killLongestSeconds = 30,
 	welcomeBurst = 5,
 	welcomeBurstSeconds = 60,

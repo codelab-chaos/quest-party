@@ -1,4 +1,4 @@
--- The sandbox's pretend players: made from a seed (Party.Make), each living
+-- Dev mode's pretend players: made from a seed (Party.Make), each living
 -- a small made-up life one event at a time (Party.Step). Pure: no game calls,
 -- so a whole party's evening can be played and checked in a test.
 --
@@ -14,10 +14,10 @@
 local _, ns = ...
 
 local Party = {}
-ns.SandboxParty = Party
+ns.DevParty = Party
 
 local function World()
-	return ns.SandboxWorld
+	return ns.DevWorld
 end
 
 local function ZonesFor(level)
@@ -70,7 +70,7 @@ end
 
 -- Makes count pretend players from a seed. The same seed makes the same party.
 function Party.Make(seed, count)
-	local random = ns.SandboxRandom.New(seed)
+	local random = ns.DevRandom.New(seed)
 	local taken, personas = {}, {}
 	for index = 1, count do
 		local raceInfo = random.pick(World().races)
@@ -88,7 +88,7 @@ function Party.Make(seed, count)
 			quests = {},
 			gear = {},
 			skills = { [random.pick(World().professions)] = random.int(1, 150) },
-			random = ns.SandboxRandom.New(seed * 1000 + index),
+			random = ns.DevRandom.New(seed * 1000 + index),
 		}
 		persona.currentXP = persona.maxXP > 0 and random.int(0, persona.maxXP - 1) or 0
 		for slot, items in pairs(World().gear) do
@@ -107,7 +107,7 @@ end
 -- The persona's hello fields, as it stands now.
 function Party.Hello(persona)
 	return {
-		v = persona.version or "sandbox",
+		v = persona.version or ns.version,
 		l = persona.level,
 		z = persona.zone,
 		x = persona.currentXP,
@@ -172,7 +172,7 @@ function events.kill(persona, actions)
 	local creature = random.pick(zone.creatures)
 	local rates = World().profiles[persona.profile]
 	-- Quest credit: a quest of the persona's that wants this kind of kill.
-	-- A player on a shared quest (the sandbox's Shared quest scenario) works
+	-- A player on a shared quest (dev mode's Shared quest scenario) works
 	-- mostly on it.
 	if random.chance(persona.questFocus or rates.questCredit) then
 		for _, quest in pairs(persona.quests) do
@@ -237,7 +237,7 @@ end
 
 -- A slot swapped for another of the world's items for it, or emptied now and
 -- then. The whole set goes out under the same rule as a real player's
--- (sandbox.lua, gear).
+-- (dev.lua, gear).
 function events.gearChange(persona, actions)
 	local slots = {}
 	for slot in pairs(World().gear) do

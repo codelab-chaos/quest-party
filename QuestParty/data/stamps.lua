@@ -28,17 +28,22 @@ for _, stamp in ipairs(ns.Stamps) do
 	ns.StampById[stamp.id] = stamp
 end
 
--- Which cards can be stamped, and the fields that name one of them the same
--- way on every client: the card's player and kind, then these. A card a
--- feed type does not list here has no stamp button.
+-- Every card can be stamped. These are the fields that name one card the same
+-- way on every client: the card's player and kind, then these (a field a card
+-- lacks counts as empty). A kind not listed is named by its player and kind.
 ns.StampKeys = {
 	quest_accepted = { "quest" },
 	quest_complete = { "quest" },
 	quest_progress = { "quest", "objective" },
+	quest_abandoned = { "quest" },
 	level = { "level" },
 	achievement = { "name" },
 	discovery = { "zone" },
 	death = { "zone", "level" },
+	kill = { "mob", "quest" },
+	xp = { "mob", "level" },
+	skill = { "skill" },
+	unknown = { "kind" },
 }
 
 -- A stamp's impact: KekChat's own effects and sounds (data\effects.lua), a

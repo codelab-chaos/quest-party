@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the sandbox's recordings (QuestParty/sandbox/recording.lua) from a
+"""Build dev mode's recordings (QuestParty/dev/recording.lua) from a
 saved message log, as 0.3.5 clients (the side quest build) would send them.
 
 Each recording is one player's messages from the log, turned into a pretend
@@ -8,7 +8,7 @@ brought up to what Quest Party 0.3.5 sends (RULES below), so two recordings
 from one evening play back as two 0.3.5 clients together, in time with each
 other.
 
-  scripts/make-sandbox-recordings.py PATH   PATH is WTF/.../SavedVariables/QuestParty.lua
+  scripts/make-dev-recordings.py PATH   PATH is WTF/.../SavedVariables/QuestParty.lua
 """
 
 import argparse
@@ -120,7 +120,7 @@ def build(path):
 		start = {offset}, -- seconds into the evening it starts
 		messages = {{
 ''' + "\n".join(lines) + "\n\t\t},\n\t},")
-    text = '''-- Real Quest Party sessions, for the sandbox to play back as pretend
+    text = '''-- Real Quest Party sessions, for dev mode to play back as pretend
 -- players: what each player's client sent over one evening of leveling
 -- (14 November 2026), with the seconds between messages, brought up to what
 -- Quest Party 0.3.5 sends. Played together they are two 0.3.5 clients on one
@@ -131,9 +131,9 @@ def build(path):
 --   text   the message as it goes over the wire
 local _, ns = ...
 
-ns.SandboxRecordings = {
+ns.DevRecordings = {
 ''' + "\n".join(blocks) + "\n}\n"
-    target = ROOT / "QuestParty/sandbox/recording.lua"
+    target = ROOT / "QuestParty/dev/recording.lua"
     target.write_text(text)
     print(f"{target.relative_to(ROOT)}: " + ", ".join(f"{r['id']}" for r in RECORDINGS))
 

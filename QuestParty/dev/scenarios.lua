@@ -1,26 +1,31 @@
--- The sandbox's scenarios, in place of Quest Party's emulator ones (see
--- emulator\scenarios.lua for the fields). Made-up parties come from a seed,
--- so the same scenario makes the same party every time. loopback reads the
+-- Dev mode's test runs (with /qp debug on): what Settings' GO and STOP run,
+-- as data, and the runner behind them. Made-up parties come from a seed, so
+-- the same scenario makes the same party every time. loopback reads the
 -- pretend players straight back here, no network: big parties need it, since
 -- one character's send budget cannot carry them over the channel.
+--   id      the key saved as the last one chosen
+--   label   its name in the dropdown
+--   run     starts it; returns true, or false and why
+-- ScenarioHooks: how to stop a run, wipe what runs left behind (Clear on go:
+-- the pretend players only), and tell whether one is running.
 local _, ns = ...
 local L = ns.L
-local Sandbox = ns.Sandbox
+local Dev = ns.Dev
 
 -- gearSeconds: how soon, in real seconds, a pretend player's changed gear
 -- goes out, in place of the real few-minute wait, so a run shows it.
 local function Party(count, seed, speed, loopback, gearSeconds)
 	return function()
 		ns.Sharing.loopback = loopback
-		Sandbox.gearSeconds = gearSeconds
-		return Sandbox:StartParty(count, seed, speed)
+		Dev.gearSeconds = gearSeconds
+		return Dev:StartParty(count, seed, speed)
 	end
 end
 
 local function Recording(name, speed)
 	return function()
 		ns.Sharing.loopback = true
-		return Sandbox:StartRecording(name, speed)
+		return Dev:StartRecording(name, speed)
 	end
 end
 
@@ -30,8 +35,8 @@ end
 local function SharedQuest(count, seed, speed)
 	return function()
 		ns.Sharing.loopback = true
-		Sandbox.gearSeconds = 15
-		return Sandbox:StartParty(count, seed, speed, function(persona)
+		Dev.gearSeconds = 15
+		return Dev:StartParty(count, seed, speed, function(persona)
 			local random = persona.random
 			persona.quests = {}
 			persona.questFocus = 0.6
@@ -62,7 +67,51 @@ ns.Scenarios = {
 }
 
 ns.ScenarioHooks = {
-	stop = function() Sandbox:Stop() end,
-	clear = function() Sandbox:Wipe() end,
-	running = function() return Sandbox.running end,
+	stop = function() Dev:Stop() end,
+	clear = function() Dev:Wipe() end,
+	running = function() return Dev.running end,
 }
+
+-- The runner: GO and STOP, and the chosen scenario (saved per character).
+local Runner = {}
+ns.ScenarioRunner = Runner
+
+function Runner:Find(id)
+	for _, scenario in ipairs(ns.Scenarios) do
+		if scenario.id == id then
+			return scenario
+		end
+	end
+end
+
+function Runner:Selected()
+	return self:Find(ns.charDb.scenario) or ns.Scenarios[1]
+end
+
+function Runner:Select(id)
+	if self:Find(id) then
+		ns.charDb.scenario = id
+	end
+end
+
+-- Starts the chosen scenario, stopping any run first and, with clear,
+-- wiping what earlier runs left. Returns true, or false and why.
+function Runner:Go(clear)
+	local scenario = self:Selected()
+	if not scenario or not ns.IsDebug() then
+		return false, L.CMD_DEBUG_REQUIRED
+	end
+	ns.ScenarioHooks.stop()
+	if clear then
+		ns.ScenarioHooks.clear()
+	end
+	return scenario.run()
+end
+
+function Runner:Stop()
+	ns.ScenarioHooks.stop()
+end
+
+function Runner:Running()
+	return ns.ScenarioHooks.running() == true
+end

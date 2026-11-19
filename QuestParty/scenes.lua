@@ -17,7 +17,7 @@ function Scenes:For(entry)
 	return id and ns.SceneById[id] or nil
 end
 
--- The atlas file, from this addon's own folder (the sandbox has its own).
+-- The atlas file, from this addon's own folder.
 function Scenes:File()
 	return "Interface\\AddOns\\" .. addonName .. "\\" .. ns.SceneAtlas.file
 end

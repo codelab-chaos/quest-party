@@ -4,9 +4,8 @@ local addonName, ns = ...
 
 ns.name = addonName
 
--- The global names this addon owns, from its folder's name, so a second build
--- of the same source (the sandbox, QuestPartySandbox) owns its own: its saved
--- variables, slash commands and frames never meet this one's.
+-- The global names this addon owns, from its folder's name: its saved
+-- variables, slash commands and frames.
 ns.Globals = {
 	db = addonName .. "DB",
 	charDb = addonName .. "CharDB",
@@ -15,17 +14,8 @@ ns.Globals = {
 	popup = function(name) return addonName:upper() .. "_" .. name end,
 }
 
--- The sandbox: a second build of Quest Party that plays pretend players instead
--- of this character (see sandbox\sandbox.lua). Its TOC says so with X-Sandbox.
--- Known as the files load, so commands and frames can be named for it.
-ns.sandbox = C_AddOns.GetAddOnMetadata(addonName, "X-Sandbox") == "true"
-
 -- This build's version, from its TOC: told to the channel and shown in Settings.
 ns.version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "?"
-
-function ns.IsSandbox()
-	return ns.sandbox == true
-end
 
 -- ========= Message bus ======================================================
 -- Messages used across the addon:
@@ -39,12 +29,12 @@ end
 --   ENTRY_OUTGOING(entry)     one of our own entries, to send to everyone we share with
 --   COMMS_RECEIVED(text, chatType, sender, channelId)  a raw addon message arrived
 --   COMMS_SENT(message)       the game took one of ours to send
---   COMMS_SEND_FAILED(reason, message)  the game refused one of ours outright
 --   COMMS_ECHOED(text, chatType, sender, channelId)  one of ours came back from the server
 --   COMMS_LOGGED(record)      a message passed on the channel: out, back or in
 --   PEERS_CHANGED(peer)       someone connected, updated or left. peer is nil on a leave.
 --   STORE_CHANGED             anything in the store changed, views should refresh
---   EMULATOR_STATE(running)   the emulator started or stopped
+--   OWN_QUEST_READ(quest)     one of your quests read from the log the first time
+--   DEV_STATE(running)        a dev run (pretend players) started or stopped
 --   DEBUG_CHANGED(enabled)    developer tools were enabled or disabled
 --   CONNECTION_CHANGED        the configured chat channel changed state
 local Bus = { handlers = {} }
@@ -177,7 +167,7 @@ local ACCOUNT_DEFAULTS = {
 local CHARACTER_DEFAULTS = {
 	filter = "all",
 	hidden = {}, -- gutter filters turned off: [id] = true (data\filters.lua)
-	scenario = nil, -- the test run last chosen in Settings (emulator\scenarios.lua)
+	scenario = nil, -- the test run last chosen in Settings (dev\scenarios.lua)
 	scenarioClear = true, -- Clear on go
 	shown = true,
 	docked = false, -- minimized to the dock (ui\dock.lua)
@@ -210,10 +200,6 @@ end
 -- Quest Party work) is always on.
 function ns.IsEnabled(id)
 	if id == nil or ns.AlwaysOn[id] then
-		return true
-	end
-	-- Hard-coded on in the sandbox, whatever is saved (data\settings.lua).
-	if ns.IsSandbox() and ns.SettingById and ns.SettingById[id] and ns.SettingById[id].sandboxOn then
 		return true
 	end
 	return ns.db.switches[id] == true
@@ -272,11 +258,8 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 			ACCOUNT_DEFAULTS.sliders[slider.id] = slider.default
 		end
 		ApplyDefaults(QuestPartyDB, ACCOUNT_DEFAULTS)
-		-- Local source installs expose developer tools after every reload.
-		-- The packager sets X-Debug to false for distributed builds.
-		if C_AddOns.GetAddOnMetadata(addonName, "X-Debug") == "true" or ns.sandbox then
-			QuestPartyDB.debug = true
-		end
+		-- Dev mode (debug) is off unless turned on with /qp debug on; it stays
+		-- as last set, in every install.
 		QuestPartyDB.settings = nil -- replaced by switches
 		-- Retired controls must not remain active through older saved preferences.
 		QuestPartyDB.switches.chatDetails = nil

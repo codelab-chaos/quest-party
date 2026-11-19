@@ -10,7 +10,7 @@
 -- the number of whole days since 1970 (server time).
 --
 -- Kept for everyone: the Fuel tab (ui\report.lua) graphs them. Pretend
--- players are counted only in the sandbox, where they are the party.
+-- players (dev mode's) are never counted: Fuel is real.
 local _, ns = ...
 local Bus = ns.Bus
 
@@ -37,7 +37,7 @@ function Stats:Book(channel)
 	return ns.db.fuel[channel]
 end
 
--- Empties the current channel's book (the sandbox's runs start clean), its
+-- Empties the current channel's book, its
 -- recent buckets too.
 function Stats:Clear()
 	wipe(self:Book())
@@ -84,8 +84,8 @@ end
 -- Adds an entry to its player's tally for the day it happened.
 function Stats:Record(entry)
 	local saved = self:Book()
-	if (entry.emulated and not ns.IsSandbox()) or not entry.player or type(entry.data) ~= "table" then
-		return -- the emulator's pretend players are not counted, but the sandbox's are
+	if entry.emulated or not entry.player or type(entry.data) ~= "table" then
+		return -- dev mode's pretend players never count: Fuel is real
 	end
 	local def = ns.FeedTypes[entry.type]
 	if not def or not ns.IsEnabled(def.setting) then

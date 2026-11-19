@@ -28,7 +28,7 @@ end
 -- How a player looks in a portrait: { atlas, class }. Yourself from the game,
 -- anyone else from what they told the party.
 function PartyModel:Portrait(name)
-	if name == ns.MyName() or (ns.IsMe(name) and not ns.IsSandbox()) then
+	if name == ns.MyName() or ns.IsMe(name) then
 		local _, race = UnitRace("player")
 		local _, class = UnitClass("player")
 		return { atlas = PartyModel.RaceAtlas(race, UnitSex("player")), class = class }
@@ -59,8 +59,8 @@ end
 
 -- One head per other player in the party: those here now, in the order they
 -- arrived, then (with Remember players who left on) those who left, the most
--- recently seen first. Pretend players are shown in debug and the sandbox.
--- The sandbox puts this character first, from the game itself, so its own
+-- recently seen first. Pretend players are shown in debug mode only.
+-- Your own head comes first, from the game itself, so your own
 -- card (quests, gear) can be tried on a real character.
 function PartyModel:Heads()
 	local heads, gone = {}, {}
@@ -68,11 +68,11 @@ function PartyModel:Heads()
 		return heads
 	end
 	local now = GetServerTime()
-	local pretendShown = ns.IsDebug() or ns.IsSandbox()
+	local pretendShown = ns.IsDebug() -- dev mode's pretend players
 	local peers = ns.Session.peers
 	local seen = {}
 	for name, peer in pairs(peers) do
-		if not ns.IsMe(name) or ns.IsSandbox() then
+		if not ns.IsMe(name) then
 			if not peer.virtual or pretendShown then
 				local member = ns.Store:GetMember(name) or { name = name }
 				heads[#heads + 1] = Head(member, peer, now)
@@ -86,7 +86,9 @@ function PartyModel:Heads()
 		end
 		return a.name < b.name
 	end)
-	if ns.IsSandbox() then
+	-- Your own head, first: you are a player like any other, and your own
+	-- card opens from it.
+	do
 		local name = ns.MyName()
 		if not seen[name] then
 			local _, class = UnitClass("player")

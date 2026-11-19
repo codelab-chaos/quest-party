@@ -1,3 +1,20 @@
+## 0.3.6 (branch `v036`, from 2026-11-18)
+
+Rule (owner, 2026-11-18): there is no sandbox, just the next version, tested in the one Quest Party install from
+its branch. Pretend players are a debug-mode (dev mode) feature.
+
+- **message-order-numbers** (idea, later, if evidence): 0.3.6 removed the always-growing number (`n`) that status
+  messages carried so a late or repeated one never replaced newer news. It guarded the old send queue's resends;
+  with direct sending one sender's messages arrive in order. Bring it back only if out-of-order news shows in game.
+- **own-head-in-release** (bug, fixed 2026-11-18): your own head was missing from the release's side bar (only the
+  sandbox added it), so your own card could not be opened.
+- **release-equals-sandbox** (story, built 2026-11-18, owner to look): the sandbox build is gone (owner: "no more
+  sandbox mode, we just have the next version"). Its tools are dev mode in every build behind `/qp debug` (`/qp dev
+  ...`, Settings' test runs), replacing `emulator/`; every `IsSandbox()` branch removed; you are always a player like
+  any other (own gear, head and card; Include self no longer a switch); pretend players never count toward Fuel and a
+  dev wipe forgets only them; one package, and deploy takes any branch; the old QuestPartySandbox folder and saved
+  data deleted from the install.
+
 ## Owner's push, 2026-11-18: every feature forward (measure-first held)
 
 Decided 2026-11-18: no friends-only sharing, no level-cap sharing profiles, and no share-on-request (reputation,
@@ -171,8 +188,8 @@ Five stories, in the order they are built. Local planning entries; no Atlas card
 install stays on the released 0.2.0 until 0.3.5 ships; the sandbox runs 0.3.5. Local planning entries; no Atlas
 cards created yet.
 
-- **push-main-035** (chore, done 2026-11-18): `main` pushed. Still open: rename or delete the `v023_chat` and
-  `side-quest` branches (both behind `main`).
+- **push-main-035** (chore, done 2026-11-18): `main` pushed; the `v023_chat` and `side-quest` branches deleted
+  (both held in `main`).
 - **release-035** (story, done 2026-11-18): tagged `v0.3.5`, GitHub release with the packaged ZIP and the change
   list from CHANGELOG.md; the regular install runs it. Still open: the CurseForge upload (manual, as for 0.2.0).
 

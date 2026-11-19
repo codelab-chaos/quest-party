@@ -1,19 +1,13 @@
 -- Small game boundary for headless tests. Addon logic runs unchanged.
 local Harness = {}
 
--- The sandbox build's own files, as in QuestParty/sandbox/files.toc (the
--- packaging test checks the two agree).
-Harness.SANDBOX_MODULES = {
-	"sandbox/random.lua", "sandbox/world.lua", "sandbox/party.lua",
-	"sandbox/recording.lua", "sandbox/sandbox.lua", "sandbox/commands.lua", "sandbox/scenarios.lua",
-}
-
--- options.sandbox builds the sandbox (QuestPartySandbox) instead.
 function Harness.new(saved, character, debugBuild, serverTime, options)
 	options = options or {}
-	local addonName = options.sandbox and "QuestPartySandbox" or "QuestParty"
+	local addonName = "QuestParty"
 	saved = saved or {}
 	saved.switches = saved.switches or {}
+	-- debugBuild: start in dev mode, as after /qp debug on.
+	if debugBuild then saved.debug = true end
 	local world = { now = serverTime or 10000, level = 20, xp = 0, xpMax = 1000, frames = {}, timers = {}, sent = {}, chat = {}, party = {}, quests = {}, questData = {}, questWatches = {}, channels = {}, joins = {}, leaves = {} }
 	local env = setmetatable({}, { __index = _G })
 	env._G = env
@@ -139,18 +133,30 @@ function Harness.new(saved, character, debugBuild, serverTime, options)
 		end
 		self.now = finish
 	end
-	env.C_AddOns = { GetAddOnMetadata = function(_, key)
-		if key == "X-Debug" then return debugBuild and "true" or "false" end
-		if key == "X-Sandbox" then return options.sandbox and "true" or nil end
-		return "0.1.0"
-	end }
+	env.C_AddOns = { GetAddOnMetadata = function() return "0.1.0" end } -- the version
 	env.Enum = { SendAddonMessageResult = { Success = 0, AddonMessageThrottle = 1, ChannelThrottle = 2, AddOnMessageLockdown = 3, TargetOffline = 4, InvalidChatType = 5 } }
 	env.C_ChatInfo = {
 		RegisterAddonMessagePrefix = function(prefix) world.prefix = prefix end,
 		InChatMessagingLockdown = function() return world.lockdown == true end,
 		SendAddonMessage = function(prefix, text, channel, target)
 			world.sent[#world.sent + 1] = { prefix = prefix, text = text, channel = channel, target = target }
-			return world.sendResult or 0
+			local result = world.sendResult or 0
+			-- Like the server: a message sent to a channel you are on comes
+			-- back to you too (here at once; world.echo = false stops it).
+			-- Forever delivers a channel send even when it answers with a
+			-- throttle code, as it does in game.
+			local codes = env.Enum.SendAddonMessageResult
+			local delivered = result == codes.Success or result == codes.AddonMessageThrottle or result == codes.ChannelThrottle
+			if delivered and channel == "CHANNEL" and world.echo ~= false then
+				for _, joined in pairs(world.channels) do
+					if tostring(joined.id) == tostring(target) then
+						local first, second = env.UnitName("player")
+						local me = (second and second ~= "") and (first .. " " .. second) or first
+						world:event("CHAT_MSG_ADDON", prefix, text, "CHANNEL", me .. "-TestRealm", "", 0, joined.id, joined.name)
+					end
+				end
+			end
+			return result
 		end,
 	}
 	local function FindQuest(id)
@@ -176,13 +182,10 @@ function Harness.new(saved, character, debugBuild, serverTime, options)
 		"core.lua", "locales/en-us.lua", "data/professions.lua", "data/marks.lua", "data/feed-types.lua", "data/filters.lua", "data/settings.lua", "data/themes.lua", "data/slots.lua", "data/chat.lua", "data/effects.lua", "data/stats.lua", "data/scenes.lua", "data/stamps.lua",
 		"store.lua", "stats.lua", "chat.lua", "report.lua", "scenes.lua", "magnet.lua", "vitals.lua", "stamps.lua", "colors.lua", "group.lua", "particles.lua", "resolver.lua", "comms/protocol.lua", "comms/origin.lua", "comms/transport.lua", "comms/session.lua", "comms/sharing.lua",
 		"collectors/patterns.lua", "collectors/samples.lua", "collectors/collectors.lua", "collectors/gear.lua", "collectors/vitals.lua", "collectors/professions.lua",
-		"emulator/script.lua", "emulator/recordings.lua", "emulator/emulator.lua", "emulator/scenarios.lua", "ui/view-model.lua", "ui/quest-card.lua", "ui/party-model.lua", "ui/confetti.lua", "ui/chat-echo.lua", "ui/event-sounds.lua", "commands.lua",
+		"ui/view-model.lua", "ui/quest-card.lua", "ui/party-model.lua", "ui/confetti.lua", "ui/chat-echo.lua", "ui/event-sounds.lua", "commands.lua",
+		-- Dev mode (with /qp debug on), as at the end of the TOC.
+		"dev/random.lua", "dev/world.lua", "dev/party.lua", "dev/recording.lua", "dev/dev.lua", "dev/commands.lua", "dev/scenarios.lua",
 	}
-	if options.sandbox then
-		for _, path in ipairs(Harness.SANDBOX_MODULES) do
-			modules[#modules + 1] = path
-		end
-	end
 	for _, path in ipairs(modules) do
 		local chunk
 		if setfenv then
@@ -222,12 +225,13 @@ function Harness.new(saved, character, debugBuild, serverTime, options)
 	function world:hear(kind, data, player, channelId)
 		self:event("CHAT_MSG_ADDON", "QuestParty", ns.Protocol.Encode(kind, data), "CHANNEL", (player or "Friend") .. "-TestRealm", "", 0, channelId or 5, "QuestFriends")
 	end
-	-- Connects to a channel and lets the hello go out.
+	-- Connects to a channel and lets it settle: the hello goes out, then how
+	-- your quests stand (up to 6 seconds), and both come back to you.
 	function world:share(name)
 		ns.Bus:Fire("READY")
 		ns.Session:Connect(name or "QuestFriends")
 		self:join(name or "QuestFriends")
-		self:advance(3)
+		self:advance(7)
 	end
 	function world:quest(have, need)
 		self.quests[1] = { questID = 1, title = "A Quest", objectives = {
