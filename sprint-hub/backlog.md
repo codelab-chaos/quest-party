@@ -21,7 +21,7 @@
 - **position-heartbeat** (idea, later, if evidence): pins move only on updates; a small periodic position message
   would keep them current while travelling. Count messages first (larger channels).
 
-## 0.3.8 (planned)
+## 0.3.8 (branch `v038`, from 2026-11-20)
 
 - **power-charge-event** (story, 0.3.8): a timed party event, such as 10 minutes to get as many kills as possible.
   How it starts is to be designed: someone kicks it off, a random trigger, or a smart trigger from what the party is
