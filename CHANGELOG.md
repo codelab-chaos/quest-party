@@ -3,6 +3,47 @@
 Features and fixes shipped in each release. Copy a version's section into
 CurseForge's changelog field using Markdown formatting.
 
+## 0.3.7 - 2026-11-20
+
+KekChat moves into the feed, effects move onto cards, and Quest Party learns
+where everyone is. Friends on 0.3.6 still share with you: your chat shows in
+their KekChat tab, and what they do not know yet (card effects, where you are)
+they quietly skip.
+
+### KekChat in the feed
+
+- Every KekChat message is a feed row of its own, its images and saying together, stampable like any card. Messages you already had move into the feed at their times, and a KekChat icon in the filter row hides chat rows.
+- Under the feed sits the red KekChat button: it opens the quick chats, with the effects in a grid below them. It opens upward, or downward when Quest Party sits high on the screen, and never off it. Custom KekChat in Settings adds the builder (images, sayings, Send, Save) beside it.
+- The KekChat tab and its pop-out window are gone.
+
+### Effects and stamps
+
+- Effects (Coin rain, Fireworks, Gem fountain and the rest) play on cards: right-click any card and pick one under the stamps. It plays over that card for everyone and leaves nothing behind, no row and no stamp. One picked from KekChat plays over the feed.
+- Effects fill the window they play in: faster, wider and higher on a bigger panel, with more particles. Rain falls the whole way down, fireworks pop high up, the fountain reaches the top. They always draw over the cards.
+- Each effect has an icon of its own in the grid.
+- Each player can put up to five different stamps on a card (was two).
+- Muting moved to the stamp picker: right-click any of a player's cards to mute or unmute them.
+
+### Where everyone is
+
+- Every update says where its sender was. Hover a card for "Where: The Barrens (52, 30)".
+- Players on the map: each player's last known position shows as their class icon on the world map and the minimap, riding the minimap's edge when they are far. OpenMap and other map addons that show HereBeDragons icons show them too. Hover one for who, where and how long ago. It moves when they next send an update; positions older than two hours are left off. Players on the map in Settings turns them off.
+
+### Health and mana
+
+- Two small upright bars beside every head in the side bar, and labeled bars across the player card with their numbers ("1240 / 1800"). Bars beside heads in Settings turns the side bar's off. The XP bars at the top show XP only.
+- They show live for you and anyone in your game party or raid. WoW Forever keeps health secret from addons, so it cannot travel over the channel: before this, no bar ever showed.
+
+### The feed
+
+- Rows no longer repeat the player's name: the avatar says who, the second line goes straight to the details ("Lv 6, 14 kills to 7"), and hovering a row shows the name first.
+- Learning a profession is a row of its own ("Learned Fishing!"), with the profession's icon.
+- Settings remembers the last five channels you used: click one to switch to it, right-click to forget it.
+
+### Fixed
+
+- Every distinct event is its own card: dying twice in one zone at one level, or picking a quest up, dropping it and picking it up again, reused the first card's stamps. Each event now carries when it happened (the server's clock, the same for everyone). Kills, XP, skill-ups and objective progress still fold into one running row.
+
 ## 0.3.6 - 2026-11-19
 
 One Quest Party, with the channel as its single feed: what you see of yourself

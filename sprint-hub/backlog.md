@@ -1,3 +1,26 @@
+## 0.3.7 (released 2026-11-20, tag `v0.3.7`)
+
+- **distinct-events-fix** (bug, fixed 2026-11-19): a death, a quest picked up again, or a quest dropped reused an
+  earlier card's stamps. Every entry now carries `w` (when it happened, server time); distinct events are named by it.
+- **profession-learned** (story, built 2026-11-19): "You have gained the Fishing skill" is a distinct feed row,
+  "Learned Fishing!", with the profession's icon.
+- **kekchat-in-feed** (story, built 2026-11-19): KekChat messages are distinct `chat` feed entries (stampable,
+  effects over the feed, a filter-row icon); the bar sits under the feed on the Feed tab; the tab and pop-out are
+  gone; old messages restored into the feed; mute moved to the stamp picker.
+- **card-effects** (story, built 2026-11-19): effects play on a card from the stamp picker (or over the feed from
+  KekChat), leaving no row or stamp; one shared effect grid (`ui\effect-grid.lua`); effects fit their window.
+- **location-and-map-pins** (story, built 2026-11-20): every update carries `wm`/`wx`/`wy`; each player's last known
+  position on the world map and minimap through HereBeDragons (works with OpenMap).
+- **live-vitals** (bug + story, 2026-11-20): health is secret on Forever, so none was ever sent; bars now draw live
+  from the game for you and your game group, upright beside the heads and labeled on the card.
+- **recent-channels**, **five-stamps**, **rows-without-names**, **effect-icons** (small, 2026-11-20).
+- **release-037** (chore, done 2026-11-20): change list, `v037` merged into `main`, tagged `v0.3.7`. Still open: the
+  CurseForge upload (manual).
+- **vitals-over-channel** (idea, later, if evidence): power may not be secret; if `issecretvalue(UnitPower("player"))`
+  is false in game, mana/rage/energy could travel for friends outside your group.
+- **position-heartbeat** (idea, later, if evidence): pins move only on updates; a small periodic position message
+  would keep them current while travelling. Count messages first (larger channels).
+
 ## 0.3.8 (planned)
 
 - **power-charge-event** (story, 0.3.8): a timed party event, such as 10 minutes to get as many kills as possible.
