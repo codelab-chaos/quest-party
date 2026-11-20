@@ -134,6 +134,49 @@ function Stamping:Receive(sender, key, id)
 	self:Add(key, id, sender)
 end
 
+-- ========= Effects on a card ================================================
+-- An effect (one of KekChat's effect presets, chat.lua) played on a card from
+-- its stamp picker: it plays over that card on everyone's screen and leaves
+-- nothing behind, no stamp and no feed row. Same limits as a stamp, but not
+-- counted against a card's two stamps. Returns true, or false and why.
+-- Effects played from KekChat's list have no card: they go under this key,
+-- which no card has, and play over the feed (ui\stamps.lua).
+Stamping.FEED_KEY = "~feed"
+
+local function SendEffectOn(key, presetId)
+	if not key or not ns.Chat:EffectPreset(presetId) then
+		return false, L.CHAT_PICK
+	end
+	if not (ns.Sharing.loopback or ns.Session.state == "connected") then
+		return false, L.CHAT_NO_CHANNEL
+	end
+	local allowed, seconds = ns.Chat.Allow(ns.Chat.YOU)
+	if not allowed then
+		return false, L.CHAT_TIMEOUT:format(math.ceil(seconds))
+	end
+	-- Out to the channel; it plays when it comes back, as anyone's.
+	ns.Sharing.SendCardEffect(key, presetId)
+	return true
+end
+
+function Stamping:SendEffect(entry, presetId)
+	return SendEffectOn(self:KeyFor(entry), presetId)
+end
+
+-- An effect from KekChat's list: over the feed, for everyone.
+function Stamping:SendFeedEffect(presetId)
+	return SendEffectOn(self.FEED_KEY, presetId)
+end
+
+-- An effect from the channel: CARD_EFFECT plays it (ui\stamps.lua), unless
+-- its sender is muted or spamming.
+function Stamping:ReceiveEffect(sender, key, presetId)
+	if type(key) ~= "string" or #key > ns.StampRules.maxText or not ns.Chat:EffectPreset(presetId) then return end
+	if ns.Chat:IsMuted(sender) then return end
+	if not ns.IsMe(sender) and not ns.Chat.Allow(sender) then return end
+	Bus:Fire("CARD_EFFECT", key, presetId, sender)
+end
+
 -- A stamp's impact (ns.StampImpact): one of KekChat's presets at random, made
 -- small, with the stamp's own image among its images, and a random one of
 -- KekChat's sounds. random() gives 0 to 1 (math.random by default).
@@ -189,7 +232,7 @@ function Stamping:Showing(key, now)
 end
 
 -- Forgets stamps older than the days kept, and any this version no longer
--- has (retired ones), so they hold no one's two per card.
+-- has (retired ones), so they hold no one's stamps per card.
 function Stamping:Prune(now)
 	local cutoff = (now or GetServerTime()) - ns.StampRules.keepDays * SECONDS_PER_DAY
 	for key, list in pairs(Saved()) do

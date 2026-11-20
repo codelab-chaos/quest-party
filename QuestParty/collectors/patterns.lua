@@ -40,6 +40,9 @@ ns.Patterns = {
 
 	-- "Your skill in Herbalism has increased to 62". Captures: skill, level.
 	skill = FromFormat(Global("ERR_SKILL_UP_SI"), true) or "^Your skill in (.+) has increased to (%d+)",
+
+	-- "You have gained the Fishing skill." A new skill learned. Captures: skill.
+	skillLearned = FromFormat(Global("ERR_SKILL_GAINED_S"), true) or "^You have gained the (.+) skill",
 }
 
 -- Quest-log text can put counts before the item ("1/5 Vile Fin Scale")

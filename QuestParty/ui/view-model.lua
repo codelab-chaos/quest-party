@@ -76,7 +76,7 @@ end
 
 local function ProgressRow(record, objective, now)
 	local age = now - objective.time
-	local detail = L.PROGRESS_DETAIL:format(ns.ColorName(record.player, record.class), record.data.quest)
+	local detail = record.data.quest -- who: the avatar, and the tooltip (name)
 	local progress = { have = objective.have, need = objective.need }
 	return {
 		kind = "progress",
@@ -89,6 +89,7 @@ local function ProgressRow(record, objective, now)
 		right = L.CARD_COUNT:format(objective.have, objective.need),
 		lines = { { text = detail, progress = progress } },
 		summary = detail,
+		name = ns.ColorName(record.player, record.class),
 		progress = progress,
 		quest = record.data.quest,
 		questID = record.data.questID,
@@ -284,10 +285,9 @@ local function FeedRow(entry, now)
 	local def = ns.FeedTypes[entry.type]
 	local stampKey = ns.Stamping:KeyFor(entry)
 	local title, detail, fields = ns.Resolver.Text(entry, def)
-	local subtitle = fields.player
-	if detail then
-		subtitle = subtitle .. ", " .. detail
-	end
+	-- Who it was is the row's avatar, and its tooltip's first line (name):
+	-- the second line is only what else there is to say.
+	local subtitle = detail or ""
 	local progress
 	-- A kill's row has no bar: it would read as quest progress.
 	if def.experience and entry.data.maxXP and entry.data.maxXP > 0 and not KillXP(entry.data) then
@@ -304,7 +304,8 @@ local function FeedRow(entry, now)
 		title = title,
 		right = ns.Ago(now - entry.time),
 		lines = { { text = subtitle, progress = progress } },
-		summary = subtitle,
+		summary = subtitle ~= "" and subtitle or nil,
+		name = fields.player, -- in its color, for the tooltip (ui\\panel.lua)
 		progress = progress,
 		quest = entry.data.quest,
 		questID = entry.data.questID,

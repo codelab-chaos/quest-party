@@ -74,13 +74,16 @@ end
 function patterns.fireworks(effect, icons, random, width, height)
 	local list = {}
 	for index = 1, effect.rockets do
+		local fuse = Between(random, effect.fuse)
+		-- With climb (a share of the height), each pops that far up the area.
+		local speed = effect.climb and (height * Between(random, effect.climb) / fuse) or Between(random, effect.rocketSpeed)
 		list[#list + 1] = New(effect, icons, random, {
 			x = width * (index / (effect.rockets + 1)) + Either(random, width * 0.08),
 			y = height + 8,
-			vy = -Between(random, effect.rocketSpeed),
+			vy = -speed,
 			gravity = 0,
 			delay = (index - 1) * (effect.rocketStagger or 0) / effect.rockets + random() * 0.2,
-			fuse = Between(random, effect.fuse),
+			fuse = fuse,
 			burst = effect,
 			life = 10, -- until it pops
 			size = effect.size[1],
@@ -89,13 +92,27 @@ function patterns.fireworks(effect, icons, random, width, height)
 	return list
 end
 
+-- Up from the bottom middle. With reach (a share of the area's height,
+-- { low, high }), each is launched just hard enough to peak that high, so it
+-- reaches the top of whatever it plays over, and drifts sideways no further
+-- than the area's edges by the time it falls back down; it lives the whole
+-- flight. Without reach: the effect's speed and spread.
 function patterns.fountain(effect, icons, random, width, height)
 	local list = {}
+	local gravity = effect.gravity or 0
 	for _ = 1, effect.count do
-		local angle, speed = -math.pi / 2 + Either(random, effect.spread), Between(random, effect.speed)
-		list[#list + 1] = New(effect, icons, random, {
-			x = width / 2, y = height + 6, vx = math.cos(angle) * speed, vy = math.sin(angle) * speed,
-		})
+		local fields = { x = width / 2, y = height + 6 }
+		if effect.reach and gravity > 0 then
+			local up = math.sqrt(2 * gravity * Between(random, effect.reach) * height)
+			local flight = 2 * up / gravity
+			fields.vy = -up
+			fields.vx = Either(random, 0.9 * (width / 2) / flight)
+			fields.life = math.max(effect.life or 0, flight)
+		else
+			local angle, speed = -math.pi / 2 + Either(random, effect.spread), Between(random, effect.speed)
+			fields.vx, fields.vy = math.cos(angle) * speed, math.sin(angle) * speed
+		end
+		list[#list + 1] = New(effect, icons, random, fields)
 	end
 	return list
 end
@@ -112,6 +129,43 @@ function patterns.swirl(effect, icons, random, width, height)
 	return list
 end
 
+-- An effect made to fill a bigger area than the one it was tuned for
+-- (ns.ParticleRules.fitSize across): faster, wider, heavier and a little bigger
+-- by how much bigger the area is, with more particles for more room (up to
+-- fitCount times). It only grows: in a small area (a stamp's impact) it is as
+-- tuned. Rain lives long enough to fall the whole way down.
+local RANGES = { "speed", "size", "rocketSpeed" }
+local SCALARS = { "gravity", "terminal", "drift" }
+
+local function Fit(effect, width, height)
+	local rules = ns.ParticleRules
+	local reference = rules.fitSize
+	local s = math.max(1, math.min(width, height) / reference)
+	local area = math.max(1, math.min(rules.fitCount, (width * height) / (reference * reference)))
+	if s == 1 and area == 1 then return effect end
+	local fit = {}
+	for key, value in pairs(effect) do fit[key] = value end
+	for _, key in ipairs(RANGES) do
+		local range = effect[key]
+		if range then
+			local k = key == "size" and math.min(math.sqrt(s), rules.fitSizeMax) or s
+			fit[key] = { range[1] * k, range[2] * k }
+		end
+	end
+	for _, key in ipairs(SCALARS) do
+		if effect[key] then fit[key] = effect[key] * s end
+	end
+	if effect.count then fit.count = math.floor(effect.count * area + 0.5) end
+	if effect.rockets then
+		fit.rockets = math.min(rules.maxRockets, math.max(effect.rockets, math.floor(effect.rockets * width / reference + 0.5)))
+	end
+	if effect.pattern == "rain" and fit.terminal and fit.terminal > 0 then
+		fit.life = math.max(effect.life or 0, (height + 24) / fit.terminal + (effect.fade or 0))
+	end
+	return fit
+end
+Particles.Fit = Fit
+
 -- The particles one effect starts with, over an area this big, using these
 -- images (file IDs) and, for a worded effect, the saying's text: some of the
 -- particles become its words. random returns 0 to 1 (math.random when left out).
@@ -121,6 +175,7 @@ function Particles.Spawn(effect, icons, width, height, random, words)
 	if not pattern or #icons == 0 then
 		return {}
 	end
+	effect = Fit(effect, width, height)
 	local list = pattern(effect, icons, random, width, height)
 	if type(words) == "string" and words ~= "" then
 		local rules = ns.ParticleRules

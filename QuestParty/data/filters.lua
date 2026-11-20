@@ -3,7 +3,8 @@
 --   tab       shown as a tab, in this order; the others are views kept for use
 --             elsewhere (and tests)
 --   align     "right" puts the tab at the right end of the row
---   chat      the tab shows Quest Party chat (ui\chat.lua) in place of the list
+--   composer  the KekChat bar (ui\chat.lua) sits under the list, above the
+--             filter row
 --   report    the tab shows the 123 graphs (ui\report.lua) in place of the list
 --   members   show one roster card per party member
 --   progress  a card kind to show as two-line progress rows, one per unfinished objective
@@ -15,7 +16,7 @@ local _, ns = ...
 local L = ns.L
 
 ns.Filters = {
-	{ id = "all", label = L.FILTER_FEED, shortLabel = L.FILTER_FEED, progress = "quest", feed = true, tab = true },
+	{ id = "all", label = L.FILTER_FEED, shortLabel = L.FILTER_FEED, progress = "quest", feed = true, tab = true, composer = true },
 	{ id = "quests", label = L.FILTER_QUESTS, shortLabel = L.FILTER_QUESTS_SHORT, tracker = "quest" },
 	{ id = "xp", label = L.FILTER_XP, shortLabel = L.FILTER_XP, feed = "xp" },
 	{ id = "achievements", label = L.FILTER_ACHIEVEMENTS, shortLabel = L.FILTER_ACHIEVEMENTS_SHORT, feed = "achievements" },
@@ -24,7 +25,6 @@ ns.Filters = {
 	-- in full with who is on it.
 	{ id = "party", label = L.FILTER_PARTY, shortLabel = L.FILTER_PARTY_SHORT, members = true, tracker = "quest", tab = true },
 	{ id = "report", label = L.FILTER_REPORT, shortLabel = L.FILTER_REPORT, report = true, tab = true },
-	{ id = "chat", label = L.FILTER_CHAT, shortLabel = L.FILTER_CHAT, chat = true, tab = true, align = "right" },
 }
 
 ns.QuestTab = "party"
@@ -52,6 +52,7 @@ ns.GutterFilters = {
 	{ id = "deaths", mark = "death", label = L.GUTTER_DEATHS, settings = { "deaths" }, icon = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01" },
 	{ id = "professions", mark = "skill", label = L.GUTTER_PROFESSIONS, settings = { "professions" }, icon = "Interface\\Icons\\INV_SideTab_Professions_c60" },
 	{ id = "quests", mark = "questTaken", label = L.GUTTER_QUESTS, settings = { "quests" }, icon = "Interface\\Icons\\INV_Misc_Note_01" },
+	{ id = "chat", mark = "chat", label = L.GUTTER_CHAT, settings = { "kekChat" }, icon = "Interface\\ChatFrame\\UI-ChatIcon-Chat-Up" },
 }
 
 ns.GutterBySetting = {}

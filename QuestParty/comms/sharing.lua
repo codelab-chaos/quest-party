@@ -27,7 +27,8 @@
 --   PRESENCE  the same fields again, every few minutes while connected. Never
 --          answered: it keeps everyone's picture current, and shows the sender
 --          is still here. A player not heard from for a while is dropped.
---   ENTRY  one feed entry: t is its type, c the sender's class, s a short
+--   ENTRY  one feed entry: t is its type, c the sender's class, w when it
+--          happened (server time), s a short
 --          plain summary written by the sender (see resolver.lua), the rest
 --          is the entry's data. From dev mode it also carries as, the
 --          name of the pretend player it stands for. A message that would be
@@ -111,6 +112,16 @@ function Sharing.PlayerId()
 	return ns.db.playerId
 end
 
+-- Where you are (collectors\location.lua), added to a message's fields: wm,
+-- wx, wy. Each update says where it happened; the party's map shows each
+-- player's last known spot (ui\map-pins.lua).
+local function AddWhere(fields)
+	local here = ns.Location and ns.Location.Fields()
+	for key, value in pairs(here or {}) do
+		if fields[key] == nil then fields[key] = value end
+	end
+end
+
 local function MyFields()
 	local _, class = UnitClass("player")
 	-- Where XP stands, so a newcomer sees everyone's bar at once. At the level
@@ -139,6 +150,7 @@ local function MyFields()
 	if professions and professions ~= "" then
 		fields.k = professions
 	end
+	AddWhere(fields)
 	return fields
 end
 
@@ -289,6 +301,11 @@ local function AddPeer(name, fields, virtual)
 	if vitals then
 		peer.vitals = vitals
 	end
+	local place = ns.Location.Read(fields)
+	if place then
+		place.time = GetServerTime()
+		peer.where = place
+	end
 	-- Their professions, kept with what is known of them.
 	local professions = fields.k and ns.DecodeProfessions(fields.k)
 	if professions then
@@ -369,6 +386,12 @@ local function EntryFields(typeName, class, data, virtual)
 	fields[TYPE_KEY] = typeName
 	fields[CLASS_KEY] = class or ""
 	fields[VIRTUAL_KEY] = virtual
+	-- Where it happened: yours, not a pretend player's (they are not there).
+	if not virtual then AddWhere(fields) end
+	-- When it happened, by the server's clock (the same for everyone): a
+	-- record of the moment, and what tells two otherwise alike events apart
+	-- (two deaths in one zone at one level: data\\stamps.lua).
+	fields.w = tonumber(fields.w) or GetServerTime()
 	fields[SUMMARY_KEY] = ns.Resolver.Summary({ type = typeName, player = "", class = class, data = data or {} })
 	return fields
 end
@@ -534,7 +557,9 @@ Sharing.SendGear = SendGear
 local IMAGE_KEYS = { "i", "i2", "i3" }
 
 function Sharing.SendSay(icons, saying, effect, class, as)
-	local fields = { k = saying, e = effect, c = class or "" }
+	-- w: when it was said (server time), so every client names its card the
+	-- same (data\stamps.lua): each message is a distinct feed entry.
+	local fields = { k = saying, e = effect, c = class or "", w = GetServerTime() }
 	for index, icon in ipairs(icons or {}) do
 		if IMAGE_KEYS[index] then fields[IMAGE_KEYS[index]] = icon end
 	end
@@ -544,6 +569,13 @@ end
 -- A stamp on a feed card (stamps.lua): the card's key and the stamp's id.
 function Sharing.SendStamp(key, id, as)
 	return Send(Kinds.STAMP, { k = key, s = id }, as)
+end
+
+-- An effect on a feed card (stamps.lua): the card's key and the effect
+-- preset's id, as e on a stamp message with no stamp (s), which an older
+-- version ignores.
+function Sharing.SendCardEffect(key, id, as)
+	return Send(Kinds.STAMP, { k = key, e = id }, as)
 end
 
 -- Says how each quest we are working on stands, and our gear.
@@ -639,6 +671,15 @@ end
 
 handlers[Kinds.PRESENCE] = handlers[Kinds.ACK]
 
+-- When something happened, as its sender said (w, the server's clock, the
+-- same for everyone), or nil when it is missing or far off: then it counts
+-- from when it came.
+local function SentWhen(value)
+	local when = tonumber(value)
+	if when and math.abs(when - GetServerTime()) <= 86400 then return when end
+	return nil
+end
+
 handlers[Kinds.ENTRY] = function(sender, fields, virtual)
 	local typeName, class, data = ReadEntry(fields)
 	if not typeName then
@@ -652,7 +693,7 @@ handlers[Kinds.ENTRY] = function(sender, fields, virtual)
 	else
 		peer.heard = GetTime()
 	end
-	Bus:Fire("ENTRY_RECEIVED", { type = typeName, player = sender, class = class or (peer and peer.class), data = data, emulated = virtual or nil })
+	Bus:Fire("ENTRY_RECEIVED", { type = typeName, player = sender, class = class or (peer and peer.class), data = data, time = SentWhen(data.w), emulated = virtual or nil })
 end
 
 -- Health and power: the newest replaces what was known.
@@ -694,12 +735,16 @@ handlers[Kinds.SAY] = function(sender, fields, virtual)
 	end
 	local class = type(fields.c) == "string" and fields.c ~= "" and fields.c or nil
 	local peer = Session().peers[sender]
-	Bus:Fire("CHAT_SAY", { player = sender, class = class or (peer and peer.class), icons = icons, saying = saying, effect = effect, virtual = virtual or nil })
+	Bus:Fire("CHAT_SAY", { player = sender, class = class or (peer and peer.class), icons = icons, saying = saying, effect = effect, time = SentWhen(fields.w), virtual = virtual or nil })
 end
 
 -- A stamp on a feed card (stamps.lua decides whether to keep it).
 handlers[Kinds.STAMP] = function(sender, fields)
-	ns.Stamping:Receive(sender, Clean(fields.k), PlainId(fields.s))
+	if fields.e ~= nil then
+		ns.Stamping:ReceiveEffect(sender, Clean(fields.k), PlainId(fields.e))
+	else
+		ns.Stamping:Receive(sender, Clean(fields.k), PlainId(fields.s))
+	end
 end
 
 handlers[Kinds.GEAR] = function(sender, fields, virtual)

@@ -29,7 +29,9 @@ local LAYOUT = {
 	-- size slider scales them.
 	gutterIcon = 22,
 	gutterIconGap = 4,
-	gutterRowGap = 4, -- between the feed and the row
+	gutterRowGap = 13, -- between the feed and the filter row, with a line across its middle
+	gutterRule = { 0.80, 0.65, 0.20, 0.55 }, -- that line, gold
+	kekChatClear = 2, -- between KekChat's button on the line and the filter icons under it
 	gutterOffAlpha = 0.35, -- an icon whose rows are hidden
 	gutterEdge = 1, -- the border around each icon
 	gutterIconInset = 2, -- the icon inside its border
@@ -49,8 +51,6 @@ local LAYOUT = {
 	xpBarInset = 2, -- the fill sits this far inside the border
 	xpBarGap = 2,
 	-- Under each XP bar, health then power: thin, the bar's width.
-	healthHeight = 3,
-	powerHeight = 2,
 	-- (how many show is the Players shown slider: ViewModel.PartyCap)
 	xpStripGap = 4, -- between the last bar and the tabs
 	xpBarNotches = 3, -- marks splitting each bar into equal parts (3 makes quarters)
@@ -109,6 +109,7 @@ local SETTINGS = {
 	height = 560,
 	titleHeight = 32, -- the title, then a gold rule under it
 	headingHeight = 26, -- a section's title and its rule
+	recentHeight = 24, -- the recent channels' row, under the channel's status
 	sectionGap = 12,
 	rowHeight = 26, -- a row of switches
 	checkSize = 24,
@@ -272,7 +273,7 @@ local function UpdateSoundButton()
 		bar:SetColorTexture(unpack(index <= value and VOLUME_BARS.lit or VOLUME_BARS.dark))
 	end
 end
-local filterBar, xpStrip, gutter
+local filterBar, xpStrip, gutter, gutterLine
 local PlaceList, PlaceUnderStrip, BuildShrink
 local xpBars = {} -- the bar frames, reused
 local xpBarsShown = 0
@@ -496,14 +497,18 @@ local function BuildRow(row)
 		if not (self.quest or self.stampEntry) then return end
 		self.hover:Show()
 		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+		-- Who it was: the rows show only their avatar.
+		if self.playerName then
+			GameTooltip:SetText(self.playerName)
+		end
 		if self.quest then
-			GameTooltip:SetText(self.quest)
+			if self.playerName then GameTooltip:AddLine(self.quest, 1, 0.82, 0) else GameTooltip:SetText(self.quest) end
 			local tip = L.ROW_CLICK_TIP
 			if ns.charDb.filter == ns.QuestTab then
 				tip = InMyLog(self.questID) and L.ROW_OPEN_TIP or L.ROW_NOT_YOURS_TIP
 			end
 			GameTooltip:AddLine(tip, 1, 1, 1, true)
-		else
+		elseif not self.playerName then
 			GameTooltip:SetText(L.STAMP_TIP_TITLE)
 		end
 		ns.StampView:Tip(self) -- right-click to stamp, and who has
@@ -812,6 +817,7 @@ local function InitRow(row, data)
 
 	row.quest = data.quest
 	row.questID = data.questID
+	row.playerName = data.name -- the tooltip's first line: who
 	row.hover:Hide()
 	row:EnableMouse(data.quest ~= nil or (data.kind == "feed" and data.stampKey ~= nil))
 	row:SetAlpha(1)
@@ -881,12 +887,35 @@ local function GutterShown()
 	return filter ~= nil and filter.feed ~= nil
 end
 
+local ComposerShown -- below
+
+-- The gap between the feed and the filter row, with its line across the
+-- middle: tall enough, when KekChat's button sits on the line, for the
+-- button to clear the filter icons under it.
+local function RowGap()
+	if ComposerShown() and ns.ChatView:Straddles() then
+		return math.max(LAYOUT.gutterRowGap, ns.ChatView.height + 2 * LAYOUT.kekChatClear)
+	end
+	return LAYOUT.gutterRowGap
+end
+
 -- How much room the filter row takes above the list, when it shows.
 local function GutterHeight()
 	if not GutterShown() then
 		return 0
 	end
-	return (GutterSizes()) + LAYOUT.gutterRowGap
+	return (GutterSizes()) + RowGap()
+end
+
+-- KekChat's bar (ui\chat.lua) shows under the list on the Feed tab.
+function ComposerShown()
+	local filter = ns.FilterById[ns.charDb.filter]
+	return filter ~= nil and filter.composer == true and ns.ChatView:Frame() ~= nil
+end
+
+-- What sits under the list: the filter row, and the bar above it.
+local function BelowList()
+	return GutterHeight() + (ComposerShown() and ns.ChatView:Room() or 0)
 end
 
 -- Where the tabs and the list start.
@@ -913,7 +942,7 @@ end
 
 local function ListHeight()
 	local height = frame:GetHeight() or LAYOUT.height
-	return height - ListTop() - LAYOUT.inset - GutterHeight()
+	return height - ListTop() - LAYOUT.inset - BelowList()
 end
 
 -- Empty space to leave above the rows so that a list too short to fill the view sits
@@ -940,24 +969,15 @@ function Panel:Refresh(jumpToEnd)
 		return
 	end
 	local filter = ns.FilterById[ns.charDb.filter] or ns.Filters[1]
-	-- KekChat (ui\chat.lua) and the 123 graphs (ui\report.lua) take the list's
-	-- place on their tabs.
-	local own = filter.chat or filter.report
-	scrollBox:SetShown(not own)
-	scrollBar:SetShown(not own)
+	-- The 123 graphs (ui\report.lua) take the list's place on their tab.
+	scrollBox:SetShown(not filter.report)
+	scrollBar:SetShown(not filter.report)
 	if filter.report then
-		ns.ChatView:HideDocked()
 		emptyText:Hide()
 		ns.ReportView:Show(ListTop(), LAYOUT.inset)
 		return
 	end
 	ns.ReportView:Hide()
-	if filter.chat then
-		emptyText:Hide()
-		ns.ChatView:ShowDocked(ListTop(), LAYOUT.inset)
-		return
-	end
-	ns.ChatView:HideDocked()
 	local follow = ns.IsEnabled("chatOrder")
 		and (jumpToEnd or not scrollBox:HasScrollableExtent() or scrollBox:IsAtEnd())
 
@@ -1011,11 +1031,7 @@ function Panel:FocusQuest(quest)
 end
 
 local function FilterLabel(filter, compact)
-	local label = compact and filter.shortLabel or filter.label
-	if filter.chat and ns.Chat.unread > 0 and ns.charDb.filter ~= filter.id then
-		return label .. " " .. ns.Chat.unread -- new messages not seen yet
-	end
-	return label
+	return compact and filter.shortLabel or filter.label
 end
 
 local function UpdateGutter()
@@ -1077,11 +1093,65 @@ local function LayoutFilter()
 	UpdateFilter()
 end
 
-local function UpdateConnectionOptions(resetName)
+local UpdateConnectionOptions -- below: the recent channels' buttons call it
+
+-- The recent channels' buttons, in a row after their label, as many as fit.
+local function UpdateRecentChannels(controls)
+	local list = ns.Session:RecentChannels()
+	controls.recentLabel:SetShown(#list > 0)
+	local x = (controls.recentLabel:GetStringWidth() or 40) + 12
+	local room = (controls.content:GetWidth() or 300) - 8
+	for index = 1, math.max(#list, #controls.recent) do
+		local button = controls.recent[index]
+		if not button and list[index] then
+			button = CreateFrame("Button", nil, controls.content, "UIPanelButtonTemplate")
+			button:SetHeight(SETTINGS.recentHeight - 4)
+			button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+			button:SetScript("OnClick", function(self, mouse)
+				if mouse == "RightButton" then
+					ns.Session:Forget(self.channel)
+					return
+				end
+				local ok, problem = ns.Session:SwitchTo(self.channel)
+				UpdateConnectionOptions(true)
+				if not ok then
+					controls.status:SetText(problem)
+					controls.status:SetTextColor(1, 0.4, 0.4)
+				end
+			end)
+			button:SetScript("OnEnter", function(self)
+				GameTooltip:SetOwner(self, "ANCHOR_TOP")
+				GameTooltip:SetText(L.CHANNEL_RECENT_TIP:format(self.channel))
+				GameTooltip:AddLine(L.CHANNEL_RECENT_FORGET, 0.8, 0.8, 0.8)
+				GameTooltip:Show()
+			end)
+			button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+			controls.recent[index] = button
+		end
+		local name = list[index]
+		if button then
+			button.channel = name
+			if name then
+				button:SetText(name)
+				local width = button:GetFontString():GetStringWidth() + 20
+				button:SetWidth(width)
+				button:ClearAllPoints()
+				button:SetPoint("LEFT", controls.recentLabel, "LEFT", x - 6, 0)
+				button:SetShown(x + width <= room)
+				x = x + width + 4
+			else
+				button:Hide()
+			end
+		end
+	end
+end
+
+function UpdateConnectionOptions(resetName)
 	if not optionsView or not optionsView.connection then return end
 	local controls = optionsView.connection
 	local session, config = ns.Session, ns.db.connection
 	if resetName then controls.name:SetText(config.name) end
+	UpdateRecentChannels(controls)
 	controls.join:SetEnabled(session.state ~= "joining" and session.state ~= "connected")
 	controls.disconnect:SetEnabled(config.enabled)
 	if session.state == "connected" then
@@ -1118,12 +1188,6 @@ local function UpdateEmulatorButton()
 end
 
 function Panel:SelectFilter(id)
-	-- The Chat tab while chat is popped out docks it back (ui\chat.lua).
-	local filter = ns.FilterById[id]
-	if filter and filter.chat and ns.ChatView:IsPopped() then
-		ns.ChatView:SetPopped(false)
-		return
-	end
 	ns.charDb.filter = id
 	UpdateFilter()
 	if PlaceUnderStrip and filterBar then
@@ -1379,10 +1443,14 @@ end
 -- to show or hide it in your feed. Placed by PlaceUnderStrip.
 local function BuildGutter()
 	gutter = CreateFrame("Frame", nil, frame)
-	gutter:SetClipsChildren(true) -- icons past the right edge are cut off; widen the panel to see them
+	gutter:SetClipsChildren(true) -- icons past the left edge are cut off; widen the panel to see them
 	local back = gutter:CreateTexture(nil, "BACKGROUND")
 	back:SetAllPoints()
 	back:SetColorTexture(unpack(ns.Theme().row[2])) -- the rows' dark end
+	-- The line between the feed and the filter row (PlaceUnderStrip).
+	gutterLine = frame:CreateTexture(nil, "ARTWORK")
+	gutterLine:SetHeight(1)
+	gutterLine:SetColorTexture(unpack(LAYOUT.gutterRule))
 	gutter.buttons = {}
 	for index, filter in ipairs(ns.GutterFilters) do
 		local button = CreateFrame("Button", nil, gutter, "BackdropTemplate")
@@ -1418,14 +1486,17 @@ local function BuildGutter()
 	end
 end
 
--- Sizes the filter row and its icons to the slider's scale, left to right.
+-- Sizes the filter row and its icons to the slider's scale, right aligned
+-- under KekChat's button (ui\chat.lua): on a narrow panel the first ones
+-- are cut off at the left.
 local function LayoutGutter()
 	local icon, gap = GutterSizes()
 	gutter:SetHeight(icon)
+	local count = #gutter.buttons
 	for index, button in ipairs(gutter.buttons) do
 		button:SetSize(icon, icon)
 		button:ClearAllPoints()
-		button:SetPoint("LEFT", (index - 1) * (icon + gap), 0)
+		button:SetPoint("RIGHT", -(count - index) * (icon + gap), 0)
 		if button.look then
 			button.icon:ClearAllPoints()
 			button.icon:SetPoint("CENTER")
@@ -1569,11 +1640,10 @@ local function PlaceNotches(fill, width)
 	end
 end
 
--- From one party bar to the next: the XP bar, its health and power under
--- it, and the gap.
+-- From one party bar to the next: the XP bar and the gap. (Health and power
+-- are beside the heads and on the player card, ui\\party.lua.)
 BarStep = function()
-	local vitals = ns.IsEnabled("showVitals") and (LAYOUT.healthHeight + LAYOUT.powerHeight) or 0
-	return LAYOUT.xpBarHeight + vitals + LAYOUT.xpBarGap
+	return LAYOUT.xpBarHeight + LAYOUT.xpBarGap
 end
 
 local function CreateXpBar()
@@ -1614,22 +1684,6 @@ local function CreateXpBar()
 	bar.name:SetWordWrap(false)
 	bar.name:SetShadowOffset(1, -1)
 
-	-- Health and power, thin, just under the bar (Panel:UpdateXpBars).
-	local function Thin(height, offset)
-		local thin = CreateFrame("StatusBar", nil, bar)
-		thin:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", LAYOUT.xpBarInset + 2, -offset)
-		thin:SetPoint("TOPRIGHT", bar, "BOTTOMRIGHT", -(LAYOUT.xpBarInset + 2), -offset)
-		thin:SetHeight(height)
-		thin:SetStatusBarTexture(COLORS.xpBarTexture)
-		thin:SetMinMaxValues(0, 100)
-		local back = thin:CreateTexture(nil, "BACKGROUND")
-		back:SetAllPoints()
-		back:SetColorTexture(0, 0, 0, 0.6)
-		return thin
-	end
-	bar.health = Thin(LAYOUT.healthHeight, 0)
-	bar.power = Thin(LAYOUT.powerHeight, LAYOUT.healthHeight)
-
 	bar:EnableMouse(true)
 	bar:SetScript("OnEnter", ShowBarTip)
 	bar:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1643,13 +1697,42 @@ PlaceUnderStrip = function()
 	filterBar:ClearAllPoints()
 	filterBar:SetPoint("TOPLEFT", ContentLeft(), -top)
 	filterBar:SetPoint("TOPRIGHT", -LAYOUT.inset, -top)
-	-- The filter row sits along the bottom, clear of the resize grip.
+	-- The filter row sits along the bottom, clear of the resize grip, under
+	-- a line between it and the feed. KekChat's button (ui\chat.lua) sits on
+	-- that line at the right end, half above and half below, clear of the
+	-- filter icons (RowGap); both are right aligned.
+	local gripRoom = LAYOUT.gripSize + 2
+	local composer = ns.ChatView:Frame()
+	local shown = ComposerShown()
+	local straddles = shown and ns.ChatView:Straddles()
 	gutter:ClearAllPoints()
 	gutter:SetPoint("BOTTOMLEFT", LAYOUT.inset, LAYOUT.inset)
-	gutter:SetPoint("BOTTOMRIGHT", -(LAYOUT.inset + LAYOUT.gripSize + 2), LAYOUT.inset)
+	gutter:SetPoint("BOTTOMRIGHT", -(LAYOUT.inset + gripRoom), LAYOUT.inset)
 	gutter:SetShown(GutterShown())
+	local lineY = LAYOUT.inset + GutterHeight() - math.floor(RowGap() / 2)
+	gutterLine:ClearAllPoints()
+	gutterLine:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", LAYOUT.inset, lineY)
+	gutterLine:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -LAYOUT.inset, lineY)
+	gutterLine:SetShown(GutterShown())
+	if composer then
+		-- Centred on the line, or standing on it in a row of its own.
+		local bottom = straddles and lineY - math.floor(ns.ChatView.height / 2) or lineY + 2
+		composer:ClearAllPoints()
+		composer:SetPoint("BOTTOMLEFT", LAYOUT.inset, bottom)
+		composer:SetPoint("BOTTOMRIGHT", -LAYOUT.inset, bottom)
+		ns.ChatView:SetRightInset(gripRoom) -- KekChat's right end over the filter row's
+		ns.ChatView:SetShown(shown)
+	end
 	if scrollBox then
 		PlaceList()
+	end
+end
+
+-- KekChat's bar was built (ui\chat.lua): put it in its place.
+function Panel:PlaceComposer()
+	if PlaceUnderStrip and filterBar then
+		PlaceUnderStrip()
+		self:Refresh()
 	end
 end
 
@@ -1689,15 +1772,6 @@ function Panel:UpdateXpBars()
 		else
 			bar:SetBackdropBorderColor(unpack(COLORS.xpBarBorder))
 		end
-		local vitals = entry.health ~= nil and ns.IsEnabled("showVitals")
-		bar.health:SetShown(vitals)
-		bar.power:SetShown(vitals)
-		if entry.health then
-			bar.health:SetValue(entry.health)
-			bar.health:SetStatusBarColor(unpack(ns.HealthColor))
-			bar.power:SetValue(entry.power or 0)
-			bar.power:SetStatusBarColor(unpack(ns.PowerColors[entry.powerType] or ns.PowerColors.MANA))
-		end
 		bar:ClearAllPoints()
 		local top = (index - 1) * BarStep()
 		bar:SetPoint("TOPLEFT", 0, -top)
@@ -1728,7 +1802,7 @@ end
 function PlaceList()
 	scrollBox:ClearAllPoints()
 	scrollBox:SetPoint("TOPLEFT", ContentLeft(), -ListTop())
-	scrollBox:SetPoint("BOTTOMRIGHT", -(LAYOUT.inset + LAYOUT.scrollBarWidth + 4), LAYOUT.inset + GutterHeight())
+	scrollBox:SetPoint("BOTTOMRIGHT", -(LAYOUT.inset + LAYOUT.scrollBarWidth + 4), LAYOUT.inset + BelowList())
 end
 
 local function BuildList()
@@ -1865,7 +1939,12 @@ local function BuildChannel(content, y)
 	status:SetPoint("TOPRIGHT", -4, -(y + 28))
 	status:SetJustifyH("LEFT")
 	status:SetWordWrap(true)
-	optionsView.connection = { name = name, join = join, disconnect = disconnect, status = status }
+	-- Recent channels: one click switches to one, right-click forgets it.
+	local recentLabel = content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	recentLabel:SetPoint("TOPLEFT", 6, -(y + 50))
+	recentLabel:SetText(L.CHANNEL_RECENT)
+	optionsView.connection = { name = name, join = join, disconnect = disconnect, status = status,
+		recentLabel = recentLabel, recent = {}, content = content }
 	-- Letters and numbers only: anything else typed or pasted is taken out
 	-- as it goes in, and the status line says why.
 	name:SetScript("OnTextChanged", function(self, byUser)
@@ -1900,7 +1979,7 @@ local function BuildChannel(content, y)
 		UpdateConnectionOptions(true)
 	end)
 	UpdateConnectionOptions(true)
-	return y + 50
+	return y + 50 + SETTINGS.recentHeight
 end
 
 -- One slider: its label, the bar, and its value beside it.
@@ -2332,25 +2411,6 @@ Bus:On("STORE_CHANGED", function()
 	end)
 end)
 
-Bus:On("CHAT_CHANGED", function()
-	if frame then
-		UpdateFilter() -- the Chat tab's count of new messages
-	end
-end)
-
--- Health and power: redrawn a moment after they change, so a fight's
--- many changes are one redraw now and then.
-local vitalsPending = false
-local function VitalsChanged()
-	if vitalsPending or not frame then return end
-	vitalsPending = true
-	C_Timer.After(0.2, function()
-		vitalsPending = false
-		Panel:UpdateXpBars()
-	end)
-end
-Bus:On("VITALS_CHANGED", VitalsChanged)
-Bus:On("VITALS_RECEIVED", VitalsChanged)
 
 -- Your own XP bar follows the game's.
 local xpEvents = CreateFrame("Frame")
@@ -2446,4 +2506,9 @@ Bus:On("SLIDER_CHANGED", function(id)
 	if id == "volume" then
 		UpdateSoundButton()
 	end
+end)
+
+-- A channel remembered or forgotten (comms\session.lua): Settings' recent row.
+Bus:On("RECENT_CHANNELS_CHANGED", function()
+	if optionsView and optionsView.connection then UpdateRecentChannels(optionsView.connection) end
 end)

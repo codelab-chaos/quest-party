@@ -1,15 +1,15 @@
--- Chat: Quest Party's own chat over the channel (docs\chat.md). A message is
--- up to three images (any icons, by file ID) and/or a saying (data\chat.lua,
--- Sayings), and can carry an effect (data\effects.lua) that plays its images
--- as particles, with a sound: nobody types words of their own. It keeps the messages and the player's
--- saved presets (both saved), offers the built-in presets, the icon catalog
--- and its search, muting and the limits; ui\chat.lua draws it.
---
--- A message: { player, class, icons, saying, effect, time, virtual }
+-- Chat: KekChat, Quest Party's own chat over the channel (docs\chat.md). A
+-- message is up to three images (any icons, by file ID) and/or a saying
+-- (data\chat.lua, Sayings), and can carry an effect (data\effects.lua) that
+-- plays its images as particles, with a sound: nobody types words of their
+-- own. A message heard is a distinct feed entry of type chat (data\feed-types.lua):
+-- the feed keeps it, like everything else. This keeps the player's saved
+-- presets, offers the built-in ones, the icon catalog and its search, muting
+-- and the limits; ui\chat.lua is the bar that sends.
 local _, ns = ...
 local Bus, L = ns.Bus, ns.L
 
-local Chat = { unread = 0 }
+local Chat = {}
 ns.Chat = Chat
 
 -- The limit, per sender (ours under the key "you"): the times of their
@@ -93,31 +93,17 @@ local function IconID(path)
 	return type(icon) == "number" and icon > 0 and icon or nil
 end
 
-function Chat:Messages()
-	return ns.db.chat
-end
-
-function Chat:Add(message)
-	local list = ns.db.chat
-	list[#list + 1] = message
-	while #list > ns.ChatRules.maxMessages do
-		table.remove(list, 1)
-	end
-	self.unread = self.unread + 1
-	Bus:Fire("CHAT_CHANGED", message)
-end
-
-function Chat:MarkRead()
-	if self.unread > 0 then
-		self.unread = 0
-		Bus:Fire("CHAT_CHANGED")
-	end
-end
-
-function Chat:Clear()
-	wipe(ns.db.chat)
-	self.unread = 0
-	Bus:Fire("CHAT_CHANGED")
+-- A message as a feed entry (data\feed-types.lua, chat): its images as a
+-- list, its saying and effect by id, and w, when it was said.
+local function Entry(player, class, time, icons, saying, effect, virtual)
+	return {
+		type = "chat",
+		player = player,
+		class = class,
+		time = time,
+		data = { icons = icons, saying = saying, effect = effect, w = time },
+		emulated = virtual or nil,
+	}
 end
 
 -- ========= Sending ==========================================================
@@ -266,9 +252,10 @@ function Chat:Search(text)
 	return found
 end
 
--- ========= Effect presets (the KekChat button's list) =======================
--- Preset effect messages (data\effects.lua, EffectPresets), one click to
--- send: { id, label, effect, icons, saying }, with images the game knows.
+-- ========= Effect presets (the stamp picker's effects) ======================
+-- Preset effects (data\effects.lua, EffectPresets), played on a card from
+-- its stamp picker (stamps.lua): { id, label, effect, icons, saying }, with
+-- images the game knows.
 local effectPresets
 
 function Chat:EffectPresets()
@@ -285,6 +272,8 @@ function Chat:EffectPresets()
 		if #icons > 0 and ns.ChatEffectById[preset.effect] then
 			effectPresets[#effectPresets + 1] = {
 				id = preset.id,
+				-- Its button (ui\effect-grid.lua): its own icon, else its first image.
+				icon = (preset.icon and IconID(preset.icon)) or icons[1],
 				label = preset.label,
 				effect = preset.effect,
 				icons = icons,
@@ -295,14 +284,12 @@ function Chat:EffectPresets()
 	return effectPresets
 end
 
--- Sends one of the strip's presets. Returns true, or false and why.
-function Chat:SendEffectPreset(id)
+-- One effect preset by its id, or nil. They play on cards (stamps.lua).
+function Chat:EffectPreset(id)
 	for _, preset in ipairs(self:EffectPresets()) do
-		if preset.id == id then
-			return self:Send(preset.icons, preset.saying, preset.effect)
-		end
+		if preset.id == id then return preset end
 	end
-	return false, L.CHAT_PICK
+	return nil
 end
 
 -- ========= Suggestions, for typing ==========================================
@@ -393,25 +380,16 @@ function Chat:ToggleMute(player)
 		return false
 	end
 	ns.db.muted[player] = (not ns.db.muted[player]) or nil
-	Bus:Fire("CHAT_CHANGED")
+	Bus:Fire("STORE_CHANGED") -- their KekChat rows hide or come back
 	return ns.db.muted[player] == true
-end
-
-function Chat:VisibleMessages()
-	local shown = {}
-	for _, message in ipairs(ns.db.chat) do
-		if not self:IsMuted(message.player) then
-			shown[#shown + 1] = message
-		end
-	end
-	return shown
 end
 
 -- ========= Hearing ==========================================================
 -- A message arrived (ours back from the server, a friend's, or a pretend
 -- player's). A saying this version does not know is left out; what is left
--- shows, unless its sender is muted or over the limit. A saying with an
--- effect does it here (CHAT_EFFECT).
+-- goes into the feed, unless its sender is muted or over the limit. A saying
+-- with an effect does it here (CHAT_EFFECT), and an effect plays over the
+-- feed (CHAT_PLAY).
 Bus:On("CHAT_SAY", function(say)
 	local saying = say.saying and ns.SayingById[say.saying]
 	local icons = ValidIcons(say.icons)
@@ -430,56 +408,49 @@ Bus:On("CHAT_SAY", function(say)
 	if not allowed then
 		if began then
 			-- Said once, here only: their messages are hidden for a while.
-			Chat:Add({ system = true, player = say.player, text = L.CHAT_SPAMMER:format(say.player, math.ceil(seconds)), time = GetServerTime() })
+			ns.Print(L.CHAT_SPAMMER:format(say.player, math.ceil(seconds)))
 		end
 		return
 	end
-	local message = {
-		player = say.player,
-		class = say.class,
-		icons = icons,
-		saying = saying and saying.id or nil,
-		effect = effect and effect.id or nil,
-		time = GetServerTime(),
-		virtual = say.virtual,
-		fresh = true, -- animates in when first drawn (ui\chat.lua)
-	}
-	Chat:Add(message)
+	local entry = Entry(say.player, say.class, say.time or GetServerTime(), icons,
+		saying and saying.id or nil, effect and effect.id or nil, say.virtual)
+	Bus:Fire("ENTRY_RECEIVED", entry)
 	if saying and saying.effect then
 		Bus:Fire("CHAT_EFFECT", saying.effect, say.player)
 	end
 	if effect then
-		Bus:Fire("CHAT_PLAY", message) -- its effect, played where chat is shown
+		Bus:Fire("CHAT_PLAY", entry.data) -- its effect, over the feed
 	end
 end)
 
+-- KekChat's own list from before 0.3.7: its messages go into the feed at
+-- their times (store.lua runs first), and the list goes. Notices of a
+-- timeout were for the moment they happened; they are left out.
+local function RestoreOldMessages()
+	local old = ns.db.chat
+	ns.db.chat = nil
+	if type(old) ~= "table" then return end
+	local entries = {}
+	for _, message in ipairs(old) do
+		local icons = ValidIcons(message.icons or { message.icon })
+		local saying = message.kind == "board" and message.id or message.saying
+		if not message.system and message.player and (#icons > 0 or saying) and message.time then
+			entries[#entries + 1] = Entry(message.player, message.class, message.time, icons, saying,
+				#icons > 0 and message.effect or nil, message.virtual)
+		end
+	end
+	ns.Store:Restore(entries)
+end
+
 Bus:On("INIT", function()
-	ns.db.chat = ns.db.chat or {}
 	ns.db.muted = ns.db.muted or {}
 	ns.db.chatPresets = ns.db.chatPresets or {}
-	-- Notices of a timeout are for the moment they happened.
-	for index = #ns.db.chat, 1, -1 do
-		if ns.db.chat[index].system then
-			table.remove(ns.db.chat, index)
-		end
-	end
-	-- Messages and presets from before a message carried a list of images.
-	for _, message in ipairs(ns.db.chat) do
-		if message.kind == "board" then
-			message.saying, message.id = message.id, nil
-		end
-		message.kind, message.fresh = nil, nil
-		if message.icon then
-			message.icons, message.icon = { message.icon }, nil
-		end
-		message.icons = message.icons or {}
-	end
+	RestoreOldMessages()
+	if ns.charDb then ns.charDb.chatPopped = nil end -- KekChat no longer pops out
+	-- Presets from before a message carried a list of images.
 	for _, preset in ipairs(ns.db.chatPresets) do
 		if preset.icon then
 			preset.icons, preset.icon = { preset.icon }, nil
 		end
-	end
-	while #ns.db.chat > ns.ChatRules.maxMessages do
-		table.remove(ns.db.chat, 1)
 	end
 end)

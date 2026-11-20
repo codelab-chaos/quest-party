@@ -25,7 +25,7 @@ function Group:Refresh()
 	for index = 1, count do
 		local unit = raid and ("raid" .. index) or ("party" .. index)
 		local name = UnitExists and UnitExists(unit) and FullName(unit)
-		if name and not ns.IsMe(name) then members[name] = true end
+		if name and not ns.IsMe(name) then members[name] = unit end
 	end
 	local changed = false
 	for name in pairs(members) do if not self.members[name] then changed = true end end
@@ -36,7 +36,15 @@ end
 
 -- Whether a player is in your game group (not you).
 function Group:Has(name)
-	return name ~= nil and self.members[name] == true
+	return name ~= nil and self.members[name] ~= nil
+end
+
+-- The game's unit for a player, when the game can show them now: "player"
+-- for you, "party2" or "raid7" for someone in your game group, else nil.
+function Group:Unit(name)
+	if name == nil then return nil end
+	if ns.IsMe(name) then return "player" end
+	return self.members[name]
 end
 
 Bus:On("READY", function()

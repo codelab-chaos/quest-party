@@ -36,6 +36,9 @@
 --             row (XP from a quest is on the quest's own row), so it is not a
 --             feed row of its own. It still updates the roster
 --   format    data keys to pass through ns.Comma before filling templates
+--   fields    function(data, fields): adds fields the templates use that are
+--             made from the data (KekChat's images and saying, as text)
+--   mutable   hidden while its sender is muted (KekChat, chat.lua)
 --   card      makes the type feed a persistent card (see ns.CardKinds below):
 --     kind    which kind of card
 --     keys    data keys that, with the player, identify the card
@@ -178,6 +181,18 @@ ns.FeedTypes = {
 			text = L.FEED_SKILL_RUN, detail = L.FEED_SKILL_RUN_DETAIL, detailOne = L.FEED_SKILL_RUN_DETAIL_ONE,
 		},
 	},
+	-- A profession learned ("You have gained the Fishing skill"): a distinct
+	-- event, its own row every time, with the profession's icon.
+	skill_learned = {
+		mark = "skill", -- the square on the right (data\marks.lua)
+		markIcon = function(entry) return ns.ProfessionIcon(entry.data.skill) end,
+		setting = "professions",
+		filters = { professions = true },
+		icon = "Interface\\Icons\\INV_SideTab_Professions_c60",
+		text = L.FEED_SKILL_LEARNED,
+		chat = L.CHAT_SKILL_LEARNED,
+		sound = 46893, -- a level-up flourish: something new
+	},
 	death = {
 		mark = "death", -- the square on the right (data\marks.lua)
 		setting = "deaths",
@@ -200,6 +215,31 @@ ns.FeedTypes = {
 		filters = {},
 		icon = "Interface\\Icons\\Ability_Warrior_BattleShout",
 		text = L.FEED_JOINED,
+	},
+	-- A KekChat message (chat.lua): a distinct row each time, its first
+	-- image in its square, any others inline before its saying. Its effect
+	-- plays over the feed when it lands (ui\chat.lua).
+	chat = {
+		mark = "chat", -- the square on the right (data\marks.lua)
+		markIcon = function(entry) return entry.data.icons and entry.data.icons[1] end,
+		setting = "kekChat",
+		filters = {},
+		mutable = true,
+		icon = "Interface\\ChatFrame\\UI-ChatIcon-Chat-Up",
+		text = L.FEED_CHAT,
+		fields = function(data, fields)
+			local parts = {}
+			for index, icon in ipairs(data.icons or {}) do
+				if index > 1 then -- the first is the square on the right
+					parts[#parts + 1] = ("|T%d:0|t"):format(icon)
+				end
+			end
+			local saying = data.saying and ns.SayingById[data.saying]
+			if saying then
+				parts[#parts + 1] = "|cffffffff" .. saying.text .. "|r"
+			end
+			fields.message = table.concat(parts, " ")
+		end,
 	},
 	unknown = {
 		mark = "unknown", -- the square on the right (data\marks.lua)

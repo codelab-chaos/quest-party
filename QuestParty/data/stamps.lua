@@ -31,18 +31,27 @@ end
 -- Every card can be stamped. These are the fields that name one card the same
 -- way on every client: the card's player and kind, then these (a field a card
 -- lacks counts as empty). A kind not listed is named by its player and kind.
+-- Two kinds of event:
+--   distinct     does not collapse: a quest picked up, dropped or handed in,
+--                a death, a profession learned, a KekChat message. Named with w, when it happened,
+--                so each time is its own card.
+--   collapsible  folds into a running row: kills, XP, skill-ups, objective
+--                progress. Named by what it counts, so the row keeps its
+--                stamps as it grows.
 ns.StampKeys = {
-	quest_accepted = { "quest" },
-	quest_complete = { "quest" },
+	quest_accepted = { "quest", "w" },
+	quest_complete = { "quest", "w" },
 	quest_progress = { "quest", "objective" },
-	quest_abandoned = { "quest" },
+	quest_abandoned = { "quest", "w" },
 	level = { "level" },
 	achievement = { "name" },
 	discovery = { "zone" },
-	death = { "zone", "level" },
+	death = { "zone", "level", "w" },
+	chat = { "w" },
 	kill = { "mob", "quest" },
 	xp = { "mob", "level" },
 	skill = { "skill" },
+	skill_learned = { "skill", "w" }, -- distinct: its own card
 	unknown = { "kind" },
 }
 
@@ -61,7 +70,7 @@ ns.StampImpact = {
 
 ns.StampRules = {
 	perCard = 24, -- stamps kept on one card (the newest); added up by kind when shown
-	perPlayer = 2, -- different stamps one player can put on one card
+	perPlayer = 5, -- different stamps one player can put on one card
 	keepDays = 7, -- stamps kept, like the stats
 	fadeSeconds = 15, -- with Stamps fade on, how long one stays inked
 	maxText = 64, -- the longest card key that travels

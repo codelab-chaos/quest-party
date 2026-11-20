@@ -25,6 +25,7 @@ local LAYOUT = {
 	pickerTop = 22, -- room at the top for the close button
 	pickerClose = 24,
 	pickerGap = 6, -- between cells
+	pickerMute = 20, -- the line under the stamps: mute the card's player
 	emblemInk = 27, -- an emblem stamp (no word) on a card
 }
 
@@ -39,6 +40,7 @@ local COLORS = {
 local FONT = "Fonts\\FRIZQT__.TTF"
 
 local fresh = {} -- card key -> when a stamp last landed on it, for the animation
+local rowsByKey = {} -- card key -> the row last drawn for it (rows are reused)
 local played = {} -- card key .. time -> true once its landing has played
 
 -- ========= The picker =======================================================
@@ -107,8 +109,38 @@ local function BuildPicker()
 		end)
 	end
 	local rows = math.ceil(#ns.Stamps / columns)
-	picker:SetSize(2 * LAYOUT.pickerPad + columns * cell + (columns - 1) * LAYOUT.pickerGap,
-		LAYOUT.pickerTop + LAYOUT.pickerPad + rows * (cell + LAYOUT.pickerWord) + (rows - 1) * LAYOUT.pickerGap)
+	local width = 2 * LAYOUT.pickerPad + columns * cell + (columns - 1) * LAYOUT.pickerGap
+	local stampsBottom = LAYOUT.pickerTop + rows * (cell + LAYOUT.pickerWord) + (rows - 1) * LAYOUT.pickerGap
+	-- Under the stamps, KekChat's effects (ui\effect-grid.lua): one plays over
+	-- this card on everyone's screen and leaves nothing behind.
+	local effects = ns.EffectGrid.Build(picker, width - 2 * LAYOUT.pickerPad, L.EFFECTS_HEADING, L.STAMP_EFFECTS_TIP, function(preset)
+		local entry = picker.entry
+		ClosePicker()
+		if not entry then return end
+		local ok, problem = ns.Stamping:SendEffect(entry, preset.id)
+		if not ok and problem then ns.Print(problem) end
+	end)
+	effects:SetPoint("TOPLEFT", LAYOUT.pickerPad, -(stampsBottom + LAYOUT.pickerGap))
+	local effectsBottom = effects.height > 0 and (stampsBottom + LAYOUT.pickerGap + effects.height) or stampsBottom
+	picker:SetSize(width, effectsBottom + LAYOUT.pickerPad + LAYOUT.pickerMute)
+	-- Under the stamps: mute (or unmute) the card's player, hiding their
+	-- KekChat and stamps (chat.lua). Not on your own cards.
+	local mute = CreateFrame("Button", nil, picker)
+	mute:SetHeight(LAYOUT.pickerMute)
+	mute:SetPoint("BOTTOMLEFT", LAYOUT.pickerPad, LAYOUT.pickerPad - 4)
+	mute:SetPoint("BOTTOMRIGHT", -LAYOUT.pickerPad, LAYOUT.pickerPad - 4)
+	mute.text = mute:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	mute.text:SetPoint("CENTER")
+	mute:SetHighlightTexture("Interface\\Buttons\\WHITE8x8")
+	mute:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.08)
+	mute:SetScript("OnClick", function()
+		local player = picker.entry and picker.entry.player
+		ClosePicker()
+		if not player then return end
+		local muted = ns.Chat:ToggleMute(player)
+		ns.Print((muted and L.CHAT_MUTED or L.CHAT_UNMUTED):format(player))
+	end)
+	picker.mute = mute
 	picker:SetScript("OnHide", function(self) self.entry = nil end)
 	picker:Hide()
 end
@@ -130,6 +162,11 @@ function StampView:Open(row)
 	end
 	if not picker then BuildPicker() end
 	picker.entry = entry
+	local mine = ns.IsMe(entry.player)
+	picker.mute:SetShown(not mine)
+	if not mine then
+		picker.mute.text:SetText((ns.Chat:IsMuted(entry.player) and L.CHAT_UNMUTE_PLAYER or L.CHAT_MUTE_PLAYER):format(entry.player))
+	end
 	-- The one you already put on it is greyed out.
 	local _, used = ns.Stamping:Used(key, ns.MyName())
 	for _, cell in ipairs(picker.cells or {}) do
@@ -169,6 +206,9 @@ end
 -- The tooltip lines for a card: how to stamp it, and who has.
 function StampView:Tip(row)
 	if not row.stampEntry then return end
+	-- Where it happened, when its sender said (collectors\location.lua).
+	local place = ns.Location.Describe(ns.Location.Read(row.stampEntry.data))
+	if place then GameTooltip:AddLine(L.LOCATION_TIP:format(place), 1, 1, 1) end
 	local done = not ns.Stamping:May(ns.Stamping:KeyFor(row.stampEntry), ns.MyName())
 	GameTooltip:AddLine(done and L.STAMP_DONE or L.STAMP_RIGHT_CLICK, 0.75, 0.75, 1, true)
 	for _, stamp in ipairs(row.stampList or {}) do
@@ -290,6 +330,7 @@ end
 -- flies in again.
 function StampView:Show(row, data)
 	local key = data.kind == "feed" and data.stampKey or nil
+	if key then rowsByKey[key] = row end -- where a card effect plays (CARD_EFFECT)
 	row.stampData = data -- kept to place the stamps again on a resize
 	row.stampEntry = key and data.entry or nil
 	row.stampList = key and data.stamps or nil
@@ -425,6 +466,38 @@ Bus:On("STAMPED", function(key, stamp)
 		C_Timer.After(LAYOUT.landSeconds, function() ns.PlaySound(impact.sound) end)
 	end
 	if ns.Panel and ns.Panel.Refresh then ns.Panel:Refresh() end
+end)
+
+-- An effect played (stamps.lua), from a card's picker or KekChat's list: one
+-- way for both, with its sound, when KekChat's effects are on. Over the whole
+-- panel, as KekChat's; on a card in view, the panel from its top down to the
+-- card's bottom, so a fountain rises from the card to the top and rain lands
+-- on it.
+Bus:On("CARD_EFFECT", function(key, presetId)
+	if not ns.IsEnabled("chatEffects") then return end
+	local preset = ns.Chat:EffectPreset(presetId)
+	local effect = preset and ns.ChatEffectById[preset.effect]
+	if not effect then return end
+	local panel = ns.Panel and ns.Panel.GetFrame and ns.Panel:GetFrame()
+	if not (panel and panel:IsVisible()) then return end
+	local over = panel
+	local row = rowsByKey[key]
+	local top, bottom = panel:GetTop(), row and row:GetBottom()
+	if row and row:IsVisible() and row.stampData and row.stampData.stampKey == key
+		and type(top) == "number" and type(bottom) == "number" and top - bottom > 0 then
+		if not row.cardEffect then
+			row.cardEffect = CreateFrame("Frame", nil, panel)
+			row.cardEffect:EnableMouse(false)
+		end
+		over = row.cardEffect
+		over:ClearAllPoints()
+		over:SetPoint("TOPLEFT", panel, "TOPLEFT")
+		over:SetPoint("TOPRIGHT", panel, "TOPRIGHT")
+		over:SetHeight(top - bottom)
+	end
+	local saying = preset.saying and ns.SayingById[preset.saying]
+	ns.ParticleView:Play(over, effect, preset.icons, saying and saying.text)
+	if effect.sound then ns.PlaySound(effect.sound) end
 end)
 
 -- The Stamps fade switch: cards drawn again.

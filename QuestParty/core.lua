@@ -162,6 +162,7 @@ local ACCOUNT_DEFAULTS = {
 	sliders = {}, -- likewise
 	debug = false,
 	connection = { name = "", enabled = false },
+	recentChannels = {}, -- channels used, newest first (comms\session.lua)
 }
 
 local CHARACTER_DEFAULTS = {

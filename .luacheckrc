@@ -12,4 +12,4 @@ ignore = {
 	"212/_.*", -- arguments named _ on purpose
 	"213/_.*", -- loop variables named _ on purpose
 }
-exclude_files = { "dist/**" }
+exclude_files = { "dist/**", "QuestParty/libs/**" } -- libraries as their authors ship them

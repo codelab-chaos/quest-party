@@ -3,7 +3,7 @@
 ## Notes: Share quest progress, levels and achievements with your party in a live feed.
 ## Author: Wizwonk
 ## X-License: MIT
-## Version: 0.3.6
+## Version: 0.3.7
 ## AllowLoadGameType: forever
 ## ExcludeLoadGameType: standard, classic
 ## Category: Quests
@@ -12,6 +12,10 @@
 ## SavedVariablesPerCharacter: QuestPartyCharDB
 ## AddonCompartmentFunc: QuestParty_OnAddonCompartmentClick
 
+libs\LibStub\LibStub.lua
+libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+libs\HereBeDragons\HereBeDragons-2.0.lua
+libs\HereBeDragons\HereBeDragons-Pins-2.0.lua
 core.lua
 locales\en-us.lua
 data\professions.lua
@@ -48,10 +52,13 @@ collectors\samples.lua
 collectors\collectors.lua
 collectors\gear.lua
 collectors\vitals.lua
+collectors\location.lua
 collectors\professions.lua
 ui\view-model.lua
 ui\party-model.lua
 ui\confetti.lua
+ui\effect-grid.lua
+ui\map-pins.lua
 ui\stamps.lua
 ui\quest-card.lua
 ui\panel.lua

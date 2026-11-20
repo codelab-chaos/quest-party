@@ -1,6 +1,8 @@
 -- Vitals collector: this character's health and power from the game, as a
 -- reading in steps (vitals.lua). Says VITALS_CHANGED when the stepped reading
 -- changes; comms\sharing.lua sends it (debounced), the panel shows it.
+-- Says UNIT_VITALS when yours or your game group's change, for the bars drawn
+-- live from the game.
 -- A value the game hides (in combat it may) is left as it was.
 local _, ns = ...
 local Bus = ns.Bus
@@ -44,6 +46,11 @@ Bus:On("READY", function()
 	frame:SetScript("OnEvent", function(_, _, unit)
 		if unit == "player" then
 			Collector:Check()
+		end
+		-- You and your game group: their bars are drawn live from the game
+		-- (ui\look.lua), so a change redraws them.
+		if type(unit) == "string" and (unit == "player" or unit:match("^party%d") or unit:match("^raid%d")) then
+			Bus:Fire("UNIT_VITALS", unit)
 		end
 	end)
 end)

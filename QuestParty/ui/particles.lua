@@ -9,12 +9,25 @@ ns.ParticleView = ParticleView
 
 local layers = {} -- [host frame] = { frame, particles, textures }
 
+-- The game's draw tiers, lowest first. A layer is drawn one above its host's,
+-- so particles fly over everything at the host's tier (the feed's rows and
+-- their stamps), whatever frame levels those have.
+local STRATA = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG", "FULLSCREEN", "FULLSCREEN_DIALOG", "TOOLTIP" }
+
+local function Above(strata)
+	for index, name in ipairs(STRATA) do
+		if name == strata then return STRATA[math.min(index + 1, #STRATA)] end
+	end
+	return "HIGH"
+end
+
 local function Layer(host)
 	local layer = layers[host]
 	if layer then
 		return layer
 	end
 	local frame = CreateFrame("Frame", nil, host)
+	frame:EnableMouse(false)
 	frame:SetAllPoints()
 	if frame.SetClipsChildren then
 		frame:SetClipsChildren(true) -- nothing flies outside the frame
@@ -105,6 +118,7 @@ function ParticleView:Play(host, effect, icons, words)
 		return
 	end
 	local layer = Layer(host)
+	layer.frame:SetFrameStrata(Above(host:GetFrameStrata()))
 	layer.frame:SetFrameLevel(host:GetFrameLevel() + 40)
 	local alive = {}
 	for _, particle in ipairs(layer.particles) do

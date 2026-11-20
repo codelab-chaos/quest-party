@@ -33,6 +33,9 @@ function Resolver.Fields(player, class, data, def)
 			fields[key] = value
 		end
 	end
+	if def.fields then
+		def.fields(data, fields)
+	end
 	if def.experience then
 		-- A merged run of gains adds up its XP and counts them (data.gains).
 		local gains = type(data.gains) == "number" and data.gains or 1

@@ -1,45 +1,27 @@
--- Chat view: Quest Party chat (chat.lua, docs\chat.md), drawn in the panel's
--- Chat tab or popped out beside the feed. A list of messages over a chat bar:
---   [images] [type to pick] [Send] [Save] [your saves]
--- KekChat's title is a red button: it drops down the ready-made messages and
--- the effects, and one click sends one.
--- Images pop in as they arrive; an effect plays them (and a worded one its
--- saying's words) as particles (ui\particles.lua) with its sound; click a
--- message's images to replay it.
--- Nobody types words of their own. Right-click a message to mute its sender.
--- It owns frames only.
+-- Chat view: KekChat's bar (chat.lua, docs\chat.md), under the feed on the
+-- Feed tab, above the filter row (ui\panel.lua places it):
+--                                                   [KekChat v]  quick chats only
+--   [images] [type to pick] [Send] [Save] [your saves] [KekChat v]
+--   (the second with Custom KekChat on, in Settings)
+-- Messages are feed rows (data\feed-types.lua, chat), sent and read like
+-- every other entry: this only builds and sends them. KekChat's list holds
+-- the quick chats (presets and effects), and one click sends one. An effect
+-- plays its images (and a worded one its saying's words) as particles
+-- (ui\particles.lua) over the feed, with its sound, when it lands.
+-- Nobody types words of their own. It owns frames only.
 local _, ns = ...
 local Bus, L = ns.Bus, ns.L
 
-local ChatView = { popped = false, icons = {}, effect = nil, saying = nil }
+local ChatView = { icons = {}, effect = nil, saying = nil }
 ns.ChatView = ChatView
 
 local LAYOUT = {
-	poppedWidth = 300,
 	pad = 6,
-	-- Messages as a phone chat (InitRow).
-	nameLine = 18, -- the sender's tiny portrait and name, on the first of a run
-	sticker = 44, -- images with no saying: bigger, no bubble
-	bubbleImage = 28, -- images inside a bubble
-	bubbleText = 18, -- a saying's line inside a bubble
-	bubblePad = 6,
-	bubbleGap = 8, -- between a bubble's images and its saying
-	edge = 6, -- a bubble's distance from its side
-	timeRoom = 40, -- kept beside a bubble for its time
-	portrait = 14, -- the sender's tiny round portrait, top left by the name
-	ring = 1,
-	header = 38, -- KekChat's own header: the KekChat button, pop out
-	systemHeight = 20, -- a notice from this client
 	debounce = 0.5, -- a second press this soon is the same press
-	imageGap = 4,
-	popSeconds = 0.35, -- how long an image takes to pop in
 	bar = 24, -- the chat bar's height
 	barGap = 3,
 	sendWidth = 44,
 	saveWidth = 40,
-	popSize = 20,
-	readyWidth = 132, -- the KekChat button: its name and a down arrow
-	readyHeight = 28,
 	-- Pickers open above the bar.
 	columns = 7, -- the image picker: a page of icons at a time
 	rows = 4,
@@ -48,23 +30,30 @@ local LAYOUT = {
 	searchHeight = 20,
 	listRow = 22, -- a row in the saying and preset pickers
 	listRows = 9, -- rows shown before they scroll
+	readyWidth = 100, -- KekChat: its name and a down arrow
 }
 
+-- Where the bar goes (ui\panel.lua places it on the line between the feed
+-- and the filter row). With quick chats only, KekChat's button straddles the
+-- line and takes no room of its own; with Custom KekChat, the bar sits on
+-- the line in a row of its own.
+ChatView.height = LAYOUT.bar
+function ChatView:Straddles()
+	return not ns.IsEnabled("kekChatCustom")
+end
+-- Room the bar takes above the line.
+function ChatView:Room()
+	return self:Straddles() and 0 or LAYOUT.bar + 2
+end
+
 local COLORS = {
-	back = { 0.05, 0.04, 0.08, 0.92 }, -- as the panel
-	border = { 0.80, 0.65, 0.20, 1 },
-	row = { 1, 1, 1, 0.04 },
-	tray = { 0.02, 0.02, 0.03, 0.85 }, -- behind the chat bar
-	trayLine = { 0.80, 0.65, 0.20, 0.6 },
 	picker = { 0.03, 0.03, 0.05, 0.97 },
+	border = { 0.80, 0.65, 0.20, 1 },
 	selected = { 1, 0.85, 0.35, 1 },
 	cellEdge = { 0.35, 0.30, 0.18, 1 },
 	barButton = { 0.10, 0.09, 0.13, 1 },
 	barEdge = { 0.45, 0.36, 0.14, 1 },
 	saying = { 1, 1, 1 },
-	bubble = { 0.10, 0.09, 0.14, 0.95 }, -- everyone else's
-	bubbleMine = { 0.08, 0.26, 0.12, 0.95 }, -- yours, on the right
-	bubbleMineEdge = { 0.35, 0.80, 0.40, 0.9 },
 	effect = { 1, 0.82, 0 }, -- a saying that does something (Cheers!)
 	heading = { 1, 0.82, 0 },
 	muted = { 0.55, 0.55, 0.55 },
@@ -80,9 +69,9 @@ local BACKDROP = {
 local EDGE = { bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 }
 local NO_IMAGE = "Interface\\Icons\\INV_Misc_QuestionMark"
 
-local frame, scrollBox, scrollBar, bar, popButton, emptyText, status
+local frame, bar, status
 local imageButton, compose
-local pickers = {} -- image, saying, presets: one open at a time
+local pickers = {} -- image, suggest, presets, saves: one open at a time
 
 local function SayingText(id)
 	local saying = id and ns.SayingById[id]
@@ -102,28 +91,15 @@ function ChatView:Say(text, good)
 	end)
 end
 
--- ========= Messages =========================================================
-local function ShowImageTip(images)
-	local data = images:GetParent().data
-	if not data then return end
-	GameTooltip:SetOwner(images, "ANCHOR_RIGHT")
-	GameTooltip:SetText(L.CHAT_DECAL_TIP:format(ns.ColorName(data.player, data.class), date("%H:%M", data.time or 0)))
-	local effect = data.effect and ns.ChatEffectById[data.effect]
-	if effect then
-		GameTooltip:AddLine(effect.label, 1, 0.82, 0)
-	end
-	GameTooltip:AddLine(L.CHAT_REPLAY_TIP, 0.8, 0.8, 0.8)
-	GameTooltip:Show()
-end
-
--- Plays a message's effect, if it has one and effects are on, over the chat
--- (or the panel when the chat is not showing), with its sound.
+-- ========= Effects ==========================================================
+-- Plays a message's effect (its feed entry's data), if it has one and effects
+-- are on, over the panel while it shows, with its sound.
 function ChatView:PlayEffect(message)
 	local effect = message.effect and ns.ChatEffectById[message.effect]
 	if not effect or not ns.IsEnabled("chatEffects") then
 		return
 	end
-	local over = (frame and frame:IsVisible()) and frame or ns.Panel:GetFrame()
+	local over = ns.Panel:GetFrame()
 	if not (over and over:IsVisible()) then
 		return
 	end
@@ -132,271 +108,6 @@ function ChatView:PlayEffect(message)
 	if effect.sound then
 		ns.PlaySound(effect.sound) -- at the Volume in Settings
 	end
-end
-
--- An image popping in: grows past its size and settles, fading in.
-local function MakePop(images)
-	local group = images:CreateAnimationGroup()
-	local grow = group:CreateAnimation("Scale")
-	if grow.SetScaleFrom then
-		grow:SetScaleFrom(0.2, 0.2)
-		grow:SetScaleTo(1.15, 1.15)
-	else
-		grow:SetFromScale(0.2, 0.2)
-		grow:SetToScale(1.15, 1.15)
-	end
-	grow:SetDuration(LAYOUT.popSeconds * 0.7)
-	grow:SetOrder(1)
-	local settle = group:CreateAnimation("Scale")
-	if settle.SetScaleFrom then
-		settle:SetScaleFrom(1.15, 1.15)
-		settle:SetScaleTo(1, 1)
-	else
-		settle:SetFromScale(1.15, 1.15)
-		settle:SetToScale(1, 1)
-	end
-	settle:SetDuration(LAYOUT.popSeconds * 0.3)
-	settle:SetOrder(2)
-	local fade = group:CreateAnimation("Alpha")
-	fade:SetFromAlpha(0)
-	fade:SetToAlpha(1)
-	fade:SetDuration(LAYOUT.popSeconds * 0.5)
-	fade:SetOrder(1)
-	return group
-end
-
--- Click a message's images: they pop in again, and its effect replays.
-local function Replay(images)
-	local data = images:GetParent().data
-	if not data then return end
-	images.pop:Stop()
-	images.pop:Play()
-	ChatView:PlayEffect(data)
-end
-
--- Right-click a message: mute its sender, or unmute them.
-local function ClickRow(row, button)
-	if button ~= "RightButton" or not row.data or ns.IsMe(row.data.player) then
-		return
-	end
-	local muted = ns.Chat:ToggleMute(row.data.player)
-	ChatView:Say((muted and L.CHAT_MUTED or L.CHAT_UNMUTED):format(row.data.player), true)
-end
-
--- Messages as a phone chat: speech bubbles sized to what is in them, each on
--- the left or the right as the message itself picks (OnRight), yours green.
--- A run of messages from one sender on one side shows their name and tiny
--- portrait once, on the first (Refresh marks both).
--- Images alone are stickers: bigger, with no bubble. A message with an
--- effect has a gold bubble edge.
-local BUBBLE_BACKDROP = {
-	bgFile = "Interface\\Buttons\\WHITE8x8",
-	edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-	edgeSize = 12,
-	insets = { left = 3, right = 3, top = 3, bottom = 3 },
-}
-
-local function IsMine(data)
-	return data.player == ns.MyName()
-end
-
--- Left or right, pseudo random but the same every time a message is drawn
--- (and on every client): a small hash of who sent it, when, and what.
-local function OnRight(data)
-	local key = ("%s%s%s%s"):format(data.player or "", data.time or 0, data.saying or "", data.icons and data.icons[1] or "")
-	local hash = 0
-	for index = 1, #key do
-		hash = (hash * 31 + key:byte(index)) % 1000003
-	end
-	return hash % 2 == 1
-end
-
--- What a message shows: images, or a saying this client knows. One with
--- neither (a saying from a newer version) is left out rather than drawn empty.
-local function HasContent(data)
-	return data.system or (data.icons and #data.icons > 0) or (data.saying and ns.SayingById[data.saying]) ~= nil
-end
-
--- What a message is drawn as: a sticker (images, no saying) or a bubble.
-local function Shape(data)
-	local icons = data.icons or {}
-	local saying = data.saying and ns.SayingById[data.saying]
-	return #icons > 0 and not saying and "sticker" or "bubble", icons, saying
-end
-
-local function RowHeight(data)
-	if data.system then
-		return LAYOUT.systemHeight
-	end
-	local shape, icons = Shape(data)
-	local body
-	if shape == "sticker" then
-		body = LAYOUT.sticker
-	elseif #icons > 0 then
-		body = LAYOUT.bubbleImage + 2 * LAYOUT.bubblePad
-	else
-		body = LAYOUT.bubbleText + 2 * LAYOUT.bubblePad
-	end
-	return body + (data.first and LAYOUT.nameLine or 0)
-end
-
-local function InitRow(row, data)
-	if not row.bubble then
-		row.who = CreateFrame("Frame", nil, row)
-		row.who:SetSize(200, LAYOUT.nameLine)
-		row.ring = row.who:CreateTexture(nil, "ARTWORK", nil, 1)
-		row.ring:SetSize(LAYOUT.portrait + 2 * LAYOUT.ring, LAYOUT.portrait + 2 * LAYOUT.ring)
-		row.ring:SetTexture("Interface\\Buttons\\WHITE8x8")
-		ns.Look.Round(row.ring, row.who)
-		row.portrait = row.who:CreateTexture(nil, "ARTWORK", nil, 2)
-		row.portrait:SetPoint("TOPLEFT", row.ring, "TOPLEFT", LAYOUT.ring, -LAYOUT.ring)
-		row.portrait:SetPoint("BOTTOMRIGHT", row.ring, "BOTTOMRIGHT", -LAYOUT.ring, LAYOUT.ring)
-		ns.Look.Round(row.portrait, row.who)
-		row.name = row.who:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		-- The bubble: sized to what it holds.
-		row.bubble = CreateFrame("Frame", nil, row, "BackdropTemplate")
-		row.bubble:SetBackdrop(BUBBLE_BACKDROP)
-		row.bubble:EnableMouse(false)
-		row.images = CreateFrame("Button", nil, row)
-		row.images.textures = {}
-		for index = 1, ns.ParticleRules.maxImages do
-			row.images.textures[index] = row.images:CreateTexture(nil, "ARTWORK")
-		end
-		row.images.pop = MakePop(row.images)
-		row.images:SetScript("OnEnter", ShowImageTip)
-		row.images:SetScript("OnLeave", function() GameTooltip:Hide() end)
-		row.images:SetScript("OnClick", Replay)
-		row.images:SetFrameLevel(row.bubble:GetFrameLevel() + 2)
-		row.saying = row.bubble:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-		row.saying:SetJustifyH("LEFT")
-		row.saying:SetWordWrap(false)
-		row.time = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-		row.notice = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-		row.notice:SetPoint("LEFT", 8, 0)
-		row.notice:SetPoint("RIGHT", -8, 0)
-		row.notice:SetJustifyH("CENTER")
-		row:EnableMouse(true)
-		row:SetScript("OnMouseUp", ClickRow)
-	end
-	row.data = data
-	local system = data.system == true
-	row.notice:SetShown(system)
-	row.who:SetShown(not system and data.first == true)
-	row.bubble:SetShown(false)
-	row.images:SetShown(false)
-	row.time:SetShown(not system)
-	if system then
-		row.notice:SetText(data.text or "")
-		return
-	end
-	local mine = IsMine(data)
-	local right = data.right == true
-	local side = right and "RIGHT" or "LEFT"
-	local inward = right and -1 or 1 -- toward the middle, from this side
-	local top = data.first and LAYOUT.nameLine or 0
-
-	-- The sender, on the first of a run: tiny portrait and name.
-	if data.first then
-		row.who:ClearAllPoints()
-		row.who:SetPoint("TOP" .. side, row, "TOP" .. side, inward * LAYOUT.edge, 0)
-		row.ring:ClearAllPoints()
-		row.ring:SetPoint(side, row.who, side, 0, 0)
-		row.ring:SetVertexColor(ns.PlayerColors:For(data.player))
-		ns.Look.SetPortrait(row.portrait, ns.PartyModel:Portrait(data.player))
-		row.name:ClearAllPoints()
-		row.name:SetPoint(side, row.ring, right and "LEFT" or "RIGHT", inward * 4, 0)
-		row.name:SetText(mine and L.CHAT_YOU or ns.ColorName(data.player, data.class))
-	end
-
-	local shape, icons, saying = Shape(data)
-	local size = shape == "sticker" and LAYOUT.sticker or LAYOUT.bubbleImage
-	local imagesWidth = #icons > 0 and (#icons * (size + LAYOUT.imageGap) - LAYOUT.imageGap) or 0
-	row.images:SetSize(math.max(1, imagesWidth), size)
-	for index, texture in ipairs(row.images.textures) do
-		texture:ClearAllPoints()
-		texture:SetSize(size, size)
-		texture:SetPoint("LEFT", (index - 1) * (size + LAYOUT.imageGap), 0)
-		texture:SetTexture(icons[index])
-		texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-		texture:SetShown(icons[index] ~= nil)
-	end
-
-	local edge -- the outer edge of the bubble or sticker, for the time beside it
-	if shape == "sticker" then
-		row.images:ClearAllPoints()
-		row.images:SetPoint("TOP" .. side, row, "TOP" .. side, inward * LAYOUT.edge, -top)
-		row.images:Show()
-		edge = row.images
-	else
-		row.saying:SetText(saying and saying.text or "")
-		row.saying:SetTextColor(unpack(saying and saying.effect and COLORS.effect or COLORS.saying))
-		local textWidth = saying and math.ceil(row.saying:GetStringWidth()) or 0
-		local inner = imagesWidth + ((imagesWidth > 0 and textWidth > 0) and LAYOUT.bubbleGap or 0) + textWidth
-		local width = math.min(inner + 2 * LAYOUT.bubblePad + 4, (row:GetWidth() or 260) - 2 * LAYOUT.edge - LAYOUT.timeRoom)
-		local height = (#icons > 0 and LAYOUT.bubbleImage or LAYOUT.bubbleText) + 2 * LAYOUT.bubblePad
-		row.bubble:ClearAllPoints()
-		row.bubble:SetSize(width, height)
-		row.bubble:SetPoint("TOP" .. side, row, "TOP" .. side, inward * LAYOUT.edge, -top)
-		local look = mine and COLORS.bubbleMine or COLORS.bubble
-		row.bubble:SetBackdropColor(unpack(look))
-		if data.effect then
-			row.bubble:SetBackdropBorderColor(unpack(COLORS.effect))
-		elseif mine then
-			row.bubble:SetBackdropBorderColor(unpack(COLORS.bubbleMineEdge))
-		else
-			local r, g, b = ns.PlayerColors:For(data.player)
-			row.bubble:SetBackdropBorderColor(r, g, b, 0.9)
-		end
-		row.bubble:Show()
-		if #icons > 0 then
-			row.images:ClearAllPoints()
-			row.images:SetPoint("LEFT", row.bubble, "LEFT", LAYOUT.bubblePad + 2, 0)
-			row.images:Show()
-		end
-		row.saying:ClearAllPoints()
-		if #icons > 0 then
-			row.saying:SetPoint("LEFT", row.images, "RIGHT", LAYOUT.bubbleGap, 0)
-		else
-			row.saying:SetPoint("LEFT", row.bubble, "LEFT", LAYOUT.bubblePad + 2, 0)
-		end
-		row.saying:SetShown(saying ~= nil)
-		edge = row.bubble
-	end
-	-- The time, small, just past the bubble's inner side.
-	row.time:ClearAllPoints()
-	row.time:SetPoint(side, edge, right and "LEFT" or "RIGHT", inward * 6, 0)
-	row.time:SetText(ns.Ago(math.max(0, GetServerTime() - (data.time or 0))))
-	-- New ones pop in, the first time they are drawn.
-	if data.fresh then
-		data.fresh = nil
-		row.images.pop:Stop()
-		row.images.pop:Play()
-	end
-end
-
-local function Refresh()
-	if not (frame and frame:IsShown()) then
-		return
-	end
-	local messages = {}
-	for _, message in ipairs(ns.Chat:VisibleMessages()) do
-		if HasContent(message) then messages[#messages + 1] = message end
-	end
-	-- Each picks its side; the first of a run from one sender on one side
-	-- shows who it is.
-	local previous
-	for _, message in ipairs(messages) do
-		message.right = not message.system and OnRight(message) or nil
-		message.first = not message.system and (not previous or previous.system or previous.player ~= message.player or previous.right ~= message.right) or nil
-		previous = message
-	end
-	local atEnd = not scrollBox:HasScrollableExtent() or scrollBox:IsAtEnd()
-	scrollBox:SetDataProvider(CreateDataProvider(messages), ScrollBoxConstants.RetainScrollPosition)
-	if atEnd then
-		scrollBox:ScrollToEnd(true)
-	end
-	emptyText:SetShown(#messages == 0)
-	ns.Chat:MarkRead()
 end
 
 -- ========= The chat bar =====================================================
@@ -417,6 +128,8 @@ local function ClosePickers()
 	end
 end
 
+local Place -- below: where a picker opens, filled first
+
 local function Toggle(name, open)
 	local picker = pickers[name]
 	local wasShown = picker:IsShown()
@@ -424,6 +137,7 @@ local function Toggle(name, open)
 	if not wasShown then
 		picker:Show()
 		if open then open() end
+		Place(picker)
 	end
 end
 
@@ -436,6 +150,7 @@ local function Picker(width, height)
 	picker:SetBackdropColor(unpack(COLORS.picker))
 	picker:SetBackdropBorderColor(unpack(COLORS.border))
 	picker:EnableMouse(true)
+	picker:SetClampedToScreen(true) -- never off the screen, whatever happens
 	picker:Hide()
 	return picker
 end
@@ -587,12 +302,30 @@ local function ListPicker(name, width)
 	content:SetWidth(width - 2 * LAYOUT.pad - 18)
 	content:SetHeight(1)
 	scroll:SetScrollChild(content)
-	picker.content, picker.rows = content, {}
+	picker.content, picker.rows, picker.scroll = content, {}, scroll
 	return picker
 end
 
 -- Fills a list picker: entries are { icon, text, heading, onClick, onRightClick, color }.
+-- A list picker as tall as its entries, up to listRows (then it scrolls),
+-- with picker.below of room under the list (the effects grid); the
+-- scrollbar only when it scrolls.
+local function SizeList(picker, count)
+	local most = picker.maxRows or LAYOUT.listRows
+	picker.count = count
+	local scrolls = count > most
+	local below = picker.below or 0
+	local rows = math.max(1, math.min(count, most))
+	picker:SetHeight(rows * LAYOUT.listRow + 2 * LAYOUT.pad + below)
+	local scrollRoom = scrolls and 18 or 0
+	picker.scroll:SetPoint("BOTTOMRIGHT", -(LAYOUT.pad + scrollRoom), LAYOUT.pad + below)
+	if picker.scroll.ScrollBar then picker.scroll.ScrollBar:SetShown(scrolls) end
+	picker.content:SetWidth(picker:GetWidth() - 2 * LAYOUT.pad - scrollRoom)
+end
+
 local function FillList(picker, entries)
+	picker.maxRows = nil -- as many as it wants; Place cuts it to the screen
+	SizeList(picker, #entries)
 	local width = picker.content:GetWidth()
 	for index, entry in ipairs(entries) do
 		local row = picker.rows[index]
@@ -632,6 +365,41 @@ local function FillList(picker, entries)
 		picker.rows[index]:Hide()
 	end
 	picker.content:SetHeight(math.max(1, #entries * LAYOUT.listRow))
+	if picker:IsShown() then Place(picker) end
+end
+
+-- Where a picker opens: above the bar when it fits, else below when that
+-- fits, else on the roomier side, a list cut to fit there (it scrolls). It
+-- never leaves the screen. KekChat's arrow points the way its list opened.
+local SCREEN_MARGIN = 8
+
+local function Room()
+	local scale, screen = bar:GetEffectiveScale(), UIParent:GetEffectiveScale()
+	local screenTop = (UIParent:GetTop() or 768) * screen
+	local top, bottom = (bar:GetTop() or 0) * scale, (bar:GetBottom() or 0) * scale
+	return (screenTop - top) / scale - SCREEN_MARGIN, bottom / scale - SCREEN_MARGIN
+end
+
+function Place(picker)
+	if not bar then return end
+	local above, below = Room()
+	local height = picker:GetHeight()
+	if picker.count and height > math.max(above, below) then
+		local room = math.max(above, below) - 2 * LAYOUT.pad - (picker.below or 0)
+		picker.maxRows = math.max(1, math.floor(room / LAYOUT.listRow))
+		SizeList(picker, picker.count)
+		height = picker:GetHeight()
+	end
+	local up = height <= above or (height > below and above >= below)
+	picker:ClearAllPoints()
+	if up then
+		picker:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", -4, 4)
+	else
+		picker:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", -4, -4)
+	end
+	if picker == pickers.presets and ChatView.readyArrow then
+		ChatView.readyArrow:SetTexCoord(0, 1, up and 0.5 or 0, up and 0 or 0.5)
+	end
 end
 
 -- ========= Typing to pick ===================================================
@@ -807,31 +575,12 @@ local function PresetEntry(preset)
 	}
 end
 
--- The ready-made presets (the arrow in the header) or the player's own saves
--- (the book on the right), each in its own picker. A ready-made one sends as
--- soon as it is clicked; a save loads into the bar to change first.
--- The KekChat button's list: the ready-made messages, then the effects.
-local function EffectEntry(preset)
-	local effect = ns.ChatEffectById[preset.effect]
-	local text = (preset.saying and SayingText(preset.saying)) or preset.label
-	return {
-		icon = preset.icons[1],
-		text = text .. "  |cffffd100" .. (effect and effect.label or "") .. "|r",
-		onClick = function()
-			ClosePickers()
-			if not Pressed() then return end
-			local ok, problem = ns.Chat:SendEffectPreset(preset.id)
-			if not ok then ChatView:Say(problem) end
-			ChatView:WatchTimeout()
-		end,
-	}
-end
-
+-- KekChat's quick chats (the KekChat button) or the player's own saves (the
+-- book, with Custom KekChat), each in its own picker. A quick chat sends as
+-- soon as it is clicked; a save loads into the bar to change first. Effects
+-- are played on cards, from the stamp picker (ui\stamps.lua).
 local function FillPresets(own)
 	local entries = {}
-	if not own then
-		entries[1] = { text = L.CHAT_LIST_MESSAGES, heading = true }
-	end
 	for _, preset in ipairs(ns.Chat:Presets()) do
 		if (preset.own ~= nil) == own then
 			entries[#entries + 1] = PresetEntry(preset)
@@ -839,12 +588,6 @@ local function FillPresets(own)
 	end
 	if own and #entries == 0 then
 		entries[1] = { text = L.CHAT_SAVES_NONE, color = COLORS.muted }
-	end
-	if not own then
-		entries[#entries + 1] = { text = L.CHAT_LIST_EFFECTS, heading = true }
-		for _, preset in ipairs(ns.Chat:EffectPresets()) do
-			entries[#entries + 1] = EffectEntry(preset)
-		end
 	end
 	FillList(own and pickers.saves or pickers.presets, entries)
 end
@@ -880,8 +623,34 @@ end
 local function BuildBar()
 	bar = CreateFrame("Frame", nil, frame)
 	bar:SetHeight(LAYOUT.bar)
-	bar:SetPoint("BOTTOMLEFT", LAYOUT.pad, LAYOUT.pad)
-	bar:SetPoint("BOTTOMRIGHT", -LAYOUT.pad, LAYOUT.pad)
+	bar:SetPoint("BOTTOMLEFT", 0, 0)
+	bar:SetPoint("BOTTOMRIGHT", 0, 0)
+
+	-- KekChat: the game's red button with an up arrow, as it was in
+	-- KekChat's own window. It opens the quick chats (the ready-made messages
+	-- and effects); one click sends one.
+	local readyMade = CreateFrame("Button", nil, bar, "UIPanelButtonTemplate")
+	readyMade:SetSize(LAYOUT.readyWidth, LAYOUT.bar)
+	readyMade:SetPoint("RIGHT")
+	readyMade:SetText(L.FILTER_CHAT)
+	readyMade:GetFontString():ClearAllPoints()
+	readyMade:GetFontString():SetPoint("LEFT", 10, 0)
+	readyMade.arrow = readyMade:CreateTexture(nil, "OVERLAY")
+	-- The game's down arrow, flipped to point up: the list opens upward.
+	-- Its art sits in the top half of its texture: show only that half.
+	readyMade.arrow:SetTexture("Interface\\Buttons\\Arrow-Down-Up")
+	readyMade.arrow:SetSize(16, 8)
+	readyMade.arrow:SetTexCoord(0, 1, 0.5, 0)
+	ChatView.readyArrow = readyMade.arrow -- flipped to where its list opened (Place)
+	readyMade.arrow:SetPoint("RIGHT", -8, 0)
+	readyMade:SetScript("OnClick", function() Toggle("presets", function() FillPresets(false) end) end)
+	readyMade:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:SetText(L.CHAT_PRESETS)
+		GameTooltip:AddLine(L.CHAT_PRESETS_TIP, 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	readyMade:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 	-- Left click picks an image; right click clears it.
 	imageButton = BarButton(LAYOUT.bar, function(_, button)
@@ -911,7 +680,7 @@ local function BuildBar()
 
 	-- Your saves: the book, at the right end, beside Save.
 	local saves = BarButton(LAYOUT.bar, function() Toggle("saves", function() FillPresets(true) end) end, L.CHAT_SAVES, L.CHAT_SAVES_TIP)
-	saves:SetPoint("RIGHT")
+	saves:SetPoint("RIGHT", readyMade, "LEFT", -(LAYOUT.barGap + 4), 0)
 	saves.texture = saves:CreateTexture(nil, "ARTWORK")
 	saves.texture:SetPoint("TOPLEFT", 3, -3)
 	saves.texture:SetPoint("BOTTOMRIGHT", -3, 3)
@@ -929,221 +698,101 @@ local function BuildBar()
 	send:SetPoint("RIGHT", save, "LEFT", -LAYOUT.barGap, 0)
 
 	BuildCompose(imageButton, send)
+	-- Building your own (Custom KekChat in Settings): everything but KekChat.
+	ChatView.custom = { imageButton, compose, send, save, saves }
 
 	BuildImagePicker()
 	ListPicker("suggest", 220)
 	ListPicker("presets", 260)
-	-- The KekChat button's list drops down from the header, not up from the bar.
-	pickers.presets:ClearAllPoints()
-	pickers.presets:SetPoint("TOPLEFT", frame, "TOPLEFT", LAYOUT.pad - 2, -(LAYOUT.pad + LAYOUT.header))
+	-- Under the quick chats, the effects (ui\effect-grid.lua): one plays over
+	-- the feed for everyone and leaves nothing behind.
+	local quick = pickers.presets
+	local effects = ns.EffectGrid.Build(quick, 260 - 2 * LAYOUT.pad, L.EFFECTS_HEADING, L.CHAT_EFFECTS_TIP, function(preset)
+		ClosePickers()
+		if not Pressed() then return end
+		local ok, problem = ns.Stamping:SendFeedEffect(preset.id)
+		if not ok then ChatView:Say(problem) end
+		ChatView:WatchTimeout()
+	end)
+	if effects.height > 0 then
+		effects:SetPoint("BOTTOMLEFT", LAYOUT.pad, LAYOUT.pad)
+		quick.below = effects.height + LAYOUT.pad -- the list sits right above it (SizeList)
+	end
 	ListPicker("saves", 240)
 	DrawBar()
+	ChatView:ShowCustom()
+end
+
+-- Custom KekChat (Settings, off by default): the images, the typing box,
+-- Send, Save and your saves, beside KekChat. Off, KekChat's quick chats are
+-- the whole bar.
+function ChatView:ShowCustom()
+	local on = ns.IsEnabled("kekChatCustom")
+	for _, part in ipairs(self.custom or {}) do
+		part:SetShown(on)
+	end
+	if not on then
+		for name, picker in pairs(pickers) do
+			if name ~= "presets" then picker:Hide() end
+		end
+	end
 end
 
 -- ========= Where it shows ===================================================
--- Puts the chat on a strata and level, and its parts just above it, the
--- pickers on top. Set every time it moves: docked it sits over the panel,
--- popped out it sits in the panel's group, below the panel (ui\party.lua).
-local function SetLevels(strata, level)
-	frame:SetFrameStrata(strata)
-	frame:SetFrameLevel(level)
-	for _, part in ipairs({ scrollBox, scrollBar, bar, popButton }) do
-		part:SetFrameStrata(strata)
-		part:SetFrameLevel(level + 2)
-	end
-	for _, picker in pairs(pickers) do
-		picker:SetFrameStrata(strata)
-		picker:SetFrameLevel(level + 20)
-	end
+-- The bar's frame, for the panel to place under the feed (ui\panel.lua).
+function ChatView:Frame()
+	return frame
 end
 
-function ChatView:IsPopped()
-	return self.popped == true
+-- Lines the bar's right end up with the filter row's under it (ui\panel.lua).
+function ChatView:SetRightInset(inset)
+	if not bar then return end
+	bar:SetPoint("BOTTOMRIGHT", -inset, 0)
 end
 
--- In the panel's Chat tab: over the list area, top given by the panel.
-function ChatView:ShowDocked(top, inset)
-	if self.popped or not frame then return end
-	local host = ns.Panel:GetFrame()
-	frame:SetParent(host)
-	frame:ClearAllPoints()
-	frame:SetPoint("TOPLEFT", host, "TOPLEFT", inset, -top)
-	frame:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -inset, inset)
-	frame:SetBackdrop(nil)
-	SetLevels(host:GetFrameStrata(), host:GetFrameLevel() + 5) -- over the panel, not behind it
-	frame:Show()
-	popButton:SetNormalTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up")
-	Refresh()
-end
-
-function ChatView:HideDocked()
-	if not self.popped and frame then
-		ClosePickers()
-		frame:Hide()
-	end
-end
-
--- Beside the feed, where the player card goes (a card moves right of it):
--- as tall as the panel, right of the head drawer when it shows, or right
--- against the panel when nobody is there.
-local DOCK_OVERLAP = 3 -- tucked under the edge it meets, as the drawer is
-
-local function PlacePopped()
-	local dock = ns.Party and ns.Party:Dock()
-	local host = ns.Panel:GetFrame()
-	local x = -DOCK_OVERLAP
-	if dock and dock:IsShown() then
-		x = x + dock:GetWidth() - DOCK_OVERLAP
-	end
-	frame:SetParent(host)
-	frame:ClearAllPoints()
-	frame:SetPoint("TOPLEFT", host, "TOPRIGHT", x, 0)
-	frame:SetPoint("BOTTOMLEFT", host, "BOTTOMRIGHT", x, 0)
-	frame:SetWidth(LAYOUT.poppedWidth)
-	frame:SetBackdrop(BACKDROP)
-	frame:SetBackdropColor(unpack(COLORS.back))
-	frame:SetBackdropBorderColor(unpack(COLORS.border))
-	frame:Show()
-	popButton:SetNormalTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up")
-	Refresh()
-end
-
-function ChatView:SetPopped(popped)
-	self.popped = popped and true or false
-	ns.charDb.chatPopped = self.popped
-	ClosePickers()
-	if self.popped then
-		PlacePopped()
-		if ns.charDb.filter == "chat" then
-			ns.Panel:SelectFilter(ns.Tabs[1].id) -- the feed beside it
-		end
-	else
-		frame:Hide()
-		ns.Panel:SelectFilter("chat")
-	end
-	Bus:Fire("CHAT_POPPED", self.popped)
-end
-
--- The panel, drawer and card come to the front together (ui\party.lua); a
--- popped chat goes with them.
-function ChatView:Raise(strata, level)
-	if frame and self.popped then
-		SetLevels(strata, level)
-	end
+function ChatView:SetShown(shown)
+	if not frame then return end
+	if not shown then ClosePickers() end
+	frame:SetShown(shown)
 end
 
 local function Build()
 	local host = ns.Panel:GetFrame()
 	if not host then return end
-	frame = CreateFrame("Frame", ns.Globals.frame("Chat"), host, "BackdropTemplate")
-	frame:EnableMouse(true)
+	frame = CreateFrame("Frame", ns.Globals.frame("Chat"), host)
+	frame:SetHeight(ChatView.height)
+	frame:SetFrameLevel(host:GetFrameLevel() + 30) -- the button sits over the rows' edge
+	-- Clicks pass through to the rows and filter icons around the buttons.
+	frame:EnableMouse(false)
 	frame:Hide()
 
-	-- KekChat's header: its name is a red button that drops down the
-	-- ready-made messages and effects (one click sends); pop out on the right.
-	local readyMade = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	readyMade:SetSize(LAYOUT.readyWidth, LAYOUT.readyHeight)
-	-- Centred between the top and the header's rule, as is pop out.
-	local headerMiddle = -(LAYOUT.pad + LAYOUT.header - 4) / 2
-	readyMade:SetPoint("LEFT", frame, "TOPLEFT", LAYOUT.pad, headerMiddle)
-	readyMade:SetText(L.FILTER_CHAT)
-	-- The name in the panel title's font, not the button's small one.
-	readyMade:SetNormalFontObject("GameFontNormalLarge")
-	readyMade:SetHighlightFontObject("GameFontHighlightLarge")
-	readyMade:SetDisabledFontObject("GameFontDisableLarge")
-	readyMade:GetFontString():ClearAllPoints()
-	readyMade:GetFontString():SetPoint("LEFT", 10, 0)
-	readyMade.arrow = readyMade:CreateTexture(nil, "OVERLAY")
-	-- The arrow art sits in the top half of its texture: show only that half.
-	readyMade.arrow:SetTexture("Interface\\Buttons\\Arrow-Down-Up")
-	readyMade.arrow:SetSize(18, 9)
-	readyMade.arrow:SetTexCoord(0, 1, 0, 0.5)
-	readyMade.arrow:SetPoint("RIGHT", -10, 0)
-	readyMade:SetScript("OnClick", function() Toggle("presets", function() FillPresets(false) end) end)
-	readyMade:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip:SetText(L.CHAT_PRESETS)
-		GameTooltip:AddLine(L.CHAT_PRESETS_TIP, 1, 1, 1, true)
-		GameTooltip:Show()
-	end)
-	readyMade:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	local rule = frame:CreateTexture(nil, "ARTWORK")
-	rule:SetHeight(1)
-	rule:SetPoint("TOPLEFT", LAYOUT.pad, -(LAYOUT.pad + LAYOUT.header - 4))
-	rule:SetPoint("TOPRIGHT", -LAYOUT.pad, -(LAYOUT.pad + LAYOUT.header - 4))
-	rule:SetColorTexture(unpack(COLORS.trayLine))
-
-	popButton = CreateFrame("Button", nil, frame)
-	popButton:SetSize(LAYOUT.popSize, LAYOUT.popSize)
-	popButton:SetPoint("RIGHT", frame, "TOPRIGHT", -LAYOUT.pad, headerMiddle)
-	-- Still being made: an ALPHA! stamp in the header, left of pop out.
-	frame.alpha = ns.Look.AlphaStamp(frame, "RIGHT", 0, 0)
-	frame.alpha:ClearAllPoints()
-	frame.alpha:SetPoint("RIGHT", popButton, "LEFT", -6, 0)
-	popButton:SetScript("OnClick", function() ChatView:SetPopped(not ChatView.popped) end)
-	popButton:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip:SetText(ChatView.popped and L.CHAT_DOCK or L.CHAT_POP_OUT)
-		GameTooltip:Show()
-	end)
-	popButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
 	BuildBar()
+	for _, picker in pairs(pickers) do
+		picker:SetFrameStrata("DIALOG") -- over the feed's cards
+	end
 
-	-- The bar sits in a dark tray with a gold line along its top.
-	local tray = frame:CreateTexture(nil, "BACKGROUND", nil, 1)
-	tray:SetPoint("TOPLEFT", bar, "TOPLEFT", -LAYOUT.pad + 2, 6)
-	tray:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
-	tray:SetColorTexture(unpack(COLORS.tray))
-	local trayLine = frame:CreateTexture(nil, "BACKGROUND", nil, 2)
-	trayLine:SetHeight(1)
-	trayLine:SetPoint("BOTTOMLEFT", tray, "TOPLEFT")
-	trayLine:SetPoint("BOTTOMRIGHT", tray, "TOPRIGHT")
-	trayLine:SetColorTexture(unpack(COLORS.trayLine))
-
+	-- Why something did not go, or what just happened: just above the bar.
 	status = frame:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
-	status:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", 0, 6)
-	status:SetPoint("BOTTOMRIGHT", bar, "TOPRIGHT", 0, 6)
+	status:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", 0, LAYOUT.pad + 2)
+	status:SetPoint("BOTTOMRIGHT", bar, "TOPRIGHT", 0, LAYOUT.pad + 2)
 	status:SetJustifyH("LEFT")
 	status:SetHeight(12)
+	status:SetShadowOffset(1, -1)
 
-	scrollBox = CreateFrame("Frame", nil, frame, "WowScrollBoxList")
-	scrollBox:SetPoint("TOPLEFT", LAYOUT.pad, -(LAYOUT.pad + LAYOUT.header))
-	scrollBox:SetPoint("BOTTOMRIGHT", bar, "TOPRIGHT", -14, 22)
-	scrollBar = CreateFrame("EventFrame", nil, frame, "MinimalScrollBar")
-	scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 4, 0)
-	scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 4, 0)
-	local view = CreateScrollBoxListLinearView()
-	view:SetElementExtentCalculator(function(_, data) return RowHeight(data) end)
-	view:SetElementInitializer("Frame", InitRow)
-	view:SetPadding(0, 0, 0, 0, 4)
-	ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
-
-	emptyText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-	emptyText:SetPoint("CENTER", scrollBox, "CENTER")
-	emptyText:SetWidth(220)
-	emptyText:SetText(L.CHAT_EMPTY)
-
-	-- Players coming and going show and hide the drawer (ui\party.lua says
-	-- when, once per change): the popped chat moves with it. Only moves: it
-	-- must not set off another redraw.
-	Bus:On("DRAWER_CHANGED", function()
-		if ChatView.popped then
-			PlacePopped()
-		end
-	end)
-	if ns.charDb.chatPopped then
-		C_Timer.After(0, function() ChatView:SetPopped(true) end)
-	elseif ns.charDb.filter == "chat" then
-		ns.Panel:Refresh() -- the panel drew before the chat existed
-	end
+	ns.Panel:PlaceComposer() -- the panel drew before the bar existed
 end
 
 Bus:On("READY", Build)
-Bus:On("CHAT_CHANGED", Refresh)
+Bus:On("SETTING_CHANGED", function(id)
+	if id == "kekChatCustom" then
+		ChatView:ShowCustom()
+		ns.Panel:PlaceComposer() -- on the line, or in a row of its own
+	end
+end)
+
 Bus:On("CHAT_PRESETS_CHANGED", function()
-	if pickers.presets and pickers.presets:IsShown() then
-		FillPresets()
+	if pickers.saves and pickers.saves:IsShown() then
+		FillPresets(true)
 	end
 end)
 
@@ -1154,7 +803,7 @@ Bus:On("CHAT_EFFECT", function(effect)
 	end
 end)
 
--- A message with an effect arrived (chat.lua): play it where chat is shown.
+-- A message with an effect arrived (chat.lua): play it over the feed.
 Bus:On("CHAT_PLAY", function(message)
 	ChatView:PlayEffect(message)
 end)

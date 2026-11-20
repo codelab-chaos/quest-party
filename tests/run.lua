@@ -1,5 +1,15 @@
 local Harness = dofile("tests/harness.lua")
 local passed, failed = 0, 0
+-- KekChat messages in the feed (data\feed-types.lua, chat), oldest first.
+local function chatRows(w)
+	local rows = {}
+	local feed = w.ns.Store:GetFeed(true)
+	for index = #feed, 1, -1 do
+		if feed[index].type == "chat" then rows[#rows + 1] = feed[index] end
+	end
+	return rows
+end
+
 local function equal(actual, expected)
 	assert(actual == expected, "expected " .. tostring(expected) .. ", got " .. tostring(actual))
 end
@@ -320,7 +330,7 @@ test("kills of one creature add up in one row, and other XP in another", functio
 	local rows = w.ns.ViewModel:Build("xp")
 	equal(rows[2].title, "Kills Wandering Spirit |cffff8c1ax3|r for 243 XP") -- the multiplier in orange
 	-- 1000 - 413 = 587 to go, at 81 a kill.
-	equal(rows[2].summary, "Tester, Lv 20, 8 kills to 21")
+	equal(rows[2].summary, "Lv 20, 8 kills to 21")
 	equal(rows[1].title, "Kills Rotting Ghoul for 70 XP")
 	-- Other XP adds up on its own row.
 	w:advance(20)
@@ -496,7 +506,8 @@ test("a run of skill-ups is one row that climbs and moves to the newest end", fu
 		w.ns.Collectors:Handle("CHAT_MSG_SKILL", ("Your skill in %s has increased to %d."):format(skill, level))
 	end
 	skillUp("Cooking", 19)
-	equal(w.ns.ViewModel:Build("all")[1].summary, "Tester") -- one step: nothing more to say
+	equal(w.ns.ViewModel:Build("all")[1].summary, nil) -- one step: nothing more to say
+	equal(w.ns.ViewModel:Build("all")[1].name, w.ns.ColorName("Tester", w.ns.ViewModel:Build("all")[1].class)) -- who: on hover
 	w.ns.Collectors:Handle("PLAYER_LEVEL_UP", 21)
 	for level = 20, 26 do
 		w:advance(5)
@@ -509,13 +520,13 @@ test("a run of skill-ups is one row that climbs and moves to the newest end", fu
 	equal(feed[1].data.from, 19)
 	local rows = w.ns.ViewModel:Build("all")
 	equal(rows[#rows].title, "Cooking 19 > |cffffd10026|r") -- newest at the bottom
-	equal(rows[#rows].summary, "Tester, 7 skill-ups")
+	equal(rows[#rows].summary, "7 skill-ups")
 	equal(#w.chat, 2) -- announced once in chat, plus the level-up, not once a point
 	skillUp("Herbalism", 62)
 	equal(#w.ns.Store:GetFeed(true), 3) -- another profession is its own row
 	w:advance(5)
 	skillUp("Herbalism", 63)
-	equal(w.ns.ViewModel:Build("professions")[2].summary, "Tester, 1 skill-up")
+	equal(w.ns.ViewModel:Build("professions")[2].summary, "1 skill-up")
 	w:advance(11 * 60)
 	skillUp("Cooking", 27)
 	equal(#w.ns.Store:GetFeed(true), 4) -- long after, a new run
@@ -705,7 +716,7 @@ test("XP gains show current level and percentage remaining without duplicate upd
 	equal(feed[1].data.level, 20)
 	local row = w.ns.ViewModel:Build("xp")[1]
 	equal(row.title, "+150 XP")
-	equal(row.summary, "Tester, Lv 20, 45% to 21")
+	equal(row.summary, "Lv 20, 45% to 21")
 	equal(row.progress.have, 550)
 	equal(row.progress.need, 1000)
 	equal(#w.chat, 1)
@@ -735,7 +746,7 @@ test("XP rollover reads settled level data and includes XP earned before levelin
 	equal(feed[1].data.xp, 250)
 	equal(feed[1].data.level, 21)
 	local rows = w.ns.ViewModel:Build("xp")
-	equal(rows[2].summary, "Tester, Lv 21, 90% to 22")
+	equal(rows[2].summary, "Lv 21, 90% to 22")
 end)
 
 test("saved XP history survives reload without announcing old gains again", function()
@@ -796,10 +807,10 @@ test("multi-level XP updates avoid invented gain totals and capped levels avoid 
 		equal(row ~= nil, true)
 		equal(level ~= nil, true) -- the jump is a level-up too
 		if capped then
-			equal(row.summary, "Tester, Level 22")
+			equal(row.summary, "Level 22")
 			equal(row.progress, nil)
 		else
-			equal(row.summary, "Tester, Lv 22, 88% to 23")
+			equal(row.summary, "Lv 22, 88% to 23")
 		end
 	end
 end)
@@ -837,7 +848,7 @@ test("an XP gain names the kill behind it when the game said, and not otherwise"
 	equal(row.title, "Kills Riverpaw Gnoll for 65 XP")
 	equal(row.progress, nil) -- no bar: it would read as quest progress
 	equal(row.lines[1].progress, nil)
-	equal(row.summary, "Tester, Lv 20, 13 kills to 21") -- 835 left, 65 a kill
+	equal(row.summary, "Lv 20, 13 kills to 21") -- 835 left, 65 a kill
 	w:advance(5)
 	w.xp = 265 -- a quest turn-in: no kill
 	w:event("PLAYER_XP_UPDATE", "player")
@@ -963,6 +974,20 @@ test("replay needs debug mode", function()
 	local w = Harness.new()
 	w.env.SlashCmdList.QUESTPARTY("replay")
 	assert(w.chat[#w.chat]:find(w.ns.L.CMD_DEBUG_REQUIRED, 1, true))
+end)
+
+test("learning a profession is a row of its own, each time; a weapon skill is not", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	w.ns.Collectors:Handle("CHAT_MSG_SKILL", "You have gained the Fishing skill.")
+	w.ns.Collectors:Handle("CHAT_MSG_SKILL", "You have gained the Daggers skill.")
+	local rows = {}
+	for _, row in ipairs(w.ns.ViewModel:Build("all")) do rows[#rows + 1] = row end
+	equal(#rows, 1)
+	equal(rows[1].title, "Learned |cffffd100Fishing|r!")
+	equal(rows[1].mark, "skill")
+	equal(rows[1].markIcon, "Interface\\Icons\\Trade_Fishing")
+	equal(rows[1].stampKey ~= nil, true) -- a card to stamp
 end)
 
 test("only profession skill-ups are reported, not weapon skills or Defense", function()
@@ -1559,14 +1584,14 @@ test("kills that finish an objective fold into its Done row, other kills stay", 
 		if row.title:find("Wiry Swoop", 1, true) then swoop = row end
 	end
 	equal(tanners, nil) -- folded into the Done row
-	equal(done.summary, "Friend, +8 kills, +440 XP")
+	equal(done.summary, "+8 kills, +440 XP")
 	equal(swoop ~= nil, true) -- no quest of its own: stays
 	equal(w.ns.Stats:Total("Friend").kills, 9) -- every kill still counted
 	-- A collection: the creature that drops it folds in too.
 	w:ingest("xp", { xp = 51, mob = "Prairie Wolf", level = 7, currentXP = 211, maxXP = 2000 }, "Friend")
 	w:ingest("quest_progress", { questID = 5, quest = "Poison Water", objective = "Prairie Wolf Paw", have = 6, need = 6 }, "Friend")
 	for _, row in ipairs(w.ns.ViewModel:Build("all")) do
-		if row.title:find("Prairie Wolf Paw", 1, true) then equal(row.summary, "Friend, +1 kill, +51 XP") end
+		if row.title:find("Prairie Wolf Paw", 1, true) then equal(row.summary, "+1 kill, +51 XP") end
 		assert(not row.title:find("Kills Prairie Wolf", 1, true), "the wolf run folded in")
 	end
 end)
@@ -1688,7 +1713,7 @@ test("stamps: eight words, each with an emblem; one since retired is left off th
 	local tallies = S:Tally("Friend~level~12")
 	equal(#tallies, 1)
 	equal(tallies[1].id, "gg")
-	-- Nor does it hold anyone's two per card: Ann may still stamp it.
+	-- Nor does it count toward anyone's stamps per card: Ann may still stamp it.
 	table.insert(S:For("Friend~level~12"), { id = "m_star", from = "Ann", time = w.now })
 	equal(S:May("Friend~level~12", "Ann", "nice"), true)
 	-- And it is cleared from what is kept.
@@ -1727,12 +1752,55 @@ test("a stamp's impact is one of KekChat's effects and sounds at random, made sm
 	end
 end)
 
-test("stamps: a card is named the same on every client, two per player, and travels", function()
+test("each death is its own card for stamps, named by when it happened, the same on every client", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	w.ns.Collectors:Handle("PLAYER_DEAD")
+	w:advance(30)
+	w.ns.Collectors:Handle("PLAYER_DEAD") -- same zone, same level
+	local keys = {}
+	for _, entry in ipairs(w.ns.Store:GetFeed(true)) do
+		if entry.type == "death" then keys[#keys + 1] = w.ns.Stamping:KeyFor(entry) end
+	end
+	equal(#keys, 2)
+	assert(keys[1] ~= keys[2], "two deaths, two cards")
+	-- The moment travels with it: a friend names it the same way.
+	local sent
+	for _, message in ipairs(w.sent) do
+		if message.text:find("t=death", 1, true) then sent = message.text end
+	end
+	local _, fields = w.ns.Protocol.Decode(sent)
+	equal(type(fields.w), "number")
+	local friend = Harness.new({ switches = { chatEcho = false } })
+	friend:share()
+	friend:event("CHAT_MSG_ADDON", "QuestParty", sent, "CHANNEL", "Tester-TestRealm", "", 0, 5, "QuestFriends")
+	local theirs
+	for _, entry in ipairs(friend.ns.Store:GetFeed(true)) do
+		if entry.type == "death" then theirs = friend.ns.Stamping:KeyFor(entry) end
+	end
+	equal(theirs, keys[1])
+end)
+
+test("a quest picked up, dropped and picked up again is a new card each time; a kill run keeps one", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	local S = w.ns.Stamping
+	local function key(kind, data) return S:KeyFor({ type = kind, player = "Friend", data = data }) end
+	local first = key("quest_accepted", { quest = "Rite of Vision", w = 1000 })
+	local dropped = key("quest_abandoned", { quest = "Rite of Vision", w = 1100 })
+	local again = key("quest_accepted", { quest = "Rite of Vision", w = 1200 })
+	assert(first ~= again, "picked up again: its own card")
+	assert(dropped ~= first and dropped ~= again, "the drop is its own card")
+	-- A kill run that grows keeps its name, and so its stamps.
+	equal(key("xp", { mob = "Kobold", level = 9, xp = 50, w = 1000 }), key("xp", { mob = "Kobold", level = 9, xp = 120, w = 1300 }))
+end)
+
+test("stamps: a card is named the same on every client, five per player, and travels", function()
 	local w = Harness.new({ switches = { chatEcho = false } })
 	w:share()
 	local S = w.ns.Stamping
 	local entry = { type = "quest_complete", player = "Friend", data = { quest = "The Venture Co.", xp = 700 } }
-	equal(S:KeyFor(entry), "Friend~quest_complete~The Venture Co.")
+	equal(S:KeyFor(entry), "Friend~quest_complete~The Venture Co.~") -- no w on this hand-made entry
 	equal(S:KeyFor({ type = "xp", player = "Friend", data = { xp = 5, mob = "Kobold", level = 9 } }), "Friend~xp~Kobold~9") -- every card can be stamped
 	equal(S:KeyFor({ type = "joined", player = "Friend", data = {} }), "Friend~joined")
 	-- Yours: on the card at once, and out on the channel.
@@ -1744,46 +1812,53 @@ test("stamps: a card is named the same on every client, two per player, and trav
 	end
 	equal(text ~= nil, true)
 	equal(S:For(S:KeyFor(entry))[1].id, "gg")
-	-- A second, different stamp from you is added: two each.
-	S:Send(entry, "legend")
-	equal(#S:For(S:KeyFor(entry)), 2)
-	-- Then you are done with this card: a third is refused and not sent, and
-	-- so is the same one again. The first two stay.
+	-- More different stamps from you are added, up to perPlayer each.
+	local per = w.ns.StampRules.perPlayer
+	equal(per, 5)
+	local yours = { "gg", "legend", "nice", "wow", "lol" }
+	for index = 2, per do
+		w:advance(30) -- past the spam limit
+		equal(S:Send(entry, yours[index]), true)
+	end
+	equal(#S:For(S:KeyFor(entry)), per)
+	-- Then you are done with this card: another is refused and not sent, and
+	-- so is the same one again. Yours stay.
+	w:advance(30)
 	local sentBefore = #w.sent
-	local ok, why = S:Send(entry, "nice")
+	local ok, why = S:Send(entry, "oof")
 	equal(ok, false)
 	equal(why, w.ns.L.STAMP_DONE)
 	equal(S:Send(entry, "legend"), false)
 	equal(#w.sent, sentBefore)
 	local mine = {}
 	for _, stamp in ipairs(S:For(S:KeyFor(entry))) do mine[#mine + 1] = stamp.id end
-	equal(table.concat(mine, ","), "gg,legend")
+	equal(table.concat(mine, ","), table.concat(yours, ","))
 	equal(S:May(S:KeyFor(entry), w.ns.MyName()), false)
 	-- The feed row carries them, so the panel can draw them.
 	local row
 	for _, built in ipairs(w.ns.ViewModel:Build("all")) do
 		if built.stampKey then row = built end
 	end
-	equal(row.stamps[#row.stamps].id, "legend") -- the newest last
+	equal(row.stamps[#row.stamps].id, "lol") -- the newest last
 	-- From the channel: a friend's stamp lands; a muted player's and an
 	-- unknown stamp do not.
 	w:hear("T", { k = S:KeyFor(entry), s = "gratz" }, "Buddy")
-	equal(#S:For(S:KeyFor(entry)), 3) -- your two and Buddy's
-	-- A client that sends past the rule: only Buddy's first two show here.
-	w:advance(30) -- past the spam timeout
-	w:hear("T", { k = S:KeyFor(entry), s = "gratz" }, "Buddy") -- the same again
-	w:hear("T", { k = S:KeyFor(entry), s = "lol" }, "Buddy")
-	w:advance(30)
-	w:hear("T", { k = S:KeyFor(entry), s = "oof" }, "Buddy") -- a third
+	equal(#S:For(S:KeyFor(entry)), per + 1) -- yours and Buddy's
+	-- A client that sends past the rule: only Buddy's first five show here.
+	local theirs = { "gratz", "gratz", "lol", "oof", "rip", "gg", "nice" } -- one again, then six different
+	for index = 2, #theirs do
+		w:advance(30) -- past the spam timeout
+		w:hear("T", { k = S:KeyFor(entry), s = theirs[index] }, "Buddy")
+	end
 	local buddy = {}
 	for _, stamp in ipairs(S:For(S:KeyFor(entry))) do
 		if stamp.from == "Buddy" then buddy[#buddy + 1] = stamp.id end
 	end
-	equal(table.concat(buddy, ","), "gratz,lol")
+	equal(table.concat(buddy, ","), "gratz,lol,oof,rip,gg")
 	w.ns.Chat:ToggleMute("Pest")
 	w:hear("T", { k = S:KeyFor(entry), s = "gratz" }, "Pest")
 	w:hear("T", { k = S:KeyFor(entry), s = "typed words" }, "Buddy")
-	equal(#S:For(S:KeyFor(entry)), 4)
+	equal(#S:For(S:KeyFor(entry)), 2 * per) -- your five and Buddy's five
 	-- A stamp for a card not here yet is kept, and shows when the card comes.
 	w:hear("T", { k = "Other~level~12", s = "gg" }, "Buddy")
 	w:ingest("level", { level = 12 }, "Other")
@@ -1839,6 +1914,23 @@ test("backdrops rotate among the ones the game has, each card its own slice, nev
 	l, r, t, b = S:Slice({ 0, 1, 0, 1 }, 512, 512, 280, 35, 0)
 	equal(l, 0) equal(r, 1)
 	assert(math.abs((b - t) - 0.125) < 1e-9 and math.abs(t - 0.4375) < 1e-9, "a middle band")
+end)
+
+test("health and power drawn live from the game: you and your game group have a unit, friends elsewhere do not", function()
+	local w = Harness.new()
+	w.env.GetNumGroupMembers = function() return 1 end
+	w.env.IsInRaid = function() return false end
+	w.env.UnitExists = function(unit) return unit == "party1" or unit == "player" end
+	local realName = w.env.UnitName
+	w.env.UnitName = function(unit)
+		if unit == "party1" then return "Buddy" end
+		return realName(unit)
+	end
+	w.ns.Group:Refresh()
+	equal(w.ns.Group:Unit(w.ns.MyName()), "player")
+	equal(w.ns.Group:Unit("Buddy"), "party1")
+	equal(w.ns.Group:Unit("Faraway"), nil)
+	equal(w.ns.Group:Has("Buddy"), true)
 end)
 
 test("vitals: health and power in 5% steps, and a sliver still shows", function()
@@ -2548,7 +2640,7 @@ test("every message is sent once and counted, whatever the game answers: the cha
 	w:advance(5)
 	equal(#w.sent, before) -- never sent again
 	equal(w.ns.Sharing.sent, sent + 1) -- counted as sent
-	equal(#w.ns.Chat:Messages(), 1) -- and back on the channel, read as yours
+	equal(#chatRows(w), 1) -- and back on the channel, read as yours
 	-- What comes after it goes out too: nothing waits behind it.
 	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 368, "Discovered: Red Cloud Mesa")
 	local kinds = {}
@@ -2572,6 +2664,65 @@ test("nothing is sent while there is no channel", function()
 	w.ns.Bus:Fire("ENTRY_OUTGOING", { type = "level", data = { level = 21 } })
 	equal(#w.sent, 0)
 	equal(w.ns.Sharing:Status(), w.ns.L.SHARE_STATUS_OFF)
+end)
+
+test("location: every update says where it happened, and each player's last known spot is kept", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	local spot = { 0.5234, 0.3011 }
+	w.env.C_Map = {
+		GetBestMapForUnit = function() return 1413 end,
+		GetPlayerMapPosition = function() return { GetXY = function() return spot[1], spot[2] end } end,
+		GetMapInfo = function(map) return map == 1413 and { name = "The Barrens" } or nil end,
+	}
+	w:share()
+	-- The hello says where you are.
+	local hello = sentOfKind(w, "H")
+	equal(hello[#hello].fields.wm, 1413)
+	equal(hello[#hello].fields.wx, 523)
+	equal(hello[#hello].fields.wy, 301)
+	-- An update says where it happened, and its row keeps it.
+	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 368, "Discovered: Red Cloud Mesa")
+	local sent = sentOfKind(w, "E")
+	equal(sent[#sent].fields.wm, 1413)
+	local row
+	for _, entry in ipairs(w.ns.Store:GetFeed(true)) do
+		if entry.type == "discovery" then row = entry end
+	end
+	equal(w.ns.Location.Describe(w.ns.Location.Read(row.data)), "The Barrens (52, 30)")
+	-- A friend's update moves their spot; in a dungeon there is a map, no spot.
+	w:hear("E", { t = "death", zone = "The Barrens", level = 13, wm = 1413, wx = 610, wy = 220 }, "Friend")
+	local friend
+	for _, member in ipairs(w.ns.Store:GetMembers()) do
+		if member.name == "Friend" then friend = member end
+	end
+	equal(friend.where.m, 1413)
+	equal(friend.where.x, 0.61)
+	equal(w.ns.Location.Read({ wm = 1413 }).x, nil)
+	equal(w.ns.Location.Read({ wm = "evil" }), nil)
+	equal(w.ns.Location.Read({ wm = 1413, wx = 5000, wy = 1 }).x, nil) -- off the map: no spot
+	-- Pretend players say nothing of where: they are not where you are.
+	w.ns.Sharing:SendVirtual({ name = "Pretend", class = "MAGE" }, "discovery", { zone = "Elsewhere" })
+	sent = sentOfKind(w, "E")
+	equal(sent[#sent].fields.wm, nil)
+end)
+
+test("recent channels: the last five used, newest first, one click to switch back", function()
+	local w = Harness.new()
+	local session = w.ns.Session
+	equal(session:Connect("QuestFriends"), true)
+	equal(#session:RecentChannels(), 0) -- the one you are on is not offered
+	equal(session:SwitchTo("OtherCrew"), true) -- leaves QuestFriends first
+	equal(w.ns.db.connection.name, "OtherCrew")
+	equal(table.concat(session:RecentChannels(), ","), "QuestFriends")
+	session:SwitchTo("questfriends") -- the same channel, any case
+	equal(table.concat(w.ns.db.recentChannels, ","), "questfriends,OtherCrew")
+	for _, name in ipairs({ "A1", "B2", "C3", "D4" }) do session:SwitchTo(name) end
+	equal(#w.ns.db.recentChannels, 5)
+	equal(w.ns.db.recentChannels[1], "D4")
+	equal(w.ns.db.recentChannels[5], "questfriends") -- OtherCrew, the oldest past five, is dropped
+	session:Forget("B2")
+	equal(#w.ns.db.recentChannels, 4)
+	equal(Harness.new(w.ns.db).ns.db.recentChannels[1], "D4") -- kept across a reload
 end)
 
 test("connecting says hello to the channel once, even when its number changes", function()
@@ -2674,7 +2825,7 @@ test("a type this version does not know shows as a generic card with the sender'
 	equal(feed[1].data.kind, "pet_battle_won")
 	local row = w.ns.ViewModel:Build("all")[1]
 	equal(row.title, "Won a pet battle against Squirrel")
-	equal(row.summary, "Newer Friend")
+	equal(row.summary, nil) -- who it was is on hover (name)
 	equal(#w.ns.ViewModel:Build("xp"), 0) -- the All tab only
 	w.ns.SetEnabled("otherUpdates", false)
 	equal(#w.ns.Store:GetFeed(true), 0) -- and it has a switch
@@ -2907,17 +3058,71 @@ test("images, a saying and an effect go out as one short message, and show once 
 	equal(sent[1].fields.i3, 134073) -- three at most
 	equal(sent[1].fields.k, "gz")
 	equal(sent[1].fields.e, "fireworks")
-	equal(#w.ns.Chat:Messages(), 0) -- not until the channel sends it back
+	equal(type(sent[1].fields.w), "number") -- when it was said: each message its own card
+	equal(#chatRows(w), 0) -- not until the channel sends it back
 	w:event("CHAT_MSG_ADDON", "QuestParty", sent[1].message.text, "CHANNEL", "Tester-TestRealm", "", 0, 5, "QuestFriends")
-	equal(#w.ns.Chat:Messages(), 1)
-	local message = w.ns.Chat:Messages()[1]
+	equal(#chatRows(w), 1)
+	local message = chatRows(w)[1]
 	equal(message.player, "Tester")
-	equal(#message.icons, 3)
-	equal(message.saying, "gz")
-	equal(message.effect, "fireworks")
-	equal(message.fresh, true) -- pops in when first drawn
+	equal(#message.data.icons, 3)
+	equal(message.data.saying, "gz")
+	equal(message.data.effect, "fireworks")
+	equal(message.time, sent[1].fields.w)
 	equal(w.ns.Chat:Send({ 134071 }, nil), true) -- an image alone
 	equal(w.ns.Chat:Send({}, "hi"), true) -- a saying alone
+end)
+
+test("a KekChat message is a distinct feed row: its images and saying, its own card to stamp", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	w:hear("S", { i = 133000, i2 = 133001, k = "gz", w = 5000 }, "Friend")
+	w:hear("S", { i = 133000, i2 = 133001, k = "gz", w = 5003 }, "Friend") -- the same again
+	local rows = {}
+	for _, row in ipairs(w.ns.ViewModel:Build("all")) do
+		if row.mark == "chat" then rows[#rows + 1] = row end
+	end
+	equal(#rows, 2) -- never folded together
+	equal(rows[1].title, "|T133001:0|t |cffffffffGratz!|r") -- the first image is the square
+	equal(rows[1].markIcon, 133000)
+	assert(rows[1].stampKey and rows[2].stampKey and rows[1].stampKey ~= rows[2].stampKey, "each its own card")
+	-- The filter row's KekChat icon hides them from your feed.
+	w.ns.charDb.hidden.chat = true
+	for _, row in ipairs(w.ns.ViewModel:Build("all")) do
+		assert(row.mark ~= "chat", "hidden by the filter row")
+	end
+end)
+
+test("a KekChat effect plays over the feed when the message lands", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	local played = {}
+	w.ns.Bus:On("CHAT_PLAY", function(message) played[#played + 1] = message end)
+	w:share()
+	w:hear("S", { i = 133000, e = "fireworks" }, "Friend")
+	equal(#played, 1)
+	equal(played[1].effect, "fireworks")
+	equal(played[1].icons[1], 133000)
+end)
+
+test("KekChat's old list moves into the feed at its times, and goes", function()
+	local w = Harness.new({
+		feed = {
+			{ type = "death", player = "Friend", time = 3000, data = { zone = "The Barrens", level = 13 } },
+			{ type = "death", player = "Friend", time = 1000, data = { zone = "Durotar", level = 5 } },
+		},
+		chat = {
+			{ player = "Friend", class = "MAGE", icons = { 133000 }, saying = "gz", time = 2000 },
+			{ system = true, player = "Spammer", text = "timed out", time = 2100 },
+			{ player = "Friend", kind = "board", id = "hi", icons = {}, time = 2500 }, -- an older shape
+		},
+	})
+	equal(w.ns.db.chat, nil)
+	local order = {}
+	local feed = w.ns.Store:GetFeed(true)
+	for index = #feed, 1, -1 do order[#order + 1] = feed[index].type .. "@" .. feed[index].time end
+	equal(table.concat(order, " "), "death@1000 chat@2000 chat@2500 death@3000")
+	equal(feed[2].data.saying, "hi")
+	equal(feed[3].data.icons[1], 133000)
+	equal(feed[3].data.w, 2000) -- named by its moment, like a new one
 end)
 
 test("what friends send is only ever an image number and a known saying", function()
@@ -2931,13 +3136,13 @@ test("what friends send is only ever an image number and a known saying", functi
 	w:hear("D", { i = 133002 }, "Friend") -- kinds from earlier builds are not read
 	w:hear("T", { x = "free text" }, "Friend")
 	w:hear("S", { i = 133003, e = "|cffevil" }, "Friend") -- not an effect: the image alone
-	local messages = w.ns.Chat:VisibleMessages()
+	local messages = chatRows(w)
 	equal(#messages, 3)
-	equal(messages[1].saying, "ty")
+	equal(messages[1].data.saying, "ty")
 	equal(messages[1].class, "MAGE")
-	equal(messages[2].icons[1], 133001)
-	equal(messages[2].saying, nil)
-	equal(messages[3].effect, nil)
+	equal(messages[2].data.icons[1], 133001)
+	equal(messages[2].data.saying, nil)
+	equal(messages[3].data.effect, nil)
 end)
 
 test("a saying with an effect does it on every screen", function()
@@ -2956,28 +3161,24 @@ test("a spammer is timed out here: hidden for a while, with one notice, longer e
 	for _ = 1, rules.burst + 3 do
 		w:hear("S", { k = "lol" }, "Spammer")
 	end
-	local shown, notices = 0, 0
-	for _, message in ipairs(w.ns.Chat:Messages()) do
-		if message.system then notices = notices + 1 else shown = shown + 1 end
+	equal(#chatRows(w), rules.burst)
+	local notices = 0
+	for _, line in ipairs(w.chat) do
+		if line:find("Spammer", 1, true) then notices = notices + 1 end
 	end
-	equal(shown, rules.burst)
-	equal(notices, 1) -- said once, not for every dropped message
+	equal(notices, 1) -- said once, here only, not for every dropped message
 	equal(w.ns.Chat:TimeoutLeft("Spammer"), rules.timeoutSeconds)
 	w:advance(rules.burstSeconds) -- the burst has passed, but the timeout has not
 	w:hear("S", { k = "lol" }, "Spammer")
-	equal(#w.ns.Chat:Messages(), rules.burst + 1)
+	equal(#chatRows(w), rules.burst)
 	w:advance(rules.timeoutSeconds)
 	w:hear("S", { k = "hi" }, "Spammer") -- served their time
-	equal(#w.ns.Chat:Messages(), rules.burst + 2)
+	equal(#chatRows(w), rules.burst + 1)
 	for _ = 1, rules.burst do
 		w:hear("S", { k = "lol" }, "Spammer")
 	end
 	equal(w.ns.Chat:TimeoutLeft("Spammer"), rules.timeoutSeconds * 2) -- again soon: doubled
 	equal(w.ns.Chat:TimeoutLeft("Friend"), 0) -- others are not affected
-	local again = Harness.new(w.ns.db)
-	for _, message in ipairs(again.ns.Chat:Messages()) do
-		equal(message.system, nil) -- notices are not kept across a reload
-	end
 end)
 
 test("your own chat times out too: past the burst nothing goes out until the time is up", function()
@@ -3034,16 +3235,16 @@ test("muting: a muted player's messages and effects do not show, and the ignore 
 	w:share()
 	w:hear("S", { k = "hi" }, "Friend")
 	equal(w.ns.Chat:ToggleMute("Friend"), true)
-	equal(#w.ns.Chat:VisibleMessages(), 0) -- what they said before is hidden too
+	equal(#chatRows(w), 0) -- what they said before is hidden too
 	w:hear("S", { k = "cheer" }, "Friend")
 	w:hear("S", { i = 133000 }, "Friend")
 	equal(effects, 0)
 	equal(w.ns.Chat:ToggleMute("Friend"), false)
-	equal(#w.ns.Chat:VisibleMessages(), 1)
+	equal(#chatRows(w), 1)
 	equal(w.ns.Chat:ToggleMute("Tester"), false) -- not yourself
 	w.env.C_FriendList = { IsIgnored = function(name) return name == "Troll" end }
 	w:hear("S", { k = "hi" }, "Troll")
-	equal(#w.ns.Chat:VisibleMessages(), 1)
+	equal(#chatRows(w), 1)
 	equal(w.ns.Chat:IsMuted("Troll"), true)
 end)
 
@@ -3065,23 +3266,109 @@ test("typing a word suggests sayings and images for it; the word itself is never
 	equal(#w.sent, before)
 end)
 
-test("effect presets (the KekChat list): preset effects, empty and worded, sent in one click", function()
+test("every effect has a button icon of its own: no two alike in the grid", function()
+	local w = Harness.new()
+	local seen = {}
+	for _, preset in ipairs(w.ns.EffectPresets) do
+		assert(type(preset.icon) == "string", preset.id .. " has its own icon")
+		assert(not seen[preset.icon], preset.id .. " shares its icon with " .. tostring(seen[preset.icon]))
+		seen[preset.icon] = preset.id
+	end
+end)
+
+test("an effect played on a card: everyone sees it over that card, and it leaves no row and no stamp", function()
 	local w = Harness.new({ switches = { chatEcho = false } })
 	w.env.GetFileIDFromPath = function(path) return #path * 10 end
 	local presets = w.ns.Chat:EffectPresets()
 	equal(#presets, #w.ns.EffectPresets)
-	local empty, worded
-	for _, preset in ipairs(presets) do
-		if preset.saying then worded = worded or preset else empty = empty or preset end
-	end
-	assert(empty and worded, "both kinds are there")
-	equal(w.ns.Chat:SendEffectPreset(worded.id), false) -- no channel yet
+	local worded
+	for _, preset in ipairs(presets) do worded = worded or (preset.saying and preset) end
+	local played = {}
+	w.ns.Bus:On("CARD_EFFECT", function(key, id, sender) played[#played + 1] = key .. "|" .. id .. "|" .. sender end)
+	local entry = { type = "death", player = "Friend", data = { zone = "The Barrens", level = 13, w = 900 } }
+	equal(w.ns.Stamping:SendEffect(entry, worded.id), false) -- no channel yet
 	w:share()
-	equal(w.ns.Chat:SendEffectPreset(worded.id), true)
-	local sent = sentOfKind(w, "S")
-	equal(sent[1].fields.e, worded.effect)
-	equal(sent[1].fields.k, worded.saying)
-	equal(w.ns.Chat:SendEffectPreset("nope"), false)
+	local feedBefore = #w.ns.Store:GetFeed(true)
+	equal(w.ns.Stamping:SendEffect(entry, worded.id), true)
+	local sent = sentOfKind(w, "T")
+	equal(sent[#sent].fields.e, worded.id)
+	equal(sent[#sent].fields.s, nil) -- not a stamp
+	local key = w.ns.Stamping:KeyFor(entry)
+	equal(played[1], key .. "|" .. worded.id .. "|Tester") -- yours plays when it comes back
+	equal(#w.ns.Store:GetFeed(true), feedBefore) -- no row
+	equal(#(w.ns.Stamping:For(key) or {}), 0) -- no stamp
+	w:hear("T", { k = key, e = worded.id }, "Friend")
+	equal(#played, 2)
+	w:hear("T", { k = key, e = "nope" }, "Friend") -- not an effect: nothing
+	w.ns.Chat:ToggleMute("Friend")
+	w:hear("T", { k = key, e = worded.id }, "Friend") -- muted: nothing
+	equal(#played, 2)
+	equal(w.ns.Stamping:SendEffect(entry, "nope"), false)
+	-- From KekChat's list: no card, so it goes under the feed's key and plays
+	-- over the feed, still leaving no row.
+	w.ns.Chat:ToggleMute("Friend")
+	w:advance(60)
+	equal(w.ns.Stamping:SendFeedEffect(worded.id), true)
+	equal(played[#played], w.ns.Stamping.FEED_KEY .. "|" .. worded.id .. "|Tester")
+	equal(#w.ns.Store:GetFeed(true), feedBefore)
+end)
+
+test("every effect fills a big window, and is as tuned in a small one", function()
+	local w = Harness.new()
+	local P = w.ns.Particles
+	local seed = 11
+	local function random() seed = (seed * 1103515245 + 12345) % 2147483648 return seed / 2147483648 end
+	local small = w.ns.ChatEffectById.rain
+	equal(P.Fit(small, 240, 150), small) -- a stamp's box: untouched
+	local width, height = 400, 640
+	-- How far each spreads over its life: lowest point, highest, widest from the middle.
+	local function Run(id)
+		local list = P.Spawn(w.ns.ChatEffectById[id], { 11 }, width, height, random)
+		local low, high, wide = -math.huge, math.huge, 0
+		for _ = 1, 400 do
+			P.Step(list, 0.02, height, random)
+			for _, particle in ipairs(list) do
+				if particle.age and particle.age > 0 and not particle.fuse then
+					low, high = math.max(low, particle.y), math.min(high, particle.y)
+					wide = math.max(wide, math.abs(particle.x - width / 2))
+				end
+			end
+		end
+		return low, high, wide
+	end
+	local low = Run("rain")
+	assert(low >= 0.85 * height, "rain falls the whole way: " .. low)
+	local _, high = Run("fireworks")
+	assert(high <= 0.5 * height, "fireworks pop high up: " .. high)
+	local _, _, wide = Run("celebrate")
+	assert(wide >= 0.35 * width, "a burst spreads wide: " .. wide)
+	_, _, wide = Run("swirl")
+	assert(wide >= 0.3 * width, "a swirl spreads wide: " .. wide)
+	local fit = P.Fit(w.ns.ChatEffectById.celebrate, width, height)
+	assert(fit.count > w.ns.ChatEffectById.celebrate.count, "more of them in more room")
+end)
+
+test("the fountain is launched to reach the top of whatever it plays over, and stays inside it", function()
+	local w = Harness.new()
+	local seed = 7
+	local function random() seed = (seed * 1103515245 + 12345) % 2147483648 return seed / 2147483648 end
+	for _, size in ipairs({ { 300, 160 }, { 380, 620 } }) do
+		local width, height = size[1], size[2]
+		local list = w.ns.Particles.Spawn(w.ns.ChatEffectById.fountain, { 11 }, width, height, random)
+		local top, left, right = math.huge, math.huge, -math.huge
+		for _ = 1, 200 do
+			w.ns.Particles.Step(list, 0.02, height, random)
+			for _, particle in ipairs(list) do
+				if particle.age and particle.age > 0 then
+					top = math.min(top, particle.y)
+					left, right = math.min(left, particle.x), math.max(right, particle.x)
+				end
+			end
+		end
+		assert(top <= 0.25 * height, ("reaches near the top of %d: peaked at %d"):format(height, top))
+		assert(top >= -0.05 * height, "not far past it")
+		assert(left >= 0 and right <= width, "inside the area")
+	end
 end)
 
 test("a worded effect turns some of its particles into its words, rockets included", function()

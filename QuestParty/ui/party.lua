@@ -52,7 +52,12 @@ local LAYOUT = {
 	classIconSize = 14,
 	crestSize = 56,
 	crestRight = 26, -- clear of the close button
-	headerHeight = 70, -- the portrait and its padding
+	headerHeight = 84, -- the portrait and its padding, and health and power under the name
+	cardHealth = 13, -- the card's health bar, its numbers on it
+	cardPower = 11,
+	headBar = 4, -- each of the bars beside a head: health, then power
+	headBarGap = 1,
+	headBarHeight = 0.8, -- of the head's size
 	tabHeight = 22,
 	tabGap = 4,
 	areaPad = 5,
@@ -176,10 +181,9 @@ local function SlideStep(button, elapsed)
 end
 
 -- Whether the selected head is the card's portrait: a card is open and sits
--- beside the drawer (not beside the popped-out chat).
+-- beside the drawer.
 function Party:HeadIsPortrait()
 	return self.selected ~= nil and card ~= nil and (card:IsShown() or self.opening == true)
-		and not (ns.ChatView and ns.ChatView:IsPopped())
 end
 
 -- Where the selected head sits as the card's portrait: almost all on the
@@ -223,6 +227,11 @@ local function CreateHead()
 	Round(button.ring, button)
 	button.portrait = button:CreateTexture(nil, "ARTWORK")
 	Round(button.portrait, button)
+	-- Health and power, upright, just right of the head (DrawHead).
+	button.health = ns.Look.VitalsBar(button, true)
+	button.health:SetPoint("LEFT", button, "RIGHT", LAYOUT.headBarGap, 0)
+	button.power = ns.Look.VitalsBar(button, true)
+	button.power:SetPoint("LEFT", button.health, "RIGHT", LAYOUT.headBarGap, 0)
 	button:RegisterForClicks("LeftButtonUp")
 	button:SetScript("OnClick", function(self)
 		if self.data then
@@ -273,6 +282,19 @@ local function DrawHead(button, data, size, top)
 	button.portrait:SetPoint("TOPLEFT", ring, -ring)
 	button.portrait:SetPoint("BOTTOMRIGHT", -ring, ring)
 	SetPortrait(button.portrait, data)
+	-- Health and power beside it (the Bars beside heads switch): live for you
+	-- and your game group, else what they sent, else none. Not on the card's
+	-- portrait, which has its own.
+	local unit = data.here and ns.Group:Unit(data.name) or nil
+	local peer = not ns.IsMe(data.name) and ns.Session.peers[data.name] or nil
+	local sent = ns.IsMe(data.name) and ns.VitalsCollector and ns.VitalsCollector.reading or (peer and peer.vitals)
+	local barHeight = math.floor(size * LAYOUT.headBarHeight + 0.5)
+	button.health:SetSize(LAYOUT.headBar, barHeight)
+	button.power:SetSize(LAYOUT.headBar, barHeight)
+	local bars = not isPortrait and data.here and ns.IsEnabled("showVitals") and ns.IsEnabled("headVitals")
+		and (unit or sent) and ns.Look.DrawVitals(button.health, button.power, unit, sent) or false
+	button.health:SetShown(bars)
+	button.power:SetShown(bars)
 	-- In color only when selected.
 	button.portrait:SetDesaturated(data.name ~= Party.selected)
 	if data.name == Party.selected then
@@ -287,6 +309,13 @@ local function DrawHead(button, data, size, top)
 		end
 	end
 	button:Show()
+end
+
+-- The drawer: as wide as a resting head shows, and its bars beside it when
+-- Bars beside heads is on, so the card meets the heads' edge.
+local function SizeDrawer()
+	local bars = (ns.IsEnabled("showVitals") and ns.IsEnabled("headVitals")) and (2 * (LAYOUT.headBar + LAYOUT.headBarGap) + 1) or 0
+	strip:SetWidth(2 * LAYOUT.dockOverlap + math.ceil(LAYOUT.headMax * LAYOUT.peek) + bars)
 end
 
 local function DrawHeads(list)
@@ -465,21 +494,20 @@ local function BuildHeader()
 	card.classIcon:SetTexture("Interface\\TargetingFrame\\UI-Classes-Circles")
 	card.sub = card:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	card.sub:SetPoint("LEFT", card.classIcon, "RIGHT", 5, 0)
-	-- Health and power, for a player here now (DrawHeader).
-	local function Thin(height, below, offset)
-		local bar = CreateFrame("StatusBar", nil, card)
+	-- Health and power, for a player here now (DrawHeader): across, with
+	-- their numbers on them.
+	local function Across(height, below, offset)
+		local bar = ns.Look.VitalsBar(card)
 		bar:SetPoint("TOPLEFT", below, "BOTTOMLEFT", 0, offset)
 		bar:SetPoint("RIGHT", card, "RIGHT", -LAYOUT.crestRight - 30, 0)
 		bar:SetHeight(height)
-		bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-		bar:SetMinMaxValues(0, 100)
-		local back = bar:CreateTexture(nil, "BACKGROUND")
-		back:SetAllPoints()
-		back:SetColorTexture(0, 0, 0, 0.6)
+		bar.text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		bar.text:SetPoint("CENTER", 0, 0)
+		bar.text:SetShadowOffset(1, -1)
 		return bar
 	end
-	card.health = Thin(5, card.classIcon, -5)
-	card.power = Thin(3, card.health, -1)
+	card.health = Across(LAYOUT.cardHealth, card.classIcon, -5)
+	card.power = Across(LAYOUT.cardPower, card.health, -1)
 
 	local close = CreateFrame("Button", nil, card, "UIPanelCloseButton")
 	close:SetPoint("TOPRIGHT", 2, 2)
@@ -758,14 +786,10 @@ local function DrawHeader(data)
 			vitals = peer and peer.vitals
 		end
 	end
-	card.health:SetShown(vitals ~= nil)
-	card.power:SetShown(vitals ~= nil)
-	if vitals then
-		card.health:SetValue(vitals.h)
-		card.health:SetStatusBarColor(unpack(ns.HealthColor))
-		card.power:SetValue(vitals.p or 0)
-		card.power:SetStatusBarColor(unpack(ns.PowerColors[vitals.t] or ns.PowerColors.MANA))
-	end
+	local unit = data.here and ns.IsEnabled("showVitals") and ns.Group:Unit(data.name) or nil
+	local shown = (unit or vitals) and ns.Look.DrawVitals(card.health, card.power, unit, vitals) or false
+	card.health:SetShown(shown)
+	card.power:SetShown(shown)
 end
 
 -- An item's name in its quality's color.
@@ -951,8 +975,7 @@ local function Build()
 	-- The drawer: framed like the panel and tucked under its right edge.
 	strip = CreateFrame("Frame", nil, host, "BackdropTemplate")
 	strip:SetPoint("TOPLEFT", host, "TOPRIGHT", -LAYOUT.dockOverlap, 0)
-	-- As wide as a resting head shows, so the card meets the heads' edge.
-	strip:SetWidth(2 * LAYOUT.dockOverlap + math.ceil(LAYOUT.headMax * LAYOUT.peek))
+	SizeDrawer()
 	strip:SetBackdrop(BACKDROP)
 	strip:SetBackdropColor(unpack(COLORS.drawer))
 	strip:SetBackdropBorderColor(unpack(COLORS.border))
@@ -983,20 +1006,18 @@ function Party:Dock()
 	return strip
 end
 
--- The card sits beside the drawer, or beside the chat when it is popped out.
+-- The card sits beside the drawer.
 function Party:PlaceCard()
 	if not card then
 		return
 	end
-	local chat = ns.ChatView and ns.ChatView:IsPopped() and _G[ns.Globals.frame("Chat")]
 	card:ClearAllPoints()
-	-- Beside the drawer, the card's header lines up with the selected head,
-	-- which is its portrait.
+	-- Its header lines up with the selected head, which is its portrait.
 	local down = 0
-	if not chat and self.portraitTop then
+	if self.portraitTop then
 		down = math.max(0, self.portraitTop - LAYOUT.cardPad)
 	end
-	card:SetPoint("TOPLEFT", chat or strip, "TOPRIGHT", -LAYOUT.dockOverlap, -down)
+	card:SetPoint("TOPLEFT", strip, "TOPRIGHT", -LAYOUT.dockOverlap, -down)
 end
 
 function Party:Raise()
@@ -1011,9 +1032,6 @@ function Party:Raise()
 		part:SetFrameStrata(host:GetFrameStrata())
 		part:SetFrameLevel(base)
 	end
-	if ns.ChatView then
-		ns.ChatView:Raise(host:GetFrameStrata(), base)
-	end
 	self:Redraw() -- the heads take their levels from the drawer's
 end
 
@@ -1023,6 +1041,24 @@ Bus:On("PEERS_CHANGED", function() Party:Changed() end)
 Bus:On("SETTING_CHANGED", function() Party:Changed() end)
 -- Health and power move on the card while it is open.
 Bus:On("VITALS_RECEIVED", function() Party:Changed() end)
+Bus:On("SETTING_CHANGED", function(id)
+	if (id == "headVitals" or id == "showVitals") and strip then
+		SizeDrawer()
+		Party:PlaceCard()
+		Party:Changed()
+	end
+end)
+-- You or your game group, live from the game: a fight's many changes are one
+-- redraw now and then.
+local unitVitalsPending = false
+Bus:On("UNIT_VITALS", function()
+	if unitVitalsPending then return end
+	unitVitalsPending = true
+	C_Timer.After(0.25, function()
+		unitVitalsPending = false
+		Party:Changed()
+	end)
+end)
 Bus:On("GROUP_CHANGED", function() Party:Changed() end)
 Bus:On("VITALS_CHANGED", function() Party:Changed() end)
 Bus:On("DEBUG_CHANGED", function() Party:Changed() end)
@@ -1036,4 +1072,3 @@ itemLoads:SetScript("OnEvent", function()
 	end
 end)
 
-Bus:On("CHAT_POPPED", function() Party:PlaceCard() Party:Raise() end)

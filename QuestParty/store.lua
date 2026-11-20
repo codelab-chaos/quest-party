@@ -166,6 +166,13 @@ local function TouchMember(entry, def)
 	member.class = entry.class or member.class
 	member.time = entry.time
 	member.emulated = entry.emulated == true or nil -- one of the emulator's players
+	-- Where they were when it happened (collectors\location.lua): their last
+	-- known spot, for the map (ui\map-pins.lua).
+	local place = ns.Location.Read(entry.data)
+	if place then
+		place.time = entry.time
+		member.where = place
+	end
 	if def.member then
 		for memberField, dataKey in pairs(def.member) do
 			if entry.data[dataKey] ~= nil then
@@ -491,6 +498,26 @@ function Store:Ingest(entry)
 	Bus:Fire("STORE_CHANGED")
 end
 
+-- Entries kept elsewhere by an older build (KekChat's own list, chat.lua),
+-- brought into the feed at their times: newest first, held to the feed's
+-- size, renumbered.
+function Store:Restore(entries)
+	if #entries == 0 then return end
+	for _, entry in ipairs(entries) do
+		db.feed[#db.feed + 1] = entry
+	end
+	for index, entry in ipairs(db.feed) do entry.sortIndex = index end
+	table.sort(db.feed, function(a, b)
+		if (a.time or 0) ~= (b.time or 0) then return (a.time or 0) > (b.time or 0) end
+		return a.sortIndex < b.sortIndex
+	end)
+	for index = #db.feed, 1, -1 do
+		db.feed[index].sortIndex = nil
+		if index > MAX_FEED then db.feed[index] = nil end
+	end
+	Resequence()
+end
+
 -- ========= Queries ==========================================================
 -- Queries skip anything whose feature switch is off, so a switch hides existing
 -- rows and cards without deleting them.
@@ -500,7 +527,8 @@ function Store:GetFeed(feedFilter)
 	local result = {}
 	for _, entry in ipairs(db.feed) do
 		local def = ns.FeedTypes[entry.type]
-		if def and ns.IsEnabled(def.setting) and ShownInFeed(entry, def) and (feedFilter == true or def.filters[feedFilter]) then
+		local muted = def and def.mutable and ns.Chat:IsMuted(entry.player)
+		if def and not muted and ns.IsEnabled(def.setting) and ShownInFeed(entry, def) and (feedFilter == true or def.filters[feedFilter]) then
 			result[#result + 1] = entry
 		end
 	end
@@ -740,6 +768,9 @@ Bus:On("PEERS_CHANGED", function(peer)
 		member.race = peer.race or member.race
 		member.sex = peer.sex or member.sex
 		member.version = peer.version or member.version
+		if peer.where and (peer.where.time or 0) >= ((member.where and member.where.time) or 0) then
+			member.where = peer.where
+		end
 		member.emulated = peer.virtual or member.emulated
 		-- A new arrival starts a new session's XP.
 		if member.session ~= peer.arrived then

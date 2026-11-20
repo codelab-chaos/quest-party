@@ -60,6 +60,49 @@ function ns.ValidChannelName(name)
 	return type(name) == "string" and name:match("^[%a%d]+$") ~= nil and #name <= CHANNEL_MAX and not name:match("^%d+$")
 end
 
+-- ========= Recent channels ==================================================
+-- The channels you have used, newest first, to switch back to in one click
+-- (Settings). Names are kept as typed; one differing only in case is the same.
+local RECENT_MAX = 5
+
+local function Remember(name)
+	local recent = ns.db.recentChannels
+	for index = #recent, 1, -1 do
+		if recent[index]:lower() == name:lower() then table.remove(recent, index) end
+	end
+	table.insert(recent, 1, name)
+	for index = #recent, RECENT_MAX + 1, -1 do recent[index] = nil end
+	Bus:Fire("RECENT_CHANNELS_CHANGED")
+end
+
+-- The channels to offer: the recent ones but the one you are on.
+function Session:RecentChannels()
+	local list, current = {}, ns.db.connection
+	for _, name in ipairs(ns.db.recentChannels) do
+		if not (current.enabled and current.name:lower() == name:lower()) then
+			list[#list + 1] = name
+		end
+	end
+	return list
+end
+
+function Session:Forget(name)
+	local recent = ns.db.recentChannels
+	for index = #recent, 1, -1 do
+		if recent[index]:lower() == name:lower() then table.remove(recent, index) end
+	end
+	Bus:Fire("RECENT_CHANNELS_CHANGED")
+end
+
+-- Leaves the channel you are on, if any, and connects to another.
+function Session:SwitchTo(name)
+	local config = ns.db.connection
+	if config.enabled and config.name:lower() ~= tostring(name):lower() then
+		self:Disconnect()
+	end
+	return self:Connect(name)
+end
+
 function Session:Connect(value)
 	local name = type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
 	if not ns.ValidChannelName(name) then
@@ -72,6 +115,7 @@ function Session:Connect(value)
 	end
 	CancelJoin()
 	config.name, config.enabled = name, true
+	Remember(name)
 	SetState("joining")
 	self:RefreshConnection()
 	if self.state == "connected" then

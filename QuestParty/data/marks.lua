@@ -19,6 +19,7 @@ local PURPLE = { edge = { 0.74, 0.38, 0.98, 1 }, fill = { 0.28, 0.07, 0.42, 1 } 
 local BLUE = { edge = { 0.38, 0.64, 1.00, 1 }, fill = { 0.04, 0.11, 0.28, 1 } }
 local RED = { edge = { 0.88, 0.22, 0.18, 1 }, fill = { 0.22, 0.04, 0.03, 1 } }
 local GRAY = { edge = { 0.55, 0.55, 0.55, 1 }, fill = { 0.09, 0.09, 0.09, 1 } }
+local GREEN = { edge = { 0.35, 0.80, 0.40, 1 }, fill = { 0.04, 0.18, 0.07, 1 } } -- KekChat
 
 local function Mark(family, look)
 	look.edge, look.fill = family.edge, family.fill
@@ -40,5 +41,6 @@ ns.MarkLooks = {
 	kills = Mark(PURPLE, { texture = "Interface\\Icons\\Ability_DualWield", crop = true }),
 	death = Mark(RED, { texture = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01", crop = true }),
 	achievement = Mark(GOLD, { texture = "Interface\\Icons\\achievement_reputation_01", crop = true }),
+	chat = Mark(GREEN, { texture = "Interface\\ChatFrame\\UI-ChatIcon-Chat-Up", scale = 0.9 }),
 	unknown = Mark(GRAY, { texture = "Interface\\Icons\\INV_Misc_QuestionMark", crop = true }),
 }

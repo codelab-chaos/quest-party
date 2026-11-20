@@ -9,7 +9,7 @@
 -- KekChat message opens KekChat). This file only turns Quest Party's events
 -- into the dock's items; the dock itself knows nothing of them.
 local _, ns = ...
-local Bus, L = ns.Bus, ns.L
+local Bus = ns.Bus
 
 local Dock = {}
 ns.Dock = Dock
@@ -42,7 +42,7 @@ local function FeedItem(entry)
 	local def = ns.FeedTypes[entry.type]
 	local ok, summary = pcall(ns.Resolver.Summary, entry)
 	return {
-		icon = def and def.icon,
+		icon = def and (def.markIcon and def.markIcon(entry) or def.icon), -- a KekChat message: its first image
 		title = ok and summary or "",
 		meta = entry.player and ns.ColorName(entry.player, entry.class) or nil,
 		entry = entry,
@@ -54,23 +54,8 @@ Bus:On("FEED_ADDED", function(entry, def)
 	Push(FeedItem(entry))
 end)
 
-Bus:On("CHAT_CHANGED", function(message)
-	if not message or message.system or not ns.charDb.docked then return end
-	local saying = message.saying and ns.SayingById[message.saying]
-	Push({
-		icon = message.icons and message.icons[1] or "Interface\\Icons\\INV_Misc_Note_01",
-		title = saying and saying.text or L.DOCK_IMAGE,
-		meta = message.player and ns.ColorName(message.player, message.class) or nil,
-		chat = true,
-	})
-end)
-
 -- A drawer clicked: the panel opens on what it stood for.
 local function Open(item)
-	if item.chat then
-		ns.Panel:Restore("chat")
-		return
-	end
 	ns.Panel:Restore()
 	if item.entry and item.entry.sequence then
 		ns.Panel:FocusEntry(item.entry.sequence)

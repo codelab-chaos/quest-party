@@ -4,7 +4,6 @@
 local _, ns = ...
 
 ns.ChatRules = {
-	maxMessages = 200, -- kept across reloads, oldest dropped first
 	burst = 5, -- messages a player may send in burstSeconds
 	burstSeconds = 10,
 	-- Going over the burst is a timeout, as team chat has in Rocket League:

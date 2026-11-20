@@ -351,6 +351,15 @@ function handlers.CHAT_MSG_SKILL(text)
 	if not Readable(text) then
 		return
 	end
+	-- A profession learned: a distinct event of its own, not a skill-up.
+	local learned = text:match(Patterns.skillLearned)
+	if learned then
+		local category = SkillCategory(learned)
+		if (category and ns.ProfessionCategories[category]) or (not category and ns.ProfessionNamed(learned)) then
+			Emit("skill_learned", { skill = learned })
+		end
+		return
+	end
 	local skill, level = text:match(Patterns.skill)
 	-- Only professions. A skill the list cannot place is reported, as before.
 	local category = skill and SkillCategory(skill)

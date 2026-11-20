@@ -5,6 +5,53 @@ local _, ns = ...
 local Look = {}
 ns.Look = Look
 
+-- A status bar for health or power, in Quest Party's look: the game's bar
+-- art over a dark well in a thin dark frame. vertical fills bottom to top.
+function Look.VitalsBar(parent, vertical)
+	local bar = CreateFrame("StatusBar", nil, parent, "BackdropTemplate")
+	bar:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
+	bar:SetBackdropColor(0, 0, 0, 0.7)
+	bar:SetBackdropBorderColor(0, 0, 0, 0.9)
+	bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+	if vertical then bar:SetOrientation("VERTICAL") end
+	bar:SetMinMaxValues(0, 100)
+	return bar
+end
+
+-- Health and power on two status bars. With a unit (you, or someone in your
+-- game group: group.lua), live from the game: Forever keeps these numbers
+-- secret from addons, but a status bar may still show them. Without one, the
+-- percents a player sent (vitals.lua), when their client could read them.
+-- Bars with a .text show their numbers: "1240 / 1800" live (a font string may
+-- show secret numbers too), or the percent that was sent.
+-- Returns whether there was anything to show.
+function Look.DrawVitals(health, power, unit, vitals)
+	local token
+	if unit and UnitExists(unit) then
+		health:SetMinMaxValues(0, UnitHealthMax(unit))
+		health:SetValue(UnitHealth(unit))
+		power:SetMinMaxValues(0, UnitPowerMax(unit))
+		power:SetValue(UnitPower(unit))
+		if health.text then health.text:SetFormattedText("%d / %d", UnitHealth(unit), UnitHealthMax(unit)) end
+		if power.text then power.text:SetFormattedText("%d / %d", UnitPower(unit), UnitPowerMax(unit)) end
+		local _, kind = UnitPowerType(unit)
+		token = kind
+	elseif vitals then
+		health:SetMinMaxValues(0, 100)
+		health:SetValue(vitals.h)
+		power:SetMinMaxValues(0, 100)
+		power:SetValue(vitals.p or 0)
+		if health.text then health.text:SetFormattedText("%d%%", vitals.h) end
+		if power.text then power.text:SetFormattedText("%d%%", vitals.p or 0) end
+		token = vitals.t
+	else
+		return false
+	end
+	health:SetStatusBarColor(unpack(ns.HealthColor))
+	power:SetStatusBarColor(unpack(ns.PowerColors[token] or ns.PowerColors.MANA))
+	return true
+end
+
 local CIRCLE = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 
 -- Cuts a texture to a circle filling its own bounds.

@@ -14,6 +14,7 @@ ns.AlwaysOn = {
 	professions = true,
 	achievements = true,
 	deaths = true,
+	kekChat = true,
 }
 
 -- Switches, in display order. Gear is the one thing you choose to share.
@@ -25,6 +26,9 @@ ns.Settings = {
 	{ id = "partyHeads", group = "party", label = L.SET_PARTY_HEADS, tip = L.SET_PARTY_HEADS_TIP, default = true },
 	{ id = "rememberPlayers", group = "party", label = L.SET_REMEMBER, tip = L.SET_REMEMBER_TIP, default = true },
 	{ id = "confetti", group = "display", label = L.SET_CONFETTI, tip = L.SET_CONFETTI_TIP, default = true },
+	{ id = "headVitals", group = "party", label = L.SET_HEAD_VITALS, tip = L.SET_HEAD_VITALS_TIP, default = true },
+	{ id = "mapPins", group = "display", label = L.SET_MAP_PINS, tip = L.SET_MAP_PINS_TIP, default = true },
+	{ id = "kekChatCustom", group = "display", label = L.SET_KEKCHAT_CUSTOM, tip = L.SET_KEKCHAT_CUSTOM_TIP, default = false },
 	{ id = "chatEffects", group = "display", label = L.SET_CHAT_EFFECTS, tip = L.SET_CHAT_EFFECTS_TIP, default = true },
 	{ id = "dockRight", group = "display", label = L.SET_DOCK_RIGHT, tip = L.SET_DOCK_RIGHT_TIP, default = true },
 	{ id = "chatEcho", group = "display", label = L.SET_CHAT_ECHO, tip = L.SET_CHAT_ECHO_TIP, default = true },
@@ -121,8 +125,9 @@ ns.Timing = {
 	-- at most once in vitalsSeconds: a change in between waits and the latest
 	-- goes out when the time is up, so a fight is a steady trickle, not a
 	-- flood, and the last word is always right.
+	pinHours = 2, -- a player's spot stays on the map this long after it was heard (ui\map-pins.lua)
 	vitalsStep = 5,
-	vitalsSeconds = 1.5,
+	vitalsSeconds = 2,
 }
 
 -- Colors of the power bars, by the game's power token (UnitPowerType).
