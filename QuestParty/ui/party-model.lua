@@ -113,23 +113,30 @@ function PartyModel:Heads()
 			return (a.seenAgo or math.huge) < (b.seenAgo or math.huge)
 		end)
 		-- One tab per player: a character whose player is already shown (here
-		-- on another character, or seen more lately on one) has no tab.
-		-- Their history stays; only the tab goes.
+		-- on another character, or seen more lately on one) is an alt. With
+		-- Show alts on, alts come after everyone else, greyed like anyone gone
+		-- (alt = true); off, they have no tab. Their history stays either way.
 		local players = { [ns.Sharing.PlayerId()] = true } -- your own other characters too
 		for _, head in ipairs(heads) do
 			if head.playerId then players[head.playerId] = true end
 		end
+		local alts = {}
 		for _, head in ipairs(gone) do
 			if not (head.playerId and players[head.playerId]) then
 				heads[#heads + 1] = head
 				if head.playerId then players[head.playerId] = true end
+			elseif ns.IsEnabled("showAlts") then
+				head.alt = true
+				alts[#alts + 1] = head
 			end
 		end
+		for _, head in ipairs(alts) do heads[#heads + 1] = head end
 	end
 	-- No more than the cap (ui\\view-model.lua): those here before those
-	-- gone, the latest seen first.
+	-- gone, alts last, the latest seen first.
 	return ns.ViewModel.Cap(heads, ns.ViewModel.PartyCap(), function(head) return head.name end, function(head)
-		return head.here and math.huge or -(head.seenAgo or math.huge)
+		if head.here then return math.huge end
+		return -(head.seenAgo or math.huge) - (head.alt and 1e9 or 0)
 	end)
 end
 

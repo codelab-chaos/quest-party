@@ -18,8 +18,14 @@ local LAYOUT = {
 	edgeGap = 0,
 }
 
+-- The drawers: feed rows this long. At rest the housing shows each row's
+-- mark and half its avatar (Panel:DockRest); sliding out shows the rest.
+-- Compact dock (Settings): one-line rows, so twice as many fit.
+local DRAWER = { length = 232, entries = 7, compactEntries = 14 }
+
 local view
 local nextId = 0
+local items = {} -- the dock's items by id, for their stamps
 
 -- Which way keys come out: toward the middle of the screen.
 local function Side()
@@ -35,23 +41,56 @@ end
 local function Push(item, quiet)
 	nextId = nextId + 1
 	item.id = nextId
+	items[nextId] = item
 	if view then view:Push(item, quiet) end
 end
 
+-- A drawer is the feed's own row for its entry (ui\panel.lua), drawn in the
+-- dock's style: the same look, stamps, tooltip and right-click as the feed.
+local function DockStyle()
+	return ns.IsEnabled("dockCompact") and "oneLine" or "detailed"
+end
+
 local function FeedItem(entry)
-	local def = ns.FeedTypes[entry.type]
-	local ok, summary = pcall(ns.Resolver.Summary, entry)
-	return {
-		icon = def and (def.markIcon and def.markIcon(entry) or def.icon), -- a KekChat message: its first image
-		title = ok and summary or "",
-		meta = entry.player and ns.ColorName(entry.player, entry.class) or nil,
-		entry = entry,
-	}
+	return { entry = entry }
+end
+
+-- Every drawer drawn again: for the side they come out on now.
+local function RedrawAll()
+	if not view then return end
+	for itemId in pairs(items) do view:Retext(itemId) end
+end
+
+-- Fills a drawer with its row (made once per drawer, drawn again for each
+-- entry it shows); a click restores the panel on it.
+local function Content(key, item)
+	if not key.row then
+		key.row = ns.Panel:NewFeedRow(key)
+		key.row:SetAllPoints(key)
+	end
+	key.row.onLeftClick = function() key:Click("LeftButton") end
+	local data = ns.ViewModel:FeedRowFor(item.entry)
+	data.right = nil -- no time since: the dock is about what just happened
+	-- The mark and the avatar at the end resting in the housing (ui\panel.lua,
+	-- TextEnds): the right end on a left-side dock, the left on a right-side one.
+	data.ends = (view ~= nil and view.side == "LEFT") and "RIGHT" or "LEFT"
+	ns.Panel:DrawFeedRow(key.row, data, DockStyle())
+	return key.row
 end
 
 Bus:On("FEED_ADDED", function(entry, def)
 	if not def or not ns.charDb.docked then return end
 	Push(FeedItem(entry))
+end)
+
+-- A stamp landed: any drawer for that card is drawn again, with it.
+Bus:On("STAMPED", function(key)
+	if not view then return end
+	for id, item in pairs(items) do
+		if item.entry and ns.Stamping:KeyFor(item.entry) == key then
+			view:Retext(id)
+		end
+	end
 end)
 
 -- A drawer clicked: the panel opens on what it stood for.
@@ -100,6 +139,7 @@ local function Moved(frame)
 	local point, _, relativePoint, x, y = frame:GetPoint(1)
 	ns.charDb.dockPoint = { point, relativePoint or point, x, y }
 	view:SetSide(Side())
+	RedrawAll()
 end
 
 -- Docking fills the dock with the feed's latest rows, quietly, oldest first
@@ -108,10 +148,12 @@ function Dock:Show()
 	if not view then return end
 	Place()
 	view:SetSide(Side())
+	RedrawAll()
 	view:GetFrame():Show()
 	view:Clear()
+	wipe(items)
 	local feed = ns.Store:GetFeed(true) -- newest first
-	for index = math.min(#feed, ns.Magnet.DEFAULTS.maxEntries), 1, -1 do
+	for index = math.min(#feed, view.model.config.maxEntries), 1, -1 do
 		Push(FeedItem(feed[index]), true)
 	end
 end
@@ -120,6 +162,7 @@ function Dock:Hide()
 	if not view then return end
 	view:GetFrame():Hide()
 	view:Clear() -- the panel shows them now; the next docking starts empty
+	wipe(items)
 end
 
 -- Where the panel shrinks to and grows from: the housing.
@@ -133,7 +176,15 @@ function Dock:Point()
 end
 
 local function Build()
-	view = ns.MagnetDock.Create(UIParent, { side = Side(), onClick = Open, onMoved = Moved })
+	local compact = ns.IsEnabled("dockCompact")
+	view = ns.MagnetDock.Create(UIParent, {
+		side = Side(), onClick = Open, onMoved = Moved, content = Content,
+		layout = (function()
+			local peek = math.ceil(ns.Panel:DockRest(DockStyle()))
+			return { key = ns.Panel:FeedRowHeight(DockStyle()), peek = peek, extend = DRAWER.length - peek }
+		end)(),
+		model = { maxEntries = compact and DRAWER.compactEntries or DRAWER.entries },
+	})
 	local frame = view:GetFrame()
 	frame:SetFrameStrata("MEDIUM")
 	frame:Hide()
@@ -142,9 +193,18 @@ end
 
 Bus:On("READY", Build)
 Bus:On("SETTING_CHANGED", function(id)
+	-- Compact dock: a new dock in the new shape, where the old one was.
+	if id == "dockCompact" and view then
+		local shown = view:GetFrame():IsShown()
+		view:GetFrame():Hide()
+		Build()
+		view:GetFrame():SetShown(shown)
+		return
+	end
 	if id == "dockRight" and view then
 		ns.charDb.dockPoint = nil -- back to the chosen edge
 		Place()
 		view:SetSide(Side())
+		RedrawAll()
 	end
 end)

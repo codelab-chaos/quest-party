@@ -30,8 +30,10 @@ MagnetDock.LAYOUT = {
 	textPad = 14, -- past the end of a key's text
 	icon = 26,
 	pad = 3, -- the housing's frame around the keys
-	radius = 56, -- how far up and down the cursor's pull reaches: about a key either side
-	reach = 90, -- how far beyond a fully out drawer it starts to pull
+	-- The cursor pulls only the drawer it is almost on: no fan of neighbours,
+	-- nothing from a distance.
+	radius = 30, -- how far up and down the pull reaches: under one key
+	reach = 10, -- how far past the housing (or a drawer that is out) it fades to nothing
 }
 
 MagnetDock.COLORS = {
@@ -171,10 +173,14 @@ function View:Pull(entry, cursorX, cursorY)
 		across = cursorX - inner
 	end
 	if across < 0 then return 0 end -- past the housing, on the other side
-	-- Over a fully out key it stays out; further off, the pull fades.
+	-- Over the housing, or over as much of the key as is out now, it pulls
+	-- fully (so a key the cursor is on stays out); past that it fades within
+	-- reach. Not how far the key could come out: a tucked-in key answers only
+	-- near the housing.
 	local key = self.keys[entry.item.id]
 	local travel = key and key.travel or layout.extend
-	local near = math.max(0, math.min(1, 1 - (across - (layout.peek + travel)) / layout.reach))
+	local out = travel * math.max(0, math.min(1, entry.extension or 0))
+	local near = math.max(0, math.min(1, 1 - (across - (layout.peek + out)) / layout.reach))
 	return ns.Magnet.Influence(cursorY - center, layout.radius) * near
 end
 
@@ -195,11 +201,22 @@ function View:Draw()
 		if not key then
 			key = table.remove(self.pool) or NewKey(self)
 			self.keys[entry.item.id] = key
-			key.icon:SetTexture(entry.item.icon)
-			key.text:SetText(entry.item.title or "")
-			key.meta:SetText(entry.item.meta or "")
-			Dress(self, key)
-			Fit(self, key)
+			if self.content then
+				-- The owner fills the key (a feed row: ui\dock.lua); it is as
+				-- long as the dock lets keys come out.
+				key.icon:Hide()
+				key.text:Hide()
+				key.meta:Hide()
+				key.body = self.content(key, entry.item)
+				key.travel = layout.extend
+				key:SetWidth(layout.peek + layout.extend)
+			else
+				key.icon:SetTexture(entry.item.icon)
+				key.text:SetText(entry.item.title or "")
+				key.meta:SetText(entry.item.meta or "")
+				Dress(self, key)
+				Fit(self, key)
+			end
 			key:Show()
 		end
 		key.entry = entry
@@ -219,6 +236,9 @@ function View:Draw()
 		-- housing, must not catch clicks meant for the world.
 		local hidden = math.max(0, travel - out)
 		if right then key:SetHitRectInsets(0, hidden, 0, 0) else key:SetHitRectInsets(hidden, 0, 0, 0) end
+		if key.body then
+			if right then key.body:SetHitRectInsets(0, hidden, 0, 0) else key.body:SetHitRectInsets(hidden, 0, 0, 0) end
+		end
 		key:SetAlpha(entry.alpha)
 		local isTarget = entry == target
 		key:SetBackdropColor(unpack(isTarget and colors.keyTarget or colors.key))
@@ -265,6 +285,25 @@ function View:Push(item, quiet)
 	self:Wake()
 end
 
+-- New words for an item already in the dock (its stamps changed, say).
+function View:Retext(id, title, meta)
+	for _, entry in ipairs(self.model.entries) do
+		if entry.item.id == id then
+			entry.item.title, entry.item.meta = title or entry.item.title, meta or entry.item.meta
+		end
+	end
+	local key = self.keys[id]
+	if key and self.content then
+		for _, entry in ipairs(self.model.entries) do
+			if entry.item.id == id then self.content(key, entry.item) end
+		end
+	elseif key then
+		key.text:SetText(title or key.text:GetText() or "")
+		if meta then key.meta:SetText(meta) end
+		Fit(self, key)
+	end
+end
+
 function View:Remove(id)
 	self.model:Remove(id)
 	self:Wake()
@@ -298,6 +337,7 @@ function MagnetDock.Create(parent, options)
 		layout = layout,
 		model = ns.Magnet.New(options.model),
 		onClick = options.onClick,
+		content = options.content, -- function(key, item): fills a key, returns the frame in it
 		onMoved = options.onMoved,
 		keys = {},
 		pool = {},

@@ -32,6 +32,7 @@ data\scenes.lua
 data\stamps.lua
 store.lua
 stats.lua
+opacity.lua
 chat.lua
 report.lua
 scenes.lua
@@ -53,12 +54,15 @@ collectors\collectors.lua
 collectors\gear.lua
 collectors\vitals.lua
 collectors\location.lua
+collectors\afk.lua
 collectors\professions.lua
 ui\view-model.lua
 ui\party-model.lua
 ui\confetti.lua
 ui\effect-grid.lua
 ui\map-pins.lua
+ui\fade.lua
+ui\opacity-slider.lua
 ui\stamps.lua
 ui\quest-card.lua
 ui\panel.lua

@@ -29,6 +29,7 @@ local LAYOUT = {
 	-- size slider scales them.
 	gutterIcon = 22,
 	gutterIconGap = 4,
+	afkBarAlpha = 0.55, -- an AFK player's bar: dimmer, still there
 	gutterRowGap = 13, -- between the feed and the filter row, with a line across its middle
 	gutterRule = { 0.80, 0.65, 0.20, 0.55 }, -- that line, gold
 	kekChatClear = 2, -- between KekChat's button on the line and the filter icons under it
@@ -126,6 +127,7 @@ local SETTINGS = {
 -- Styling for the view and options buttons in the title bar.
 local HEADER_BUTTON = {
 	size = 20,
+	opacityGlyph = 12, -- the opacity button's half-solid square
 	top = 6, -- from the top edge of the window, lines the row up with the title
 	gap = 4,
 	edge = { 0.80, 0.65, 0.20, 0.55 },
@@ -138,7 +140,7 @@ local HEADER_BUTTON = {
 	barWidth = 10,
 	barHeight = 2,
 	barOffsets = { 4, 0, -4 },
-	compactBar = 2, -- the one bar left showing in the compact view
+	detailedBars = { [1] = true, [3] = true }, -- detailed (two-line) rows: two bars; compact (one-line) rows: all three
 	titleIcon = "Interface\\Icons\\spell_nature_astralrecalgroup", -- beside the title
 }
 
@@ -189,8 +191,11 @@ end
 -- are inked over the card (ui\stamps.lua), not beside the text.
 local LINE_END_ROOM = 8
 
+-- The row style: one line or detailed, as the view button says, unless a
+-- row is drawn for elsewhere in a style of its own (the dock: DrawFeedRow).
+local styleOverride
 local function StyleName()
-	return ns.charDb.oneLine and "oneLine" or "detailed"
+	return styleOverride or (ns.charDb.oneLine and "oneLine" or "detailed")
 end
 
 local function RowHeight(data)
@@ -524,6 +529,11 @@ local function BuildRow(row)
 			ns.StampView:Open(self)
 			return
 		end
+		-- A row drawn elsewhere (a dock drawer) says what a click does there.
+		if self.onLeftClick then
+			self.onLeftClick()
+			return
+		end
 		if not self.quest then return end
 		if ns.charDb.filter == ns.QuestTab then
 			if InMyLog(self.questID) then OpenQuest(self.questID) end
@@ -591,9 +601,45 @@ local function TextLeft(data, style)
 	return data.player and (AVATAR_INSET + style.avatarSize + 2 * AVATAR_EDGE + 6) or 8
 end
 
+
 -- How far from the right the text must stop: past the mark and the time.
 local function MarkRoom(style)
 	return MARK_EDGE + style.iconSize + 8
+end
+
+local function AvatarWidth(style)
+	return style.avatarSize + 2 * AVATAR_EDGE
+end
+
+-- Where a row's mark and avatar sit. In the feed: the avatar at the left, the
+-- mark at the right, the text between. A dock drawer (data.ends, "LEFT" or
+-- "RIGHT": the end resting in the housing) has both at that end, the mark
+-- outermost and the avatar beside it, and its text runs away from them:
+--   ends RIGHT:  [ text, right aligned ][avatar][mark]
+--   ends LEFT:   [mark][avatar][ text, left aligned ]
+-- Returns the room kept at the row's left and right for its text.
+local function TextEnds(row, data, style)
+	local cluster = MarkRoom(style) + AvatarWidth(style) + 6
+	if data.ends == "LEFT" then return cluster, 8 end
+	if data.ends == "RIGHT" then return 8, cluster end
+	return TextLeft(data, style), MarkRoom(style) + RightRoom(row.right, data.right)
+end
+
+-- The mark square, and the text beside it (a time), at its end.
+local function PlaceMark(row, data, top)
+	local left = data.ends == "LEFT"
+	local side, inner = left and "LEFT" or "RIGHT", left and "RIGHT" or "LEFT"
+	local edge, gap = left and MARK_EDGE or -MARK_EDGE, left and 8 or -8
+	if top then
+		row.icon:SetPoint("TOP" .. side, edge, -6)
+		row.right:SetPoint("TOP" .. side, row.icon, "TOP" .. inner, gap, 0)
+	else
+		row.icon:SetPoint(side, edge, 0)
+		row.right:SetPoint(side, row.icon, inner, gap, 0)
+	end
+	local justify = data.ends == "RIGHT" and "RIGHT" or "LEFT"
+	row.title:SetJustifyH(justify)
+	for _, line in ipairs(row.lines or {}) do line.text:SetJustifyH(justify) end
 end
 
 local function ShowAvatar(row, data, style, top)
@@ -604,11 +650,16 @@ local function ShowAvatar(row, data, style, top)
 	local size = style.avatarSize
 	row.avatarRing:ClearAllPoints()
 	row.avatarRing:SetSize(size + 2 * AVATAR_EDGE, size + 2 * AVATAR_EDGE)
+	-- In the feed: touching the card's top and left rim, inside it. In a dock
+	-- drawer (data.ends): beside the mark, at that end (TextEnds).
+	local side = data.ends or "LEFT"
+	local inset = AVATAR_INSET
+	if data.ends then inset = MarkRoom(style) end
+	if side == "RIGHT" then inset = -inset end
 	if top then
-		-- Touching the card's top and left rim, inside it.
-		row.avatarRing:SetPoint("TOPLEFT", AVATAR_INSET, -AVATAR_INSET)
+		row.avatarRing:SetPoint("TOP" .. side, inset, -AVATAR_INSET)
 	else
-		row.avatarRing:SetPoint("LEFT", AVATAR_INSET, 0)
+		row.avatarRing:SetPoint(side, inset, 0)
 	end
 	row.avatar:ClearAllPoints()
 	row.avatar:SetPoint("TOPLEFT", row.avatarRing, "TOPLEFT", AVATAR_EDGE, -AVATAR_EDGE)
@@ -621,12 +672,11 @@ local function ShowAvatar(row, data, style, top)
 end
 
 local function LayoutOneLine(row, data, style)
-	row.icon:SetPoint("RIGHT", -MARK_EDGE, 0)
-	row.right:SetPoint("RIGHT", row.icon, "LEFT", -8, 0)
+	PlaceMark(row, data)
 	ShowAvatar(row, data, style)
-	local left = TextLeft(data, style)
+	local left, right = TextEnds(row, data, style)
 	row.title:SetPoint("LEFT", left, 0)
-	row.title:SetPoint("RIGHT", -(MarkRoom(style) + RightRoom(row.right, data.right)), 0)
+	row.title:SetPoint("RIGHT", -right, 0)
 	if data.summary then
 		row.title:SetText(data.title .. "  " .. data.summary)
 	else
@@ -644,34 +694,44 @@ local function LayoutOneLine(row, data, style)
 end
 
 local function LayoutDetailed(row, data, style)
-	row.icon:SetPoint("TOPRIGHT", -MARK_EDGE, -6)
-	row.right:SetPoint("TOPRIGHT", row.icon, "TOPLEFT", -8, 0)
+	PlaceMark(row, data, true)
 	ShowAvatar(row, data, style, 5)
-	local left = TextLeft(data, style)
+	local left, right = TextEnds(row, data, style)
 	row.title:SetPoint("TOPLEFT", left, -5)
-	row.title:SetPoint("TOPRIGHT", -(MarkRoom(style) + RightRoom(row.right, data.right)), -5)
+	row.title:SetPoint("TOPRIGHT", -right, -5)
 	row.title:SetText(data.title)
 	row.strip:Hide()
 
+	-- The detail lines, under the title. In the feed each has its own count
+	-- by the mark, when it has one; a dock drawer's run the title's width.
 	local y = -style.titleHeight
 	for index, lineData in ipairs(data.lines) do
 		local line = AcquireLine(row, index)
+		line.text:SetJustifyH(data.ends == "RIGHT" and "RIGHT" or "LEFT")
 		line.text:ClearAllPoints()
-		line.text:SetPoint("TOPLEFT", left, y)
 		line.right:ClearAllPoints()
-		line.right:SetPoint("TOPRIGHT", -MarkRoom(style), y)
-		line.right:SetText(lineData.right or "")
-		line.right:Show()
-		-- Up to what is on its right: its own count, or the edge.
-		local room = MarkRoom(style) + (lineData.right and RightRoom(line.right, lineData.right) or LINE_END_ROOM)
-		line.text:SetPoint("TOPRIGHT", -room, y)
+		local barLeft, barRight = left, right
+		if data.ends then
+			line.right:Hide()
+			line.text:SetPoint("TOPLEFT", left, y)
+			line.text:SetPoint("TOPRIGHT", -right, y)
+		else
+			line.right:SetPoint("TOPRIGHT", -MarkRoom(style), y)
+			line.right:SetText(lineData.right or "")
+			line.right:Show()
+			-- Up to what is on its right: its own count, or the edge.
+			local room = MarkRoom(style) + (lineData.right and RightRoom(line.right, lineData.right) or LINE_END_ROOM)
+			line.text:SetPoint("TOPLEFT", left, y)
+			line.text:SetPoint("TOPRIGHT", -room, y)
+			barRight = MarkRoom(style)
+		end
 		line.text:SetText(lineData.text)
 		line.text:Show()
 
 		if lineData.progress then
 			line.bar:ClearAllPoints()
-			line.bar:SetPoint("TOPLEFT", left, y - style.barOffset)
-			line.bar:SetPoint("TOPRIGHT", -MarkRoom(style), y - style.barOffset)
+			line.bar:SetPoint("TOPLEFT", barLeft, y - style.barOffset)
+			line.bar:SetPoint("TOPRIGHT", -barRight, y - style.barOffset)
 			line.bar:SetHeight(style.barHeight)
 			SetProgress(line.bar, lineData.progress, QUEST_ROWS[data.kind])
 			line.bar:Show()
@@ -846,10 +906,15 @@ local function InitRow(row, data)
 	row.divider:Hide() -- no line between the avatar and the text
 	PlayPulse(row, data.pulse)
 	ShowBackdrop(row, data)
-	-- Your game group's members: their stripe and ring in the party's color.
+	-- The avatar's ring in the player's own color, as their head and XP bar
+	-- (colors.lua); your game group's members in the party's color, with
+	-- their stripe.
 	if data.grouped then
 		local r, g, b = PartyColor()
 		row.groupEdge:SetColorTexture(r, g, b, 1)
+		row.avatarRing:SetVertexColor(r, g, b, 1)
+	elseif data.player then
+		local r, g, b = ns.PlayerColors:For(data.player)
 		row.avatarRing:SetVertexColor(r, g, b, 1)
 	else
 		row.avatarRing:SetVertexColor(0.80, 0.65, 0.20, 1)
@@ -1015,6 +1080,38 @@ function Panel:Refresh(jumpToEnd)
 	end
 	emptyText:SetText(ns.IsDebug() and L.EMPTY_DEBUG or L.EMPTY)
 	emptyText:SetShown(#rows == 0)
+end
+
+-- ========= Feed rows elsewhere ==============================================
+-- The feed's own rows, for other places that show feed entries (the dock,
+-- ui\dock.lua): the same frame, drawing, stamps, tooltip and right-click.
+-- style is "detailed" or "oneLine", whatever the feed's own view is.
+function Panel:NewFeedRow(parent)
+	local row = CreateFrame("Frame", nil, parent)
+	BuildRow(row)
+	return row
+end
+
+function Panel:DrawFeedRow(row, data, style)
+	styleOverride = style
+	InitRow(row, data)
+	styleOverride = nil
+end
+
+-- How much of a dock drawer rests in the housing, in a style: its mark and
+-- half its avatar, beside it (data.ends: TextEnds).
+function Panel:DockRest(style)
+	local look = ROW_STYLES[style]
+	return MarkRoom(look) + AvatarWidth(look) / 2
+end
+
+-- How tall a feed row is in a style: one with a bar on its second line, the
+-- tallest a plain feed row gets.
+function Panel:FeedRowHeight(style)
+	styleOverride = style
+	local height = RowHeight({ kind = "feed", lines = { { progress = true } } })
+	styleOverride = nil
+	return height
 end
 
 -- Opens the feed (All) and brings one row into view with a flash: the one a
@@ -1197,11 +1294,12 @@ function Panel:SelectFilter(id)
 	self:Refresh(true)
 end
 
--- The view icon mirrors the current state: every bar for detailed rows, only the
--- middle one for compact.
+-- The view icon mirrors the current state: three bars for compact (one-line)
+-- rows, more of them; two (top and bottom) for detailed (two-line) rows.
+-- Never one: that reads as minimize.
 local function UpdateViewButton()
 	for index, bar in ipairs(viewButton.bars) do
-		bar:SetShown(not ns.charDb.oneLine or index == HEADER_BUTTON.compactBar)
+		bar:SetShown(ns.charDb.oneLine or HEADER_BUTTON.detailedBars[index] == true)
 	end
 end
 
@@ -1256,7 +1354,7 @@ function Panel:ResetPosition()
 	frame:SetSize(LAYOUT.width, LAYOUT.height)
 	RestorePosition()
 	ns.charDb.shown = true
-	frame:SetAlpha(1)
+	frame:SetAlpha(ns.Opacity.Now(false)) -- the Opacity slider's, not fully solid (opacity.lua)
 	frame:SetScale(1)
 	frame:Show()
 	self:Refresh()
@@ -1347,7 +1445,8 @@ local function BuildHeader()
 	title:SetText(L.TITLE)
 	panelTitle = title
 
-	-- Right to left: close, options, view.
+	-- Right to left: close (always the far right), minimize, options, view,
+	-- sounds, opacity.
 	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
 	close:SetSize(24, 24)
 	close:SetPoint("TOPRIGHT", -(LAYOUT.inset - 2), -(HEADER_BUTTON.top - 2))
@@ -1355,13 +1454,25 @@ local function BuildHeader()
 		frame:Hide()
 	end)
 
+	-- Minimize to the dock (ui\dock.lua): a bar, as a window's minimize has.
+	local minimize = CreateHeaderButton(function()
+		return L.DOCK_MINIMIZE, L.DOCK_MINIMIZE_TIP
+	end, function()
+		Panel:Minimize()
+	end)
+	minimize:SetPoint("RIGHT", close, "LEFT", -HEADER_BUTTON.gap, 0)
+	local dash = minimize:CreateTexture(nil, "ARTWORK")
+	dash:SetSize(HEADER_BUTTON.barWidth, HEADER_BUTTON.barHeight)
+	dash:SetPoint("CENTER", 0, -4)
+	dash:SetColorTexture(unpack(HEADER_BUTTON.glyph))
+
 	-- Opens the options. It stays lit while they are open.
 	optionsButton = CreateHeaderButton(function()
 		return L.OPTIONS
 	end, function()
 		Panel:ShowOptions(not optionsView:IsShown())
 	end)
-	optionsButton:SetPoint("RIGHT", close, "LEFT", -HEADER_BUTTON.gap, 0)
+	optionsButton:SetPoint("RIGHT", minimize, "LEFT", -HEADER_BUTTON.gap, 0)
 	AddIcon(optionsButton, HEADER_BUTTON.optionsIcon)
 
 	-- Shows the current view: three bars for detailed rows, one for compact.
@@ -1375,18 +1486,6 @@ local function BuildHeader()
 	end)
 	viewButton:SetPoint("RIGHT", optionsButton, "LEFT", -HEADER_BUTTON.gap, 0)
 
-	-- Minimize to the dock (ui\dock.lua): a bar, as a window's minimize has.
-	local minimize = CreateHeaderButton(function()
-		return L.DOCK_MINIMIZE, L.DOCK_MINIMIZE_TIP
-	end, function()
-		Panel:Minimize()
-	end)
-	minimize:SetPoint("RIGHT", viewButton, "LEFT", -HEADER_BUTTON.gap, 0)
-	local dash = minimize:CreateTexture(nil, "ARTWORK")
-	dash:SetSize(HEADER_BUTTON.barWidth, HEADER_BUTTON.barHeight)
-	dash:SetPoint("CENTER", 0, -4)
-	dash:SetColorTexture(unpack(HEADER_BUTTON.glyph))
-
 	-- Sounds on and off (the Sounds switch in Settings): a speaker.
 	-- Steps the volume down: loud, regular, soft, mute, then loud again.
 	soundButton = CreateHeaderButton(function()
@@ -1396,10 +1495,30 @@ local function BuildHeader()
 		local value = ns.GetSlider("volume") or 2
 		ns.SetSlider("volume", value == 0 and 3 or value - 1)
 	end)
-	soundButton:SetPoint("RIGHT", minimize, "LEFT", -HEADER_BUTTON.gap, 0)
+	soundButton:SetPoint("RIGHT", viewButton, "LEFT", -HEADER_BUTTON.gap, 0)
+
+	-- Opacity (opacity.lua): opens a short upright slider under it to set it
+	-- live (ui\opacity-slider.lua); the mouse wheel steps it. Its icon: a
+	-- square half solid, half faded.
+	local opacityButton = CreateHeaderButton(function()
+		return L.OPACITY_BUTTON:format(ns.GetSlider("opacity") or 100), L.OPACITY_BUTTON_TIP
+	end, function(self)
+		ns.OpacitySlider:Toggle(self)
+	end)
+	opacityButton:SetPoint("RIGHT", soundButton, "LEFT", -HEADER_BUTTON.gap, 0)
+	opacityButton:EnableMouseWheel(true)
+	opacityButton:SetScript("OnMouseWheel", function(_, delta) ns.OpacitySlider:Nudge(delta) end)
+	for index, alpha in ipairs({ 1, 0.35 }) do
+		local half = opacityButton:CreateTexture(nil, "ARTWORK")
+		half:SetSize(HEADER_BUTTON.opacityGlyph / 2, HEADER_BUTTON.opacityGlyph)
+		half:SetPoint("CENTER", (index == 1 and -1 or 1) * HEADER_BUTTON.opacityGlyph / 4, 0)
+		local r, g, b = unpack(HEADER_BUTTON.glyph)
+		half:SetColorTexture(r, g, b, alpha)
+	end
+
 	-- The title runs under the buttons, which sit over it (FitTitle).
 	title:SetPoint("RIGHT", frame, "RIGHT", -LAYOUT.inset, 0)
-	title.buttons = soundButton -- the leftmost button: where the name must end
+	title.buttons = opacityButton -- the leftmost button: where the name must end
 	soundButton.icon = soundButton:CreateTexture(nil, "ARTWORK")
 	soundButton.icon:SetPoint("TOPLEFT", 1, -3)
 	soundButton.icon:SetPoint("BOTTOMRIGHT", soundButton, "BOTTOMLEFT", 11, 3)
@@ -1604,6 +1723,10 @@ local function ShowBarTip(bar)
 	if data.have then
 		GameTooltip:AddLine(L.XPBAR_TIP_XP:format(ns.Comma(data.have), ns.Comma(data.need)), 0.8, 0.8, 0.8)
 	end
+	if data.afk then
+		local away = data.afkSince and GetServerTime() - data.afkSince or 0
+		GameTooltip:AddLine(away >= 60 and L.XPBAR_TIP_AFK_FOR:format(ns.Ago(away)) or L.XPBAR_TIP_AFK, 1, 0.69, 0)
+	end
 	if data.lastXP then
 		local gain = L.XP_GAIN:format(ns.Comma(data.lastXP))
 		local line = (data.lastMob and data.lastMob ~= "") and L.XPBAR_TIP_GAIN_FROM:format(gain, data.lastMob) or L.XPBAR_TIP_GAIN:format(gain)
@@ -1762,7 +1885,9 @@ function Panel:UpdateXpBars()
 			fill:SetMinMaxValues(0, 1)
 			fill:SetValue(0)
 		end
-		bar.name:SetText(entry.name)
+		-- Away: an AFK tag after the name and a dimmer bar. (Gone has no bar.)
+		bar.name:SetText(entry.afk and (entry.name .. " " .. L.XPBAR_AFK) or entry.name)
+		bar:SetAlpha(entry.afk and LAYOUT.afkBarAlpha or 1)
 		bar.level:SetText(entry.levelText)
 		bar.text:SetText(entry.text)
 		-- Health and power, when known (a friend on an older version sends none).
@@ -2426,6 +2551,11 @@ Bus:On("GROUP_CHANGED", function()
 		Panel:UpdateXpBars()
 		Panel:Refresh()
 	end
+end)
+
+-- You went away or came back (collectors\afk.lua): your bar's AFK tag.
+Bus:On("AFK_CHANGED", function()
+	if frame then Panel:UpdateXpBars() end
 end)
 
 Bus:On("PEERS_CHANGED", function()

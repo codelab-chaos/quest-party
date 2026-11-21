@@ -281,6 +281,18 @@ local function Badge(def, entry)
 	return value ~= nil and { style = badge.style, text = tostring(value) } or nil
 end
 
+-- A row's square (data\marks.lua): its type's, unless the row belongs to
+-- another filter (feedOnlyIf: XP from a kill is a Kills row), then that
+-- filter's, so the square always matches the filter icon that hides it.
+local function MarkFor(entry, def)
+	local category = ns.FeedCategory(entry, def)
+	if category ~= def.setting then
+		local gutter = ns.GutterBySetting[category]
+		if gutter and gutter.mark then return gutter.mark end
+	end
+	return def.mark
+end
+
 local function FeedRow(entry, now)
 	local def = ns.FeedTypes[entry.type]
 	local stampKey = ns.Stamping:KeyFor(entry)
@@ -299,7 +311,7 @@ local function FeedRow(entry, now)
 		class = entry.class,
 		sequence = entry.sequence or 0,
 		icon = def.icon,
-		mark = def.mark, -- the square on the right (data\marks.lua)
+		mark = MarkFor(entry, def), -- the square on the right
 		markIcon = def.markIcon and def.markIcon(entry) or nil, -- its own art, if any
 		title = title,
 		right = ns.Ago(now - entry.time),
@@ -319,6 +331,11 @@ local function FeedRow(entry, now)
 		badge = Badge(def, entry),
 		pulse = (now - entry.time <= PULSE_SECONDS) and (entry.player .. "/" .. entry.time .. "/" .. title),
 	}
+end
+
+-- One entry as a feed row, for elsewhere (the dock: ui\dock.lua).
+function ViewModel:FeedRowFor(entry)
+	return FeedRow(entry, GetServerTime())
 end
 
 -- ========= The party's XP bars ==============================================
@@ -417,6 +434,13 @@ function ViewModel:PartyBars()
 			end
 			if vitals then
 				bar.health, bar.power, bar.powerType = vitals.h, vitals.p, vitals.t
+			end
+			-- Away from the keyboard: still here, unlike someone gone (no bar).
+			if member.me or ns.IsMe(member.name) then
+				bar.afk, bar.afkSince = ns.Away and ns.Away.afk or nil, ns.Away and ns.Away.since
+			else
+				local peer = ns.Session.peers[member.name]
+				bar.afk, bar.afkSince = peer and peer.afk, peer and peer.afkSince
 			end
 			-- The level goes in the middle of the bar; text is what is left.
 			bar.levelText = tostring(member.level or "?")

@@ -73,5 +73,5 @@ ns.StampRules = {
 	perPlayer = 5, -- different stamps one player can put on one card
 	keepDays = 7, -- stamps kept, like the stats
 	fadeSeconds = 15, -- with Stamps fade on, how long one stays inked
-	maxText = 64, -- the longest card key that travels
+	maxText = 160, -- the longest card key that travels: a long name and quest title, with when (w), fit; the message stays well under the game's 255
 }

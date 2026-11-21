@@ -21,6 +21,7 @@ Protocol.Kinds = {
 	GEAR = "G", -- equipped items, by slot: one slot when it changes, the whole set when asked.
 	STAMP = "T", -- a stamp on a feed card: k the card's key (stamps.lua), s the stamp's id; or e, an effect played on it.
 	VITALS = "V", -- health and power: h and p as whole percents (steps of ns.Timing.vitalsStep), t the power token (MANA, RAGE...).
+	WHERE = "L", -- where the sender is (wm, wx, wy), when nothing else has said so for a while.
 	SAY = "S", -- Quest Party chat: up to three icons' file IDs (i, i2, i3), a saying's id (k) and an effect's id (e), c the sender's class.
 }
 

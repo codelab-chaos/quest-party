@@ -150,11 +150,26 @@ function StampView:Close()
 	ClosePicker()
 end
 
--- The picker for a card, at the mouse (a right-click on the card).
+-- Whether a frame is inside another (a feed card inside the panel).
+local function Inside(frame, outer)
+	while frame do
+		if frame == outer then return true end
+		frame = frame.GetParent and frame:GetParent()
+	end
+	return false
+end
+
+-- The picker for a feed card (a right-click on it).
 function StampView:Open(row)
-	local entry = row.stampEntry
+	return self:OpenFor(row.stampEntry, row)
+end
+
+-- The picker for an entry, opened from a frame showing it: a feed card in
+-- the panel, or a drawer of the minimized dock (ui\dock.lua) while the
+-- panel is hidden.
+function StampView:OpenFor(entry, at)
 	if not entry then return false end
-	-- Done with this card (two stamps on it): say so instead.
+	-- Done with this card (all your stamps on it): say so instead.
 	local key = ns.Stamping:KeyFor(entry)
 	if not ns.Stamping:May(key, ns.MyName()) then
 		ns.Print(L.STAMP_DONE)
@@ -173,16 +188,27 @@ function StampView:Open(row)
 		cell:SetEnabled(not used[cell.id])
 		cell:SetAlpha(used[cell.id] and 0.35 or 1)
 	end
-	-- Under the card, its right edge with the card's, held to the panel (the
-	-- list redraws its cards, so not to the card itself).
-	local host = picker:GetParent()
+	local panel = ns.Panel and ns.Panel.GetFrame and ns.Panel:GetFrame()
 	picker:ClearAllPoints()
-	local right, bottom = row.GetRight and row:GetRight(), row.GetBottom and row:GetBottom()
-	local hostLeft, hostTop = host:GetLeft(), host:GetTop()
-	if type(right) == "number" and type(bottom) == "number" and type(hostLeft) == "number" and type(hostTop) == "number" then
-		picker:SetPoint("TOPRIGHT", host, "TOPLEFT", right - hostLeft, bottom - hostTop - 2)
+	if panel and panel:IsVisible() and Inside(at, panel) then
+		-- Under the card, its right edge with the card's, held to the panel
+		-- (the list redraws its cards, so not to the card itself).
+		picker:SetParent(panel)
+		picker:SetFrameStrata("DIALOG")
+		local right, bottom = at.GetRight and at:GetRight(), at.GetBottom and at:GetBottom()
+		local hostLeft, hostTop = panel:GetLeft(), panel:GetTop()
+		if type(right) == "number" and type(bottom) == "number" and type(hostLeft) == "number" and type(hostTop) == "number" then
+			picker:SetPoint("TOPRIGHT", panel, "TOPLEFT", right - hostLeft, bottom - hostTop - 2)
+		else
+			picker:SetPoint("CENTER", panel, "CENTER")
+		end
 	else
-		picker:SetPoint("CENTER", host, "CENTER")
+		-- From the dock: over the screen, just above the mouse.
+		picker:SetParent(UIParent)
+		picker:SetFrameStrata("DIALOG")
+		local x, y = GetCursorPosition()
+		local scale = UIParent:GetEffectiveScale()
+		picker:SetPoint("BOTTOM", UIParent, "BOTTOMLEFT", x / scale, y / scale + 12)
 	end
 	picker:Show()
 	picker:Raise()

@@ -115,10 +115,18 @@ end
 -- Where you are (collectors\location.lua), added to a message's fields: wm,
 -- wx, wy. Each update says where it happened; the party's map shows each
 -- player's last known spot (ui\map-pins.lua).
+-- What was last said of where you are, and when: the gap filler (WHERE,
+-- below) goes only when nothing has said it for a while and you moved.
+local lastWhere = { at = -math.huge }
+
 local function AddWhere(fields)
+	if not ns.IsEnabled("shareLocation") then return end -- Share location, off: nothing of where
 	local here = ns.Location and ns.Location.Fields()
 	for key, value in pairs(here or {}) do
 		if fields[key] == nil then fields[key] = value end
+	end
+	if here then
+		lastWhere = { at = GetTime(), wm = fields.wm, wx = fields.wx, wy = fields.wy }
 	end
 end
 
@@ -145,12 +153,14 @@ local function MyFields()
 	if vitals then
 		fields.h, fields.p, fields.t = vitals.h, vitals.p, vitals.t
 	end
-	-- Professions, id and rank (collectors\\professions.lua).
+	-- Professions, id and rank (collectors\professions.lua).
 	local professions = ns.ProfessionsCollector and ns.ProfessionsCollector.text
 	if professions and professions ~= "" then
 		fields.k = professions
 	end
 	AddWhere(fields)
+	-- Away from the keyboard (collectors\afk.lua): af, only while it is so.
+	if ns.Away and ns.Away.afk then fields.af = 1 end
 	return fields
 end
 
@@ -300,6 +310,14 @@ local function AddPeer(name, fields, virtual)
 	local vitals = ReadVitals(fields)
 	if vitals then
 		peer.vitals = vitals
+	end
+	-- Away (af): said in every hello and presence (they carry v), so one
+	-- without it means back. Their other messages say nothing of it.
+	if fields.v ~= nil then
+		local afk = fields.af == 1
+		if afk and not peer.afk then peer.afkSince = GetServerTime() end
+		peer.afk = afk or nil
+		if not afk then peer.afkSince = nil end
 	end
 	local place = ns.Location.Read(fields)
 	if place then
@@ -984,7 +1002,44 @@ Bus:On("OWN_QUEST_READ", function(quest)
 	end
 end)
 
--- Our professions changed (already settled: collectors\\professions.lua):
+-- Where you are, alone: after ns.Timing.whereSeconds with nothing else
+-- saying it (every update does), and only if you moved since, so the party's
+-- map keeps up while you travel and says nothing while you stand still.
+local function SendWhere()
+	if Session().state ~= "connected" or not ns.IsEnabled("shareLocation") then return end
+	if GetTime() - lastWhere.at < ns.Timing.whereSeconds then return end
+	local here = ns.Location and ns.Location.Fields()
+	if not here then return end
+	if here.wm == lastWhere.wm and here.wx == lastWhere.wx and here.wy == lastWhere.wy then return end
+	local fields = {}
+	AddWhere(fields)
+	Send(Kinds.WHERE, fields)
+end
+Sharing.SendWhere = SendWhere
+
+Bus:On("READY", function()
+	C_Timer.NewTicker(ns.Timing.whereSeconds / 4, SendWhere)
+end)
+
+-- Where a player is, from the gap filler: their pin moves.
+handlers[Kinds.WHERE] = function(sender, fields)
+	local peer = Session().peers[sender]
+	local place = ns.Location.Read(fields)
+	if not peer or not place then return end
+	place.time = GetServerTime()
+	peer.where = place
+	peer.heard = GetTime()
+	Bus:Fire("PEERS_CHANGED", peer)
+end
+
+-- Away or back (collectors\afk.lua): everyone hears at once, in a presence.
+Bus:On("AFK_CHANGED", function()
+	if Session().state == "connected" then
+		Send(Kinds.PRESENCE, MyFields())
+	end
+end)
+
+-- Our professions changed (already settled: collectors\professions.lua):
 -- everyone hears, in a presence.
 Bus:On("PROFESSIONS_CHANGED", function()
 	if Session().state == "connected" then

@@ -38,8 +38,17 @@ local LAYOUT = {
 -- line and takes no room of its own; with Custom KekChat, the bar sits on
 -- the line in a row of its own.
 ChatView.height = LAYOUT.bar
+
+-- Custom KekChat (the builder: images, typing, Send, Save, your saves) is
+-- off for now (owner, 2026-11-20): KekChat is its quick chats. Set true to
+-- bring it back, with its switch in data\settings.lua (kekChatCustom).
+local CUSTOM = false
+function ChatView:CustomOn()
+	return CUSTOM and ns.IsEnabled("kekChatCustom")
+end
+
 function ChatView:Straddles()
-	return not ns.IsEnabled("kekChatCustom")
+	return not ChatView:CustomOn()
 end
 -- Room the bar takes above the line.
 function ChatView:Room()
@@ -727,7 +736,7 @@ end
 -- Send, Save and your saves, beside KekChat. Off, KekChat's quick chats are
 -- the whole bar.
 function ChatView:ShowCustom()
-	local on = ns.IsEnabled("kekChatCustom")
+	local on = self:CustomOn()
 	for _, part in ipairs(self.custom or {}) do
 		part:SetShown(on)
 	end
@@ -784,7 +793,7 @@ end
 
 Bus:On("READY", Build)
 Bus:On("SETTING_CHANGED", function(id)
-	if id == "kekChatCustom" then
+	if CUSTOM and id == "kekChatCustom" then
 		ChatView:ShowCustom()
 		ns.Panel:PlaceComposer() -- on the line, or in a row of its own
 	end

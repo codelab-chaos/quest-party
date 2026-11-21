@@ -832,6 +832,18 @@ test("XP gains keep each player's XP, and your own bar comes first", function()
 	equal(w.ns.ViewModel:PartyBars()[1].have, 550)
 end)
 
+test("a kill row wears the Kills square, the filter that hides it; other XP keeps the XP square", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:ingest("xp", { xp = 50, mob = "Kobold", level = 9, currentXP = 100, maxXP = 1000 }, "Friend")
+	w:ingest("xp", { xp = 85, level = 9, currentXP = 185, maxXP = 1000 }, "Friend")
+	local marks = {}
+	for _, row in ipairs(w.ns.ViewModel:Build("all")) do
+		if row.title:find("Kobold", 1, true) then marks.kill = row.mark else marks.xp = row.mark end
+	end
+	equal(marks.kill, "kills")
+	equal(marks.xp, "xp")
+end)
+
 test("an XP gain names the kill behind it when the game said, and not otherwise", function()
 	local w = Harness.new()
 	w:share() -- the channel is the feed: your own news comes back on it
@@ -1649,6 +1661,7 @@ end)
 
 test("one tab per player: a friend's or your own other characters have no tab, their history stays", function()
 	local w = Harness.new({ switches = { chatEcho = false } })
+	w.ns.SetEnabled("showAlts", false) -- alts as greyed heads is its own test
 	w:share()
 	-- A friend on one character, then on another.
 	w:hear("H", { v = "0.3.5", c = "WARRIOR", l = 10, z = "Mulgore", a = "abc123" }, "Mainchar")
@@ -1779,6 +1792,21 @@ test("each death is its own card for stamps, named by when it happened, the same
 		if entry.type == "death" then theirs = friend.ns.Stamping:KeyFor(entry) end
 	end
 	equal(theirs, keys[1])
+end)
+
+test("a card with a long name and quest title can still be stamped, and its stamp fits one message", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	local entry = { type = "quest_complete", player = "Mcdouble Whopper", data = { quest = "Cry of the Thunderhawk and the Longest Quest Name", w = 1795125540 } }
+	local key = w.ns.Stamping:KeyFor(entry)
+	assert(key ~= nil, "stampable")
+	equal(w.ns.Stamping:Send(entry, "wow"), true)
+	local text
+	for _, message in ipairs(w.sent) do
+		if message.text:match("^1:T:") then text = message.text end
+	end
+	assert(text and #text <= w.ns.Protocol.maxLength, "fits one message")
+	equal(w.ns.Stamping:For(key)[1].id, "wow") -- and it lands when it comes back
 end)
 
 test("a quest picked up, dropped and picked up again is a new card each time; a kill run keeps one", function()
@@ -2704,6 +2732,124 @@ test("location: every update says where it happened, and each player's last know
 	w.ns.Sharing:SendVirtual({ name = "Pretend", class = "MAGE" }, "discovery", { zone = "Elsewhere" })
 	sent = sentOfKind(w, "E")
 	equal(sent[#sent].fields.wm, nil)
+end)
+
+test("alts: with Show alts, a player's other characters stay as greyed heads after everyone; off, one head each", function()
+	local w = Harness.new()
+	w:share()
+	-- Buddy's main is here; his alt and your own alt were seen before.
+	w:hear("H", { c = "MAGE", l = 20, v = "0.3.8", a = "b0b0b0" }, "Buddy")
+	w:hear("H", { c = "ROGUE", l = 9, v = "0.3.8", a = "b0b0b0" }, "Buddyalt")
+	w:hear("H", { c = "DRUID", l = 7, v = "0.3.8", a = w.ns.Sharing.PlayerId() }, "Myalt")
+	w:hear("H", { c = "PRIEST", l = 12, v = "0.3.8", a = "c0c0c0" }, "Gone")
+	for _, name in ipairs({ "Buddyalt", "Myalt", "Gone" }) do w.ns.Session.peers[name] = nil end -- they left
+	local function Names()
+		local list = {}
+		for _, head in ipairs(w.ns.PartyModel:Heads()) do
+			list[#list + 1] = head.name .. (head.alt and "(alt)" or "") .. (head.here and "" or "-")
+		end
+		return table.concat(list, " ")
+	end
+	equal(Names(), w.ns.MyName() .. " Buddy Gone- Buddyalt(alt)- Myalt(alt)-")
+	w.ns.SetEnabled("showAlts", false)
+	equal(Names(), w.ns.MyName() .. " Buddy Gone-")
+end)
+
+test("AFK: you going away is said at once; a friend away keeps their bar, marked, and back clears it", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	-- You: the game's flag goes up, a presence says so.
+	local afk = true
+	w.env.UnitIsAFK = function() return afk end
+	w.ns.Away:Check()
+	local sent = sentOfKind(w, "P")
+	equal(sent[#sent].fields.af, 1)
+	local mine
+	for _, bar in ipairs(w.ns.ViewModel:PartyBars()) do if bar.name == w.ns.MyName() then mine = bar end end
+	equal(mine.afk, true)
+	afk = false
+	w.ns.Away:Check()
+	sent = sentOfKind(w, "P")
+	equal(sent[#sent].fields.af, nil) -- back: no af
+	-- A friend: away in a presence, still away after an update, back in the next presence.
+	local function Bar(name)
+		for _, bar in ipairs(w.ns.ViewModel:PartyBars()) do if bar.name == name then return bar end end
+	end
+	w:hear("H", { c = "MAGE", l = 20, v = "0.3.8" }, "Buddy")
+	equal(Bar("Buddy").afk, nil)
+	w:hear("P", { c = "MAGE", l = 20, v = "0.3.8", af = 1 }, "Buddy")
+	equal(Bar("Buddy").afk, true)
+	w:hear("E", { t = "level", c = "MAGE", level = 21 }, "Buddy")
+	equal(Bar("Buddy").afk, true) -- an update says nothing of it
+	w:hear("P", { c = "MAGE", l = 21, v = "0.3.8" }, "Buddy")
+	equal(Bar("Buddy").afk, nil)
+	-- Gone is not away: no bar at all.
+	w.ns.Session.peers.Buddy = nil
+	equal(Bar("Buddy"), nil)
+end)
+
+test("opacity: the slider sets it, and On hover leaves it, makes it solid, or fainter", function()
+	local w = Harness.new()
+	local O = w.ns.Opacity
+	equal(O.Now(false), 1) -- out of the box: solid, nothing changes
+	equal(O.Now(true), 1)
+	w.ns.SetSlider("opacity", 60)
+	equal(O.Now(false), 0.6)
+	equal(O.Now(true), 0.6) -- On hover off: the same either way
+	w.ns.SetSlider("hoverOpacity", 1)
+	equal(O.Now(true), 1) -- solid on hover
+	equal(O.Now(false), 0.6)
+	w.ns.SetSlider("hoverOpacity", 2)
+	equal(O.Now(true), 0.3) -- fainter on hover: half of it
+	w.ns.SetSlider("opacity", 30)
+	equal(O.Now(true), 0.2) -- never fainter than 20%, the slider's own bottom
+	equal(O.least, w.ns.SliderById.opacity.min / 100)
+	equal(w.ns.SetSlider("opacity", 5), 20) -- held to the slider's range
+end)
+
+test("where you are goes out alone after a quiet minute, only if you moved; a friend's pin follows", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	local spot = { 0.50, 0.30 }
+	w.env.C_Map = {
+		GetBestMapForUnit = function() return 1413 end,
+		GetPlayerMapPosition = function() return { GetXY = function() return spot[1], spot[2] end } end,
+	}
+	w:share() -- the hello says where you are
+	local function Alone() return #sentOfKind(w, "L") end
+	w.ns.Sharing.SendWhere()
+	equal(Alone(), 0) -- the hello just said it
+	w:advance(61)
+	w.ns.Sharing.SendWhere()
+	equal(Alone(), 0) -- a minute on, but you have not moved
+	spot[1] = 0.55
+	w.ns.Sharing.SendWhere()
+	equal(Alone(), 1) -- moved: it goes
+	local sent = sentOfKind(w, "L")
+	equal(sent[1].fields.wx, 550)
+	spot[1] = 0.60
+	w:advance(30)
+	w.ns.Sharing.SendWhere()
+	equal(Alone(), 1) -- not a minute yet
+	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 368, "Discovered: Red Cloud Mesa") -- an update says it
+	w:advance(45)
+	w.ns.Sharing.SendWhere()
+	equal(Alone(), 1) -- the update reset the minute
+	-- Share location off: nothing of where goes, with updates or alone.
+	w.ns.SetEnabled("shareLocation", false)
+	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 368, "Discovered: Camp Taurajo")
+	sent = sentOfKind(w, "E")
+	equal(sent[#sent].fields.wm, nil)
+	spot[1] = 0.9
+	w:advance(120)
+	w.ns.Sharing.SendWhere()
+	equal(Alone(), 1)
+	w.ns.SetEnabled("shareLocation", true)
+	-- A friend's: their last known position moves.
+	w:hear("H", { c = "MAGE", l = 20, v = "0.3.8", wm = 1413, wx = 100, wy = 100 }, "Buddy")
+	w:hear("L", { wm = 1413, wx = 700, wy = 200 }, "Buddy")
+	local buddy
+	for _, member in ipairs(w.ns.Store:GetMembers()) do if member.name == "Buddy" then buddy = member end end
+	equal(buddy.where.x, 0.7)
 end)
 
 test("recent channels: the last five used, newest first, one click to switch back", function()

@@ -5,6 +5,29 @@ CurseForge's changelog field using Markdown formatting.
 
 ## Unreleased
 
+### Changed
+
+- Custom KekChat is off for now: KekChat is its quick chats and effects. The builder (images, typing, saves) is gone from Settings.
+- A feed row's avatar ring is in its player's own color, as their head and XP bar (your game group's in the party's color).
+- Kill rows ("Kills Kolkar Wrangler x2 for 202 XP") wear the Kills square, not the XP one: a row's square now always matches the filter icon that hides it. XP rows are only XP.
+- Minimize sits right beside close in the title bar; close stays at the far right.
+- The view button shows three bars for compact rows and two for detailed (compact showed one, which looked like minimize).
+- Share location in Settings (on by default): off, nothing of where you are is sent.
+- Players on the map keep up while travelling: with no other update for a minute, a small message says where you are, only if you moved. Friends on 0.3.7 ignore it.
+- The dock, minimized: a drawer comes out only when the mouse is on the dock or within a few pixels of it, only the one under the mouse, and it glides out more slowly.
+
+### Added
+
+- The minimized dock's drawers are the feed's own rows: the same look, stamps, hover and right-click to stamp (or mute) as in the feed. Compact dock in Settings uses one-line rows, so twice as many fit.
+- AFK on the party bars: a player who goes AFK keeps their bar, dimmed with an AFK tag, and hovering it says for how long. It clears the moment they are back. Someone who logged off has no bar, so away and gone never look alike. Friends need 0.3.8 for theirs to show.
+- Show alts: a player's other characters, yours included, stay in the side bar after everyone else as smaller heads with a violet ring and a dimmed portrait ("Alt" on hover), so they save room; click one for its card. On by default; off, each player has one head.
+- Opacity: a slider in Settings makes Quest Party see-through (20% to 100%), its side bar, player card and KekChat included. On hover sets what happens while the mouse is over it: Off, Solid on hover, or Fainter on hover. An opacity button in the title bar opens a short slider to set it live, and its mouse wheel steps it.
+
+### Fixed
+
+- Cards with a long player name and quest title could not be stamped (right-click did nothing) since 0.3.7 added when each event happened to its card's name. Card names can now be much longer. A friend still on 0.3.7 will not see stamps on those cards until they update.
+- The dock pulled a tucked-in drawer out with the mouse far from it, anywhere the drawer could reach once out.
+
 ## 0.3.7 - 2026-11-20
 
 KekChat moves into the feed, effects move onto cards, and Quest Party learns

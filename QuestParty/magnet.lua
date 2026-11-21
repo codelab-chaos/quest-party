@@ -18,8 +18,8 @@ ns.Magnet = Magnet
 
 Magnet.DEFAULTS = {
 	maxEntries = 7, -- the most keys shown
-	stiffness = 150, -- the extension spring
-	damping = 25, -- about critical (2 * sqrt(stiffness) = 24.5): glides and stops, no bounce
+	stiffness = 60, -- the extension spring: unhurried, about half a second out
+	damping = 16, -- about critical (2 * sqrt(stiffness) = 15.5): glides and stops, no bounce
 	slotStiffness = 120, -- the slot spring: rolling up a place
 	slotDamping = 22,
 	revealSeconds = 1.0, -- a new arrival shows itself this long, then settles

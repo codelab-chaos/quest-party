@@ -16,6 +16,9 @@ local LAYOUT = {
 	headMax = 46,
 	headMin = 26,
 	headOverlap = 0.15, -- of a head's size, under the next one
+	altScale = 0.65, -- an alt's head, of a head's size: smaller, to save room
+	altAlpha = 0.7, -- its portrait, dimmer
+	altRing = 1, -- and a thinner ring
 	headTop = 2, -- the first head's top, from the drawer's top
 	ring = 2, -- the ring around a head, in its class color
 	ringSelected = 3,
@@ -78,6 +81,7 @@ local COLORS = {
 	back = { 0.05, 0.04, 0.08, 0.92 }, -- as the panel
 	border = { 0.80, 0.65, 0.20, 1 },
 	ringGone = { 0.45, 0.45, 0.45, 1 }, -- someone who left or went quiet
+	ringAlt = { 0.55, 0.45, 0.75, 1 }, -- an alt: another character of a player shown
 	selected = { 1, 0.85, 0.35, 1 },
 	drawer = { 0.05, 0.04, 0.08, 0.92 }, -- as the panel
 	tab = { 0.08, 0.07, 0.10, 1 },
@@ -146,7 +150,8 @@ local function StatusLine(data)
 	if data.here then
 		return L.CARD_ONLINE
 	end
-	return L.CARD_AS_OF:format(ns.Ago(data.seenAgo or 0))
+	local line = L.CARD_AS_OF:format(ns.Ago(data.seenAgo or 0))
+	return data.alt and (L.CARD_ALT .. ", " .. line) or line -- another character of a player shown
 end
 
 -- ========= Heads ============================================================
@@ -277,7 +282,7 @@ local function DrawHead(button, data, size, top)
 	local order = data.name == Party.selected and LAYOUT.headSelected or math.min(button.order, LAYOUT.headOrders)
 	button:SetFrameLevel(strip:GetFrameLevel() + LAYOUT.headLevel + order)
 	Slide(button, moved)
-	local ring = data.name == Party.selected and LAYOUT.ringSelected or LAYOUT.ring
+	local ring = data.name == Party.selected and LAYOUT.ringSelected or (data.alt and LAYOUT.altRing) or LAYOUT.ring
 	button.portrait:ClearAllPoints()
 	button.portrait:SetPoint("TOPLEFT", ring, -ring)
 	button.portrait:SetPoint("BOTTOMRIGHT", -ring, ring)
@@ -295,10 +300,14 @@ local function DrawHead(button, data, size, top)
 		and (unit or sent) and ns.Look.DrawVitals(button.health, button.power, unit, sent) or false
 	button.health:SetShown(bars)
 	button.power:SetShown(bars)
+	-- An alt (Show alts): dimmer, unless it is the one selected.
+	button.portrait:SetAlpha((data.alt and data.name ~= Party.selected) and LAYOUT.altAlpha or 1)
 	-- In color only when selected.
 	button.portrait:SetDesaturated(data.name ~= Party.selected)
 	if data.name == Party.selected then
 		button.ring:SetVertexColor(unpack(COLORS.selected))
+	elseif data.alt then
+		button.ring:SetVertexColor(unpack(COLORS.ringAlt))
 	elseif not data.here then
 		button.ring:SetVertexColor(unpack(COLORS.ringGone))
 	else
@@ -322,18 +331,25 @@ local function DrawHeads(list)
 	Party.portraitTop = nil
 	local size, step, fits = Fit(#list)
 	Party.offset = math.max(0, math.min(Party.offset, #list - fits))
-	local shown = 0
+	-- Each head under the last, overlapping it; an alt's smaller (altScale),
+	-- so it takes less room.
+	local shown, top, bottom = 0, LAYOUT.headTop, LAYOUT.headTop
+	local share = step / size
 	for index = Party.offset + 1, math.min(#list, Party.offset + fits) do
 		shown = shown + 1
 		local button = heads[shown] or CreateHead()
 		heads[shown] = button
 		button.order = shown
-		DrawHead(button, list[index], size, LAYOUT.headTop + (shown - 1) * step)
+		local data = list[index]
+		local own = data.alt and math.floor(size * LAYOUT.altScale + 0.5) or size
+		DrawHead(button, data, own, top)
+		bottom = top + own
+		top = top + math.floor(own * share + 0.5)
 	end
 	-- The drawer is only as tall as its heads, and not there with none.
 	SetDrawerShown(shown > 0)
 	if shown > 0 then
-		strip:SetHeight(LAYOUT.headTop + size + (shown - 1) * step + LAYOUT.drawerPad)
+		strip:SetHeight(bottom + LAYOUT.drawerPad)
 	end
 	for index = shown + 1, #heads do
 		heads[index]:Hide()
