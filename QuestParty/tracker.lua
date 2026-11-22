@@ -70,6 +70,16 @@ function Tracker:Add(player, stat, amount, at)
 	book.days[day][stat] = (book.days[day][stat] or 0) + amount
 end
 
+-- Sets one of a player's numbers from the game (a stat whose source is
+-- "game"): its latest value, kept apart from what we count.
+function Tracker:Set(player, stat, value)
+	value = tonumber(value)
+	if not player or not value or value < 0 then return end
+	local book = self:Book(player)
+	book.game = book.game or {}
+	book.game[stat] = value
+end
+
 -- Days past TrackerRules.days fold into their month, months past
 -- TrackerRules.months into their year. Totals never change.
 local function Fold(into, key, tally)
@@ -215,10 +225,53 @@ function Tracker:Jumped()
 	self:Add(ns.MyName(), "j", 1)
 end
 
--- Time: every clock seconds, played or AFK (collectors\afk.lua).
+-- Time: every clock seconds, played or AFK (collectors\afk.lua). The game's
+-- played times, once known, keep up with the same clock between asks.
 function Tracker:Tick()
 	local seconds = ns.TrackerRules.clock
-	self:Add(ns.MyName(), (ns.Away and ns.Away.afk) and "tk" or "ta", seconds)
+	local me = ns.MyName()
+	self:Add(me, (ns.Away and ns.Away.afk) and "tk" or "ta", seconds)
+	local game = ns.db.tracker[me] and ns.db.tracker[me].game
+	if game and game.gp then
+		self:Set(me, "gp", game.gp + seconds)
+		self:Set(me, "gl", (game.gl or 0) + seconds)
+	end
+end
+
+-- The game's played times (/played), asked quietly: the chat frames that
+-- print "Total time played" stop listening for the one answer, then listen
+-- again (on the answer, or after a few seconds if none comes).
+local muted
+local function Listen()
+	for _, chat in ipairs(muted or {}) do chat:RegisterEvent("TIME_PLAYED_MSG") end
+	muted = nil
+end
+
+function Tracker:AskPlayed()
+	if not RequestTimePlayed or muted then return end
+	muted = GetFramesRegisteredForEvent and { GetFramesRegisteredForEvent("TIME_PLAYED_MSG") } or {}
+	for _, chat in ipairs(muted) do chat:UnregisterEvent("TIME_PLAYED_MSG") end
+	RequestTimePlayed()
+	C_Timer.After(5, Listen)
+end
+
+-- How many quests this character has ever completed, by the game.
+function Tracker:CompletedQuests()
+	local list = C_QuestLog and C_QuestLog.GetAllCompletedQuestIDs and C_QuestLog.GetAllCompletedQuestIDs()
+		or GetQuestsCompleted and GetQuestsCompleted()
+	if type(list) ~= "table" then return end
+	local count = 0
+	for _ in pairs(list) do count = count + 1 end
+	self:Set(ns.MyName(), "gq", count)
+end
+
+function Tracker:Played(total, level)
+	Listen()
+	local function Readable(value)
+		return type(value) == "number" and not (issecretvalue and issecretvalue(value))
+	end
+	if Readable(total) then self:Set(ns.MyName(), "gp", total) end
+	if Readable(level) then self:Set(ns.MyName(), "gl", level) end
 end
 
 -- Money: what changed since the last look, in or out.
@@ -254,16 +307,31 @@ end
 -- { since, sections = { { label, rows } }, mobs = { { label, text } } }
 function Tracker:View(player, period, now)
 	local tally = self:Period(player, period, now)
+	-- The game's own numbers are as of now: all time only.
+	local held = ns.db.tracker[player]
+	if period == "all" and held and held.game then
+		local merged = {}
+		for stat, value in pairs(tally) do merged[stat] = value end
+		for stat, value in pairs(held.game) do merged[stat] = value end
+		tally = merged
+	end
 	local sections = {}
 	for _, category in ipairs(ns.TrackerCategories) do
 		local rows = {}
 		for _, stat in ipairs(ns.TrackerStats) do
 			local value = tally[stat.id]
 			if stat.category == category.id and value and value > 0 then
-				rows[#rows + 1] = { label = stat.label, text = ns.TrackerText(stat.id, value) }
+				local row = { label = stat.label, text = ns.TrackerText(stat.id, value) }
+				-- Ours for the same thing, beside it.
+				if stat.compare then
+					local ours = 0
+					for _, id in ipairs(stat.compare) do ours = ours + (tally[id] or 0) end
+					row.compare = ns.TrackerText(stat.id, ours)
+				end
+				rows[#rows + 1] = row
 			end
 		end
-		if #rows > 0 then sections[#sections + 1] = { label = category.label, rows = rows } end
+		if #rows > 0 then sections[#sections + 1] = { label = category.label, rows = rows, columns = category.columns } end
 	end
 	-- Your most killed creatures, all time.
 	local mobs = {}
@@ -309,17 +377,30 @@ Bus:On("STAMPED", function(key, stamp)
 end)
 
 Bus:On("READY", function()
-	Tracker:Add(ns.MyName(), "ts", 1) -- a session
 	Tracker:Money()
+	C_Timer.After(3, function()
+		Tracker:AskPlayed()
+		Tracker:CompletedQuests()
+	end)
 	C_Timer.NewTicker(ns.TrackerRules.sample, function() Tracker:Sample() end)
 	C_Timer.NewTicker(ns.TrackerRules.clock, function() Tracker:Tick() end)
 	local frame = CreateFrame("Frame")
-	for _, event in ipairs({ "PARTY_KILL", "PLAYER_MONEY" }) do
+	for _, event in ipairs({ "PARTY_KILL", "PLAYER_MONEY", "PLAYER_ENTERING_WORLD", "TIME_PLAYED_MSG", "PLAYER_LEVEL_UP", "QUEST_TURNED_IN" }) do
 		pcall(frame.RegisterEvent, frame, event)
 	end
+	-- attacker and target: the first two arguments, named for PARTY_KILL.
 	frame:SetScript("OnEvent", function(_, event, attacker, target)
 		if event == "PLAYER_MONEY" then
 			Tracker:Money()
+		elseif event == "PLAYER_ENTERING_WORLD" then
+			-- A login, not a /reload or a loading screen.
+			if attacker == true then Tracker:Add(ns.MyName(), "ts", 1) end
+		elseif event == "TIME_PLAYED_MSG" then
+			Tracker:Played(attacker, target)
+		elseif event == "QUEST_TURNED_IN" then
+			C_Timer.After(1, function() Tracker:CompletedQuests() end)
+		elseif event == "PLAYER_LEVEL_UP" then
+			C_Timer.After(2, function() Tracker:AskPlayed() end) -- this level starts at 0
 		elseif event == "PARTY_KILL" then
 			-- A hidden value cannot even be compared: such a kill is named later.
 			if issecretvalue and (issecretvalue(attacker) or issecretvalue(target)) then return end

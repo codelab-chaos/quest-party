@@ -51,6 +51,13 @@ return function(Harness, options)
 		local ok, problem = pcall(function() ns.Panel:SelectFilter(filter.id) end)
 		if not ok then problems[#problems + 1] = filter.id .. ": " .. tostring(problem) end
 	end
+	-- Every view of a tab with several (Fuel | Stats).
+	for _, filter in ipairs(ns.Filters) do
+		for _, view in ipairs(filter.views or {}) do
+			local ok, problem = pcall(function() ns.Panel:OpenTab(filter.id, view.id) end)
+			if not ok then problems[#problems + 1] = filter.id .. "/" .. view.id .. ": " .. tostring(problem) end
+		end
+	end
 	local ok, problem = pcall(function() ns.Panel:Toggle() ns.Panel:Toggle() end)
 	if not ok then problems[#problems + 1] = problem end
 	-- A full party: options.players on the channel, every one drawn (the XP

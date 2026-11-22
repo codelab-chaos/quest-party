@@ -69,6 +69,7 @@ ui\icon-browser.lua
 ui\kek-editor.lua
 ui\kek-blocked.lua
 ui\tracker.lua
+ui\view-switch.lua
 ui\stamps.lua
 ui\quest-card.lua
 ui\panel.lua

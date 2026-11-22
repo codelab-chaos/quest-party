@@ -22,8 +22,8 @@ local LAYOUT = {
 	filterGap = 3,
 	cycleSize = 14, -- the Quest tab's layout gear
 	questBarHeight = 18, -- the Quest tab's own row at the top of its list
-	tabMinWidth = 64, -- tabs fit their labels, at least this wide
-	tabPad = 14, -- either side of a tab's label
+	tabMinWidth = 52, -- tabs fit their labels, at least this wide
+	tabPad = 8, -- either side of a tab's label
 	-- The filter row: a row of icons along the bottom of the panel, under the
 	-- feed (the code calls it the gutter). Sizes at a scale of 1; the Filter icon
 	-- size slider scales them.
@@ -179,13 +179,14 @@ end
 
 -- Room kept on the right of each line for the count or time.
 local RIGHT_TEXT_WIDTH = 58 -- the most the time or count can take
+local RIGHT_TEXT_GAP = 5 -- between a row's words and its time: the words come first
 
 -- How far from the right a row's text must stop: just clear of what is on
 -- the right (the time, a count), not a fixed width, so titles run as far as
 -- they can. With nothing there, a small margin.
 local function RightRoom(fontString, text)
 	if not text or text == "" then return 8 end
-	return math.min(RIGHT_TEXT_WIDTH, math.ceil(fontString:GetStringWidth() or RIGHT_TEXT_WIDTH)) + 12
+	return math.min(RIGHT_TEXT_WIDTH, math.ceil(fontString:GetStringWidth() or RIGHT_TEXT_WIDTH)) + RIGHT_TEXT_GAP
 end
 
 -- The room kept at a detail line's right when it has nothing there: stamps
@@ -593,6 +594,7 @@ end
 -- and sex) when known, their class otherwise (the game's round class icons). On the right, the event's mark in a gold
 -- edged square (or a level-up's round crest), with the time just before it.
 local MARK_EDGE = 8 -- the mark's distance from the row's right edge
+local MARK_GAP = 5 -- between the mark and the time beside it
 
 -- Where the text starts: past the avatar, or near the edge without one.
 local AVATAR_EDGE = 1 -- the avatar's gold ring, this thick
@@ -605,7 +607,7 @@ end
 
 -- How far from the right the text must stop: past the mark and the time.
 local function MarkRoom(style)
-	return MARK_EDGE + style.iconSize + 8
+	return MARK_EDGE + style.iconSize + MARK_GAP
 end
 
 local function AvatarWidth(style)
@@ -630,7 +632,7 @@ end
 local function PlaceMark(row, data, top)
 	local left = data.ends == "LEFT"
 	local side, inner = left and "LEFT" or "RIGHT", left and "RIGHT" or "LEFT"
-	local edge, gap = left and MARK_EDGE or -MARK_EDGE, left and 8 or -8
+	local edge, gap = left and MARK_EDGE or -MARK_EDGE, left and MARK_GAP or -MARK_GAP
 	if top then
 		row.icon:SetPoint("TOP" .. side, edge, -6)
 		row.right:SetPoint("TOP" .. side, row.icon, "TOP" .. inner, gap, 0)
@@ -749,7 +751,7 @@ end
 -- avatar and the time as any detailed row, then the layout's body.
 local function LayoutQuestCard(row, data, style, card)
 	row.icon:SetPoint("TOPRIGHT", -MARK_EDGE, -6)
-	row.right:SetPoint("TOPRIGHT", row.icon, "TOPLEFT", -8, 0)
+	row.right:SetPoint("TOPRIGHT", row.icon, "TOPLEFT", -MARK_GAP, 0)
 	ShowAvatar(row, data, style, 5)
 	local left = TextLeft(data, style)
 	row.title:SetPoint("TOPLEFT", left, -5)
@@ -1030,20 +1032,53 @@ local focusSequence -- a feed row to bring into view, from the dock
 
 -- In chat order new rows and updated cards land at the bottom, so the list follows the bottom
 -- unless the player has scrolled up to read. jumpToEnd forces it, for a fresh view.
+-- The views a tab can name (data\filters.lua, view), looked up when drawn.
+local TabViews = {
+	report = function() return ns.ReportView end, -- ui\report.lua
+	stats = function() return ns.StatsView end, -- ui\tracker.lua
+}
+
+-- The view a tab shows: the one last picked on it, or its first; nil for a list.
+local function TabViewFor(filter)
+	if not filter.views then return nil end
+	ns.charDb.tabViews = ns.charDb.tabViews or {}
+	local picked = ns.charDb.tabViews[filter.id]
+	for _, view in ipairs(filter.views) do
+		if view.id == picked then return picked end
+	end
+	return filter.views[1].id
+end
+
 function Panel:Refresh(jumpToEnd)
 	if not frame or not frame:IsShown() then
 		return
 	end
 	local filter = ns.FilterById[ns.charDb.filter] or ns.Filters[1]
-	-- The 123 graphs (ui\report.lua) take the list's place on their tab.
-	scrollBox:SetShown(not filter.report)
-	scrollBar:SetShown(not filter.report)
-	if filter.report then
+	-- A tab with its own views (Fuel's gauges, the stats) takes the list's
+	-- place: the one picked, with a switch over them when there are several.
+	local chosen = TabViewFor(filter)
+	local tabView = chosen and TabViews[chosen]()
+	scrollBox:SetShown(not tabView)
+	scrollBar:SetShown(not tabView)
+	for name, view in pairs(TabViews) do
+		if name ~= chosen then view():Hide() end
+	end
+	if not tabView then ns.ViewSwitch:Hide() end
+	if tabView then
 		emptyText:Hide()
-		ns.ReportView:Show(ListTop(), LAYOUT.inset)
+		local top = ListTop()
+		if #filter.views > 1 then
+			ns.ViewSwitch:Show(frame, top, LAYOUT.inset, filter.views, chosen, function(id)
+				ns.charDb.tabViews[filter.id] = id
+				Panel:Refresh(true)
+			end)
+			top = top + ns.ViewSwitch.HEIGHT
+		else
+			ns.ViewSwitch:Hide()
+		end
+		tabView:Show(top, LAYOUT.inset)
 		return
 	end
-	ns.ReportView:Hide()
 	local follow = ns.IsEnabled("chatOrder")
 		and (jumpToEnd or not scrollBox:HasScrollableExtent() or scrollBox:IsAtEnd())
 
@@ -2471,6 +2506,20 @@ function Panel:OpenSettings()
 	end
 	frame:Show()
 	self:ShowOptions(true)
+end
+
+-- Opens the panel on one tab, and on one of its views if given.
+function Panel:OpenTab(id, view)
+	if not frame then return end
+	if view then
+		ns.charDb.tabViews = ns.charDb.tabViews or {}
+		ns.charDb.tabViews[id] = view
+	end
+	if ns.charDb.docked then
+		self:Restore()
+	end
+	frame:Show()
+	self:SelectFilter(id)
 end
 
 function Panel:Toggle()

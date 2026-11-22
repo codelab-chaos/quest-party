@@ -24,7 +24,11 @@ ns.Filters = {
 	-- The party and their quests, together: a roster card each, then every quest
 	-- in full with who is on it.
 	{ id = "party", label = L.FILTER_PARTY, shortLabel = L.FILTER_PARTY_SHORT, members = true, tracker = "quest", tab = true },
-	{ id = "report", label = L.FILTER_REPORT, shortLabel = L.FILTER_REPORT, report = true, tab = true },
+	-- views: a tab drawn by its own views in the list's place, the first by
+	-- default, a switch over them (ui\panel.lua, TabViews; ui\view-switch.lua).
+	-- Fuel and the stats tracker both come from what everyone does.
+	{ id = "report", label = L.FILTER_REPORT, shortLabel = L.FILTER_REPORT, tab = true,
+		views = { { id = "report", label = L.VIEW_FUEL }, { id = "stats", label = L.VIEW_STATS } } },
 }
 
 ns.QuestTab = "party"

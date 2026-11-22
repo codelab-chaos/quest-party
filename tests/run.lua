@@ -2839,6 +2839,41 @@ test("stats tracker: each number reads as its kind says (data-driven formatters)
 	end
 end)
 
+test("stats tracker: the game's played times beside ours, asked quietly, kept up by the clock", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	local T, me = w.ns.Tracker, w.ns.MyName()
+	-- Asked with the chat frames that print it not listening, then listening again.
+	local chat, asked = { on = true }, false
+	function chat:UnregisterEvent() self.on = false end
+	function chat:RegisterEvent() self.on = true end
+	w.env.GetFramesRegisteredForEvent = function() return chat end
+	w.env.RequestTimePlayed = function() asked = chat.on == false end
+	T:AskPlayed()
+	equal(asked, true)
+	T:Played(3600 * 50, 600)
+	equal(chat.on, true)
+	-- All time shows the game's; today does not.
+	local function Row(period, label)
+		for _, section in ipairs(T:View(me, period).sections) do
+			for _, row in ipairs(section.rows) do if row.label == label then return row.text end end
+		end
+	end
+	equal(Row("all", w.ns.L.TRACK_PLAYED_GAME), w.ns.TrackerText("gp", 3600 * 50))
+	equal(Row("today", w.ns.L.TRACK_PLAYED_GAME), nil)
+	-- Between asks, the clock keeps them current.
+	T:Tick()
+	equal(w.ns.db.tracker[me].game.gl, 600 + w.ns.TrackerRules.clock)
+	-- Compared: the game's played time beside ours (active and AFK, added up).
+	local function Compare(label)
+		for _, section in ipairs(T:View(me, "all").sections) do
+			for _, row in ipairs(section.rows) do if row.label == label then return row.compare, section.columns end end
+		end
+	end
+	local ours, columns = Compare(w.ns.L.TRACK_PLAYED_GAME)
+	equal(ours, w.ns.TrackerText("ta", (w.ns.db.tracker[me].total.ta or 0) + (w.ns.db.tracker[me].total.tk or 0)))
+	equal(columns[1], w.ns.L.TRACK_COL_WOW)
+end)
+
 test("stats tracker: counts from the feed for everyone heard, yours measured, sparse, separate from Fuel", function()
 	local w = Harness.new({ switches = { chatEcho = false } })
 	w:share()
@@ -3386,14 +3421,32 @@ test("KekChat's old list moves into the feed at its times, and goes", function()
 	equal(feed[3].data.w, 2000) -- named by its moment, like a new one
 end)
 
+test("KekChats seeded from the old quick chats take the new defaults; your own words stay", function()
+	local old = Harness.new({ kekMessages = { { text = "Hi all!" }, { icon = 5, text = "Be right back." } } })
+	equal(#old.ns.Chat:KekMessages(), old.ns.ChatRules.maxMessages)
+	equal(old.ns.Chat:KekMessages()[1].text, old.ns.L.KEK_DEFAULT_WELCOME)
+	local mine = Harness.new({ kekMessages = { { text = "Hi all!" }, { text = "loot pls" } } })
+	equal(#mine.ns.Chat:KekMessages(), 2)
+	equal(mine.ns.Chat:KekMessages()[2].text, "loot pls")
+end)
+
 test("your own KekChats: up to ten, words of your own made safe and short, a sound and an effect", function()
 	local w = Harness.new({ switches = { chatEcho = false } })
 	w.env.GetFileIDFromPath = function(path) return #path * 10 end
 	local Chat = w.ns.Chat
-	-- They start as the built-in quick chats, to change.
+	-- They start as the ten defaults, each with its sound and effect.
 	local list = Chat:KekMessages()
-	assert(#list > 0 and #list <= w.ns.ChatRules.maxMessages, "seeded")
-	equal(list[1].text, w.ns.L.SAY_HI)
+	equal(#list, w.ns.ChatRules.maxMessages)
+	equal(list[1].text, w.ns.L.KEK_DEFAULT_WELCOME)
+	equal(list[1].sound, "cheer")
+	equal(list[8].text, w.ns.L.KEK_DEFAULT_DANCE)
+	equal(list[8].sound, "party")
+	-- Every default's sound and effect is one we have (an effect shows once its icon resolves).
+	for _, default in ipairs(w.ns.KekDefaults) do
+		assert(default.sound == nil or w.ns.KekSoundById[default.sound], default.text)
+		assert(default.effect == nil or w.ns.ChatEffectById[default.effect], default.text)
+		assert(#default.text <= w.ns.ChatRules.maxText, default.text)
+	end
 	-- Words: the game's escapes gone, spaces tidied, cut to maxText letters.
 	equal(Chat.CleanText("  hi |cffff0000there|r\n  friend  "), "hi there friend")
 	equal(Chat.CleanText("get |Hitem:19019|h[Thunderfury]|h |TInterface\\Icons\\x:0|tnow"), "get [Thunderfury] now")

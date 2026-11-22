@@ -118,9 +118,9 @@ local commands = {
 	share = function()
 		ns.Print(ns.Sharing:Status())
 	end,
-	-- The stats tracker's window (experimental: ui\tracker.lua).
+	-- The stats, on the Fuel tab (ui\tracker.lua).
 	tracker = function()
-		ns.TrackerView:Toggle()
+		ns.Panel:OpenTab("report", "stats")
 	end,
 	stats = function()
 		if not ns.IsDebug() then

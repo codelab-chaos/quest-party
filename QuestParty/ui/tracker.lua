@@ -1,38 +1,127 @@
--- Stats tracker view (experimental: tracker.lua, docs\stats-tracker.md): a
--- small window with what a player did, today, this week or all time, drawn
--- from Tracker:View, section by section (data\tracker.lua says the sections,
--- labels and how each number reads). The player button steps through
--- everyone this client has numbers for, you first. /qp tracker opens it.
--- It owns frames only.
+-- The Stats tab (tracker.lua, docs\stats-tracker.md): what a player did,
+-- today, this week or all time, in the panel where the feed's list would be.
+-- Data driven: Tracker:View says the sections and rows (data\tracker.lua says
+-- the categories, labels and how each number reads), and each item is drawn
+-- by the renderer for its kind (RENDER below). The player button steps through
+-- everyone this client has numbers for, you first. It owns frames only.
 local _, ns = ...
 local L = ns.L
 
-local TrackerView = {}
-ns.TrackerView = TrackerView
+local StatsView = {}
+ns.StatsView = StatsView
 
-local LAYOUT = { width = 320, height = 440, pad = 10, header = 64, line = 16, heading = 22, tab = 22 }
-local COLORS = { back = { 0.05, 0.04, 0.08, 0.97 }, edge = { 0.80, 0.65, 0.20, 1 }, heading = { 1, 0.82, 0 }, label = { 0.85, 0.85, 0.85 } }
+local LAYOUT = { pad = 6, controls = 24, since = 18, line = 18, heading = 26, indent = 10, scrollbar = 20, edge = 4, gap = 12, period = 50 }
+local COLORS = {
+	heading = { 1, 0.82, 0 },
+	rule = { 0.80, 0.65, 0.20, 0.35 },
+	label = { 0.85, 0.85, 0.85 },
+	value = { 1, 1, 1 },
+	compare = { 0.65, 0.85, 1 }, -- Quest Party's number beside the game's
+	column = { 0.75, 0.75, 0.75 },
+	stripe = { 1, 1, 1, 0.04 },
+}
 local PERIODS = { { id = "today", label = L.TRACK_TODAY }, { id = "week", label = L.TRACK_WEEK }, { id = "all", label = L.TRACK_ALL } }
 
-local frame, content, playerButton, sinceText
+local frame, scroll, content, playerButton, sinceText, empty
 local tabs, lines = {}, {}
 local state = { period = "all", player = nil }
 
--- A line: a label at the left and its value at the right, or a heading.
+-- ========= The model: what to draw, as a flat list of items =================
+-- { kind = "heading", label, columns? } then { kind = "stat", label, text,
+-- compare? } rows; the most killed creatures as "stat" rows under their own
+-- heading. A section with columns (From WoW) titles its two values.
+local function Items(view)
+	local items = {}
+	for _, section in ipairs(view.sections) do
+		items[#items + 1] = { kind = "heading", label = section.label, columns = section.columns }
+		for index, row in ipairs(section.rows) do
+			items[#items + 1] = { kind = "stat", label = row.label, text = row.text, compare = row.compare, odd = index % 2 == 1 }
+		end
+	end
+	if #view.mobs > 0 then
+		items[#items + 1] = { kind = "heading", label = L.TRACK_TOP_MOBS }
+		for index, row in ipairs(view.mobs) do
+			items[#items + 1] = { kind = "stat", label = row.label, text = row.text, odd = index % 2 == 1 }
+		end
+	end
+	return items
+end
+
+-- ========= Renderers: one per kind ==========================================
+-- Each sets a line's words, fonts and colours for its item at y (pixels
+-- down) and returns how tall it is. Where the numbers go across is worked out
+-- after, from the widest number in each column (Place, below).
+local RENDER = {
+	heading = function(line, item, y)
+		line.label:SetFontObject("GameFontNormal")
+		line.label:SetTextColor(unpack(COLORS.heading))
+		line.label:SetText(item.label)
+		-- Column titles, over the values: the game's at the right, ours beside it.
+		local columns = item.columns
+		line.value:SetFontObject("GameFontDisableSmall")
+		line.value:SetText(columns and columns[1] or "")
+		line.other:SetFontObject("GameFontDisableSmall")
+		line.other:SetText(columns and columns[2] or "")
+		line.top = y + 6
+		line.rule:SetPoint("TOPLEFT", 0, -(y + 22))
+		line.rule:SetPoint("TOPRIGHT", 0, -(y + 22))
+		line.rule:Show()
+		line.stripe:Hide()
+		line.indent = 0
+		return LAYOUT.heading
+	end,
+	stat = function(line, item, y)
+		line.label:SetFontObject("GameFontHighlight")
+		line.label:SetTextColor(unpack(COLORS.label))
+		line.label:SetText(item.label)
+		line.value:SetFontObject("GameFontHighlight")
+		line.value:SetTextColor(unpack(COLORS.value))
+		line.value:SetText(item.text)
+		line.other:SetFontObject("GameFontHighlight")
+		line.other:SetTextColor(unpack(COLORS.compare))
+		line.other:SetText(item.compare or "")
+		line.top = y + 2
+		line.stripe:SetPoint("TOPLEFT", 0, -y)
+		line.stripe:SetPoint("TOPRIGHT", 0, -y)
+		line.stripe:SetShown(item.odd)
+		line.rule:Hide()
+		line.indent = LAYOUT.indent
+		return LAYOUT.line
+	end,
+}
+
 local function Line(index)
 	local line = lines[index]
 	if not line then
 		line = {}
-		line.label = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		line.stripe = content:CreateTexture(nil, "BACKGROUND")
+		line.stripe:SetHeight(LAYOUT.line)
+		line.stripe:SetColorTexture(unpack(COLORS.stripe))
+		line.rule = content:CreateTexture(nil, "ARTWORK")
+		line.rule:SetHeight(1)
+		line.rule:SetColorTexture(unpack(COLORS.rule))
+		line.label = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		line.label:SetJustifyH("LEFT")
-		line.value = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		line.label:SetWordWrap(false)
+		line.value = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		line.value:SetJustifyH("RIGHT")
+		line.value:SetTextColor(unpack(COLORS.value))
+		line.other = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+		line.other:SetJustifyH("RIGHT")
 		lines[index] = line
 	end
 	return line
 end
 
-function TrackerView:Refresh()
+local function Hide(line)
+	line.label:Hide()
+	line.value:Hide()
+	line.other:Hide()
+	line.rule:Hide()
+	line.stripe:Hide()
+end
+
+function StatsView:Draw()
 	if not frame or not frame:IsShown() then return end
 	state.player = state.player or ns.MyName()
 	playerButton:SetText(state.player)
@@ -40,75 +129,73 @@ function TrackerView:Refresh()
 	local view = ns.Tracker:View(state.player, state.period)
 	sinceText:SetText(view.since and L.TRACK_SINCE:format(date("%b %d, %Y", view.since)) or L.TRACK_NOTHING)
 
-	-- Sections, then your most killed creatures, as lines down the page.
-	local items = {}
-	for _, section in ipairs(view.sections) do
-		items[#items + 1] = { heading = section.label }
-		for _, row in ipairs(section.rows) do items[#items + 1] = row end
-	end
-	if #view.mobs > 0 then
-		items[#items + 1] = { heading = L.TRACK_TOP_MOBS }
-		for _, row in ipairs(view.mobs) do items[#items + 1] = row end
-	end
+	content:SetWidth(math.max(1, scroll:GetWidth()))
+	local items = Items(view)
+	-- Words first, then the widest number in each column, then where all go.
+	local widest = { value = 0, other = 0 }
 	local y = 0
 	for index, item in ipairs(items) do
 		local line = Line(index)
-		line.label:ClearAllPoints()
-		line.value:ClearAllPoints()
-		local height = item.heading and LAYOUT.heading or LAYOUT.line
-		line.label:SetPoint("TOPLEFT", item.heading and 0 or 8, -y - (item.heading and 6 or 0))
-		line.label:SetPoint("RIGHT", content, "RIGHT", -90, 0)
-		line.value:SetPoint("TOPRIGHT", 0, -y)
-		line.label:SetFontObject(item.heading and "GameFontNormal" or "GameFontHighlightSmall")
-		line.label:SetTextColor(unpack(item.heading and COLORS.heading or COLORS.label))
-		line.label:SetText(item.heading or item.label)
-		line.value:SetText(item.text or "")
+		for _, part in ipairs({ line.label, line.value, line.other, line.rule, line.stripe }) do part:ClearAllPoints() end
 		line.label:Show()
 		line.value:Show()
-		y = y + height
+		line.other:Show()
+		y = y + RENDER[item.kind](line, item, y)
+		widest.value = math.max(widest.value, line.value:GetStringWidth() or 0)
+		widest.other = math.max(widest.other, line.other:GetStringWidth() or 0)
 	end
-	for index = #items + 1, #lines do
-		lines[index].label:Hide()
-		lines[index].value:Hide()
+	for index, item in ipairs(items) do
+		local line = lines[index]
+		local right = -LAYOUT.edge
+		line.value:SetPoint("TOPRIGHT", right, -line.top)
+		local labelRight = right - (line.value:GetStringWidth() or 0) - LAYOUT.gap
+		-- A compared row (and its section's titles): ours right-justified in
+		-- its own column, just left of the game's.
+		if item.compare or item.columns then
+			local otherRight = right - widest.value - LAYOUT.gap
+			line.other:SetPoint("TOPRIGHT", otherRight, -line.top)
+			labelRight = otherRight - widest.other - LAYOUT.gap
+		end
+		line.label:SetPoint("TOPLEFT", line.indent, -line.top)
+		line.label:SetPoint("RIGHT", content, "RIGHT", labelRight, 0)
 	end
+	for index = #items + 1, #lines do Hide(lines[index]) end
 	content:SetHeight(math.max(1, y))
-	frame.empty:SetShown(#items == 0)
+	empty:SetShown(#items == 0)
 end
 
-local function Build()
-	frame = CreateFrame("Frame", ns.Globals.frame("Tracker"), UIParent, "BackdropTemplate")
-	frame:SetSize(LAYOUT.width, LAYOUT.height)
-	frame:SetPoint("CENTER")
-	frame:SetFrameStrata("DIALOG")
-	frame:SetToplevel(true)
-	frame:SetClampedToScreen(true)
-	frame:SetMovable(true)
-	frame:EnableMouse(true)
-	frame:RegisterForDrag("LeftButton")
-	frame:SetScript("OnDragStart", frame.StartMoving)
-	frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
-	frame:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 14, insets = { left = 3, right = 3, top = 3, bottom = 3 } })
-	frame:SetBackdropColor(unpack(COLORS.back))
-	frame:SetBackdropBorderColor(unpack(COLORS.edge))
-	frame:Hide()
-	tinsert(UISpecialFrames, frame:GetName())
+-- Takes the list's place in the panel, top pixels down, inset from the sides.
+function StatsView:Show(top, inset)
+	if not frame then self:Build() end
+	local host = ns.Panel:GetFrame()
+	frame:ClearAllPoints()
+	frame:SetPoint("TOPLEFT", host, "TOPLEFT", inset, -top)
+	frame:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -inset, inset)
+	frame:SetFrameLevel(host:GetFrameLevel() + 5)
+	frame:Show()
+	self:Draw()
+end
 
-	local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	title:SetPoint("TOPLEFT", LAYOUT.pad, -LAYOUT.pad)
-	title:SetText(L.TRACK_TITLE)
-	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
-	close:SetPoint("TOPRIGHT", 2, 2)
+function StatsView:Hide()
+	if frame then frame:Hide() end
+end
+
+function StatsView:Build()
+	local host = ns.Panel:GetFrame()
+	if not host or frame then return end
+	frame = CreateFrame("Frame", nil, host)
+	frame:Hide()
 
 	-- Whose: steps through everyone with numbers here, you first.
 	playerButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	playerButton:SetSize(150, LAYOUT.tab)
-	playerButton:SetPoint("TOPLEFT", LAYOUT.pad, -(LAYOUT.pad + 26))
+	playerButton:SetHeight(LAYOUT.controls)
+	playerButton:SetPoint("TOPLEFT", LAYOUT.pad, -LAYOUT.pad)
 	playerButton:SetScript("OnClick", function()
 		local players = ns.Tracker:Players()
 		local at = 1
 		for index, name in ipairs(players) do if name == state.player then at = index end end
 		state.player = players[at % #players + 1]
-		TrackerView:Refresh()
+		StatsView:Draw()
 	end)
 
 	-- When: today, this week, all time.
@@ -116,39 +203,44 @@ local function Build()
 	for index = #PERIODS, 1, -1 do
 		local period = PERIODS[index]
 		local tab = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-		tab:SetSize(52, LAYOUT.tab)
-		if previous then tab:SetPoint("RIGHT", previous, "LEFT", -2, 0) else tab:SetPoint("TOPRIGHT", -LAYOUT.pad, -(LAYOUT.pad + 26)) end
+		tab:SetSize(LAYOUT.period, LAYOUT.controls)
+		if previous then tab:SetPoint("RIGHT", previous, "LEFT", -2, 0) else tab:SetPoint("TOPRIGHT", -LAYOUT.pad, -LAYOUT.pad) end
 		tab:SetText(period.label)
 		tab.period = period.id
 		tab:SetScript("OnClick", function()
 			state.period = period.id
-			TrackerView:Refresh()
+			StatsView:Draw()
 		end)
 		tabs[#tabs + 1] = tab
 		previous = tab
 	end
 
+	playerButton:SetPoint("RIGHT", previous, "LEFT", -6, 0)
+	local name = playerButton:GetFontString()
+	if name then
+		name:SetPoint("LEFT", 8, 0)
+		name:SetPoint("RIGHT", -8, 0)
+		name:SetWordWrap(false)
+	end
+	local below = LAYOUT.pad + LAYOUT.controls + 4
 	sinceText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	sinceText:SetPoint("TOPLEFT", LAYOUT.pad, -(LAYOUT.header + 2))
+	sinceText:SetPoint("TOPLEFT", LAYOUT.pad, -below)
+	sinceText:SetPoint("RIGHT", -LAYOUT.pad, 0)
+	sinceText:SetJustifyH("LEFT")
+	sinceText:SetWordWrap(false)
 
-	local scroll = CreateFrame("ScrollFrame", nil, frame, "ScrollFrameTemplate")
-	scroll:SetPoint("TOPLEFT", LAYOUT.pad, -(LAYOUT.header + 18))
-	scroll:SetPoint("BOTTOMRIGHT", -(LAYOUT.pad + 20), LAYOUT.pad)
+	scroll = CreateFrame("ScrollFrame", nil, frame, "ScrollFrameTemplate")
+	scroll:SetPoint("TOPLEFT", LAYOUT.pad, -(below + LAYOUT.since))
+	scroll:SetPoint("BOTTOMRIGHT", -(LAYOUT.pad + LAYOUT.scrollbar), LAYOUT.pad)
 	content = CreateFrame("Frame", nil, scroll)
-	content:SetSize(LAYOUT.width - 2 * LAYOUT.pad - 24, 1)
+	content:SetSize(1, 1)
 	scroll:SetScrollChild(content)
+	scroll:SetScript("OnSizeChanged", function() StatsView:Draw() end)
 
-	frame.empty = frame:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-	frame.empty:SetPoint("CENTER", scroll, "CENTER")
-	frame.empty:SetWidth(LAYOUT.width - 40)
-	frame.empty:SetText(L.TRACK_EMPTY)
+	empty = frame:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+	empty:SetPoint("CENTER", scroll, "CENTER")
+	empty:SetText(L.TRACK_EMPTY)
 end
 
-function TrackerView:Toggle()
-	if not frame then Build() end
-	frame:SetShown(not frame:IsShown())
-	self:Refresh()
-end
-
--- Kept current while it is open: a minute's counting at a time.
-C_Timer.NewTicker(5, function() TrackerView:Refresh() end)
+-- Kept current while it shows: the tracker adds up time each minute.
+C_Timer.NewTicker(5, function() StatsView:Draw() end)

@@ -107,6 +107,13 @@ client hears.
   period (today, week, all) into sections of rows, data driven.
 - `ui\tracker.lua`: a small window, `/qp tracker`: whose (you first, then
   everyone with numbers), today, week or all time, and your most killed.
+- **True first, bolstered by ours:** where the game has a number (played time, all time and this
+  level), it is shown as the game's, beside what we count (today and this week, active vs AFK,
+  distance, jumps). Game numbers are a stat's `source = "game"`: its latest value, not counted up. They
+  sit in their own section, **From WoW**, first in the Stats view; every other section is Quest
+  Party's count. Where we count the same thing, it is tracked too and shown beside the game's
+  (`compare`), WoW | Quest Party: played time (ours: active plus AFK) and quests completed (ours:
+  handed in), so the two can be compared.
 - **Always on**, with no switch: it only counts, locally, and is part of Quest Party.
 
 ## Comparing across the channel
@@ -149,8 +156,8 @@ Mcdouble is on 340". Fun once; noise the tenth time. Rules to keep it rare:
 ## Phases
 
 1. **Grow the table.** Track the counters above into `statsTracker`, sparse,
-   with the rollup; kills keyed by NPC id from `PARTY_KILL`. No UI beyond
-   `/qp tracker`. Always on: local, never sent.
+   with the rollup; kills keyed by NPC id from `PARTY_KILL`. Shown on the Fuel tab, its Stats view
+   (`/qp tracker` opens it): stats and Fuel both come from what everyone does. Always on: local, never sent.
 2. **The You page** in the Fuel tab: today, week, all time, records.
 3. **Numbers on the wire:** the per-creature count on kill entries, milestones,
    a presence summary. Then channel comparisons.

@@ -89,6 +89,22 @@ ns.ChatPresets = {
 	{ icons = { "INV_Misc_Rune_01" }, saying = "gn" },
 }
 
+-- Your KekChats to start with (chat.lua; changed in the editor): an icon
+-- (a path under Interface\Icons; its picture is also the effect's particles),
+-- the words, a sound (KekSounds) and an effect (ChatEffects), either optional.
+ns.KekDefaults = {
+	{ icon = "Ability_Warrior_RallyingCry", text = L.KEK_DEFAULT_WELCOME, sound = "cheer" },
+	{ icon = "Ability_Warrior_BattleShout", text = L.KEK_DEFAULT_HEY, sound = "ready" },
+	{ icon = "Achievement_Reputation_01", text = L.KEK_DEFAULT_GRATZ, sound = "cheer", effect = "celebrate" },
+	{ icon = "INV_Misc_Gift_01", text = L.KEK_DEFAULT_THANKS, sound = "chime" },
+	{ icon = "Ability_Rogue_Sprint", text = L.KEK_DEFAULT_OMW, sound = "queue" },
+	{ icon = "INV_Drink_05", text = L.KEK_DEFAULT_BRB },
+	{ icon = "Spell_Arcane_Starfire", text = L.KEK_DEFAULT_AMAZING, sound = "fanfare", effect = "fireworks" },
+	{ icon = "INV_Misc_Ribbon_01", text = L.KEK_DEFAULT_DANCE, sound = "party", effect = "celebrate" },
+	{ icon = "Spell_Holy_AuraOfLight", text = L.KEK_DEFAULT_AURA, sound = "flourish", effect = "swirl" },
+	{ icon = "Spell_Nature_Sleep", text = L.KEK_DEFAULT_NIGHT },
+}
+
 -- The icons the image picker can search: a path under Interface\Icons and words to find
 -- it by (the path's own words count too). Turned into file IDs at load;
 -- paths the game does not know are dropped, so a wrong guess costs nothing.

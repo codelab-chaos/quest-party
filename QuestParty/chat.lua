@@ -569,20 +569,41 @@ local function RestoreOldMessages()
 	ns.Store:Restore(entries)
 end
 
+-- Your KekChats to start with (data\chat.lua, KekDefaults), icons as file IDs.
+local function DefaultKekMessages()
+	local list = {}
+	for _, default in ipairs(ns.KekDefaults) do
+		local icon = IconID(default.icon)
+		if (icon or default.text) and #list < ns.ChatRules.maxMessages then
+			list[#list + 1] = {
+				icon = icon,
+				text = default.text,
+				sound = ns.KekSoundById[default.sound] and default.sound or nil,
+				effect = icon and ns.ChatEffectById[default.effect] and default.effect or nil,
+			}
+		end
+	end
+	return list
+end
+
+-- A list seeded from the old quick chats (0.3.8 before its release), never
+-- given words of your own: it takes the new defaults instead.
+local function OldSeed(list)
+	local old = {}
+	for _, saying in ipairs(ns.Sayings) do old[saying.text] = true end
+	for _, message in pairs(list) do
+		if message.text and not old[message.text] or message.sound or message.effect then return false end
+	end
+	return next(list) ~= nil
+end
+
 Bus:On("INIT", function()
 	ns.db.muted = ns.db.muted or {}
 	ns.db.chatPresets = ns.db.chatPresets or {}
 	ns.db.kekBlocks = ns.db.kekBlocks or {}
-	-- Your KekChats: the first time, the built-in quick chats, to change.
-	if not ns.db.kekMessages then
-		ns.db.kekMessages = {}
-		for _, preset in ipairs(ns.ChatPresets) do
-			local saying = ns.SayingById[preset.saying]
-			local icon = IconID(preset.icons and preset.icons[1] or "")
-			if (icon or saying) and #ns.db.kekMessages < ns.ChatRules.maxMessages then
-				ns.db.kekMessages[#ns.db.kekMessages + 1] = { icon = icon, text = saying and saying.text or nil }
-			end
-		end
+	-- Your KekChats: the first time, the defaults, to change.
+	if not ns.db.kekMessages or OldSeed(ns.db.kekMessages) then
+		ns.db.kekMessages = DefaultKekMessages()
 	end
 	RestoreOldMessages()
 	if ns.charDb then ns.charDb.chatPopped = nil end -- KekChat no longer pops out

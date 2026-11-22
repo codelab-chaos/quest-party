@@ -10,6 +10,10 @@
 --   label     its name
 --   mine      measured by your own client only (time, distance, jumps,
 --             money): friends' are not known
+--   source    "game": the game's own number (its latest value, not counted
+--             up by us; shown for all time only), beside ours
+--   compare   for a game number: the stats we count for the same thing,
+--             added up and shown beside it (WoW | Quest Party)
 local _, ns = ...
 local L = ns.L
 
@@ -21,7 +25,10 @@ ns.TrackerRules = {
 	clock = 60, -- seconds between adding up time played
 }
 
+-- Where a number comes from is its section: the game's own (source "game")
+-- under From WoW, first; everything else is counted by Quest Party.
 ns.TrackerCategories = {
+	{ id = "game", label = L.TRACK_CAT_GAME, columns = { L.TRACK_COL_WOW, L.TRACK_COL_QP } },
 	{ id = "combat", label = L.TRACK_CAT_COMBAT },
 	{ id = "questing", label = L.TRACK_CAT_QUESTING },
 	{ id = "growth", label = L.TRACK_CAT_GROWTH },
@@ -49,6 +56,9 @@ ns.TrackerStats = {
 	{ id = "mg", category = "exploring", type = "distance", label = L.TRACK_DISTANCE, mine = true },
 	{ id = "mf", category = "exploring", type = "distance", label = L.TRACK_FLOWN, mine = true },
 	{ id = "j", category = "exploring", type = "count", label = L.TRACK_JUMPS, mine = true },
+	{ id = "gp", category = "game", type = "duration", label = L.TRACK_PLAYED_GAME, mine = true, source = "game", compare = { "ta", "tk" } },
+	{ id = "gq", category = "game", type = "count", label = L.TRACK_QUESTS_GAME, mine = true, source = "game", compare = { "qd" } },
+	{ id = "gl", category = "game", type = "duration", label = L.TRACK_PLAYED_LEVEL, mine = true, source = "game" },
 	{ id = "ta", category = "time", type = "duration", label = L.TRACK_ACTIVE, mine = true },
 	{ id = "tk", category = "time", type = "duration", label = L.TRACK_AFK, mine = true },
 	{ id = "ts", category = "time", type = "count", label = L.TRACK_SESSIONS, mine = true },
