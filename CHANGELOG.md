@@ -3,35 +3,60 @@
 Features and fixes shipped in each release. Copy a version's section into
 CurseForge's changelog field using Markdown formatting.
 
-## Unreleased
+## 0.3.8 - 2026-11-22
 
-### Changed
+A tidier, roomier Quest Party: Settings regrouped, three narrower tabs, a
+see-through panel, a dock you size yourself and feed rows that give their
+words more room. KekChat becomes yours (ten messages of your own, with sounds
+and effects, and blocking), and a stats tracker sits beside Party Fuel with
+the game's own numbers next to ours. Friends on 0.3.7 still share with you;
+what they do not know yet (AFK, where you are while travelling) they quietly
+skip.
 
-- Settings reorganized by what each setting is about: Channel, Share my, Feed, Party, KekChat, Window, Data. The window is bigger, every section is evenly spaced, and the recent channels row says so when there are none yet.
-- A place found is one row with the XP it gave ("Discovered: Thunder Ridge", "+80 XP"), as a quest handed in is; its XP is no longer a row of its own. Kill XP stays on kill rows.
-- Custom KekChat is off for now: KekChat is its quick chats and effects. The builder (images, typing, saves) is gone from Settings.
-- A feed row's avatar ring is in its player's own color, as their head and XP bar (your game group's in the party's color).
-- Kill rows ("Kills Kolkar Wrangler x2 for 202 XP") wear the Kills square, now orange, not the XP one: a row's square now always matches the filter icon that hides it. XP rows are only XP.
+### The panel
+
+- Settings regrouped by what each setting is about: Channel, Share my, Feed, Party, KekChat, Window, Data. The window is bigger and evenly spaced, and the recent channels row says so when there are none yet.
+- Settings is its own window: it stays open when you minimize, and opens without bringing the panel back (/qp settings, or the game's AddOns options).
+- Three tabs again, a little narrower: Feed, Quest and Fuel. Fuel has a Fuel | Stats switch at its top.
+- Opacity: a slider in Settings makes Quest Party see-through (20% to 100%), its side bar, player card and KekChat included. On hover sets what happens under the mouse: Off, Solid on hover, or Fainter on hover. An opacity button in the title bar opens a short slider to set it live; its mouse wheel steps it.
 - Minimize sits right beside close in the title bar; close stays at the far right.
 - The view button shows three bars for compact rows and two for detailed (compact showed one, which looked like minimize).
+
+### The feed
+
+- Rows give their words more room: the time beside the mark takes only what it needs.
+- A place found is one row with the XP it gave ("Discovered: Thunder Ridge", "+80 XP"), as a quest handed in is.
+- Kill rows wear the Kills square, now orange: a row's square always matches the filter icon that hides it.
+- A row's avatar ring is in its player's own color, as their head and XP bar.
+
+### The dock
+
+- Its drawers are the feed's own rows: the same look, stamps, hover and right-click to stamp (or mute). Compact dock uses one-line rows.
+- Dock size in Settings (Window): how tall the dock is, in lines, a compact entry taking one and a regular entry two (14 by default: 7 entries, or 14 compact). It resizes as you drag.
+- A drawer comes out only when the mouse is on the dock or within a few pixels of it, only the one under the mouse, and it glides out more slowly.
+
+### KekChat, your own
+
+- Up to 10 messages of your own, made in an editor (Settings, KekChat): an icon from a browser of every game icon, up to 100 characters of your words, a sound from a curated list and an effect. The > button plays a message's sound and effect before you send it. Long messages show whole when you hover their row.
+- You start with ten, each with its icon, sound and effect: Welcome Back!, Hey everyone!, Gratz, Thank you!, On my way!, Be right back, That was amazing!, Dance Dance Dance!, +1000 aura and Good night, all!
+- Blocking: right-click a KekChat to block that message from its sender, or all of their KekChat. The editor lists what is blocked, with Unblock. Settings carries a note to keep KekChat clean: everyone on the channel sees it.
+
+### Stats
+
+- A stats tracker, always on and kept only on your computer, separate from Party Fuel: kills (yours by creature), XP by source, quests, deaths, levels, skill-ups, discoveries, distance travelled and flown, jumps, time played and AFK, logins, money in and out, KekChats and stamps. Today, this week or all time, for you or anyone on the channel. Old days fold into months and years, so it stays small. /qp tracker opens it.
+- From WoW: the game's own played time (all time and this level) and quests completed, each beside what Quest Party counted for the same thing.
+
+### The party
+
+- AFK on the party bars: a player who goes AFK keeps their bar, dimmed with an AFK tag; hover it for how long. Someone who logged off has no bar, so away and gone never look alike. Friends need 0.3.8 for theirs to show.
+- Show alts: a player's other characters, yours included, stay in the side bar as smaller heads with a violet ring ("Alt" on hover). On by default.
 - Share location in Settings (on by default): off, nothing of where you are is sent.
-- Players on the map keep up while travelling: with no other update for a minute, a small message says where you are, only if you moved. Friends on 0.3.7 ignore it.
-- The dock, minimized: a drawer comes out only when the mouse is on the dock or within a few pixels of it, only the one under the mouse, and it glides out more slowly.
-
-### Added
-
-- Stats tracker: a growing table of what you and your friends do, always on, kept only on your computer and separate from Party Fuel: kills (yours by creature), XP by source, quests, deaths, levels, skill-ups, discoveries, distance travelled and flown, jumps, time played and AFK beside the game's own played times (all time and this level, asked quietly, in a From WoW section of their own), logins, money in and out, KekChats and stamps. The Fuel tab shows it: a Fuel | Stats switch over the tab, the stats today, this week or all time, for you or anyone on the channel (/qp tracker opens it). The tabs are a little narrower. Old days fold into months and years, so it stays small.
-- Your own KekChats: up to 10, made in a new editor (Edit your KekChats... in Settings, under KekChat), each an icon from a browser of every game icon, up to 100 characters of your own words, a sound from a curated list and an effect. They replace the built-in quick chats. You start with ten, each with its own icon, sound and effect: Welcome Back!, Hey everyone!, Gratz, Thank you!, On my way!, Be right back, That was amazing!, Dance Dance Dance!, +1000 aura and Good night, all! Long messages show whole when you hover their row.
-- Blocking KekChat: right-click a KekChat to block that message from its sender, or all of their KekChat. The editor lists what is blocked, with Unblock, as tall as that list; Settings, under KekChat, says how to block, beside a note to keep KekChat clean (everyone on the channel sees it).
-- The minimized dock's drawers are the feed's own rows: the same look, stamps, hover and right-click to stamp (or mute) as in the feed. Compact dock in Settings uses one-line rows, so twice as many fit. Dock size in Settings (Window) sets how tall the dock is, in lines: a compact entry takes one, a regular entry two (14 lines by default: 7 entries, or 14 compact). It resizes as you drag. Settings stays open when you minimize, and opens without bringing the panel back (/qp settings), so the dock can be set while you watch it.
-- AFK on the party bars: a player who goes AFK keeps their bar, dimmed with an AFK tag, and hovering it says for how long. It clears the moment they are back. Someone who logged off has no bar, so away and gone never look alike. Friends need 0.3.8 for theirs to show.
-- Show alts: a player's other characters, yours included, stay in the side bar after everyone else as smaller heads with a violet ring and a dimmed portrait ("Alt" on hover), so they save room; click one for its card. On by default; off, each player has one head.
-- Opacity: a slider in Settings makes Quest Party see-through (20% to 100%), its side bar, player card and KekChat included. On hover sets what happens while the mouse is over it: Off, Solid on hover, or Fainter on hover. An opacity button in the title bar opens a short slider to set it live, and its mouse wheel steps it.
+- Players on the map keep up while travelling: with no other update for a minute, a small message says where you are, only if you moved.
 
 ### Fixed
 
-- Cards with a long player name and quest title could not be stamped (right-click did nothing) since 0.3.7 added when each event happened to its card's name. Card names can now be much longer. A friend still on 0.3.7 will not see stamps on those cards until they update.
-- The dock pulled a tucked-in drawer out with the mouse far from it, anywhere the drawer could reach once out.
+- Cards with a long player name and quest title could not be stamped (right-click did nothing) since 0.3.7. A friend still on 0.3.7 will not see stamps on those cards until they update.
+- The dock pulled a tucked-in drawer out with the mouse far from it.
 
 ## 0.3.7 - 2026-11-20
 
