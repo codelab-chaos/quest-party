@@ -45,6 +45,7 @@ local played = {} -- card key .. time -> true once its landing has played
 
 -- ========= The picker =======================================================
 local picker
+local Options -- below: the lines about a card's player
 
 local function ClosePicker()
 	if picker then picker:Hide() end
@@ -122,25 +123,39 @@ local function BuildPicker()
 	end)
 	effects:SetPoint("TOPLEFT", LAYOUT.pickerPad, -(stampsBottom + LAYOUT.pickerGap))
 	local effectsBottom = effects.height > 0 and (stampsBottom + LAYOUT.pickerGap + effects.height) or stampsBottom
-	picker:SetSize(width, effectsBottom + LAYOUT.pickerPad + LAYOUT.pickerMute)
-	-- Under the stamps: mute (or unmute) the card's player, hiding their
-	-- KekChat and stamps (chat.lua). Not on your own cards.
-	local mute = CreateFrame("Button", nil, picker)
-	mute:SetHeight(LAYOUT.pickerMute)
-	mute:SetPoint("BOTTOMLEFT", LAYOUT.pickerPad, LAYOUT.pickerPad - 4)
-	mute:SetPoint("BOTTOMRIGHT", -LAYOUT.pickerPad, LAYOUT.pickerPad - 4)
-	mute.text = mute:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	mute.text:SetPoint("CENTER")
-	mute:SetHighlightTexture("Interface\\Buttons\\WHITE8x8")
-	mute:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.08)
-	mute:SetScript("OnClick", function()
-		local player = picker.entry and picker.entry.player
-		ClosePicker()
-		if not player then return end
-		local muted = ns.Chat:ToggleMute(player)
-		ns.Print((muted and L.CHAT_MUTED or L.CHAT_UNMUTED):format(player))
+	picker.width, picker.optionsTop = width, effectsBottom + 2
+	-- Under the effects, lines about the card's player (not on your own):
+	-- mute them; on a KekChat, block that message or all of theirs (chat.lua).
+	-- Which show is up to Open (Options).
+	local function Option(onClick)
+		local line = CreateFrame("Button", nil, picker)
+		line:SetHeight(LAYOUT.pickerMute)
+		line.text = line:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+		line.text:SetPoint("CENTER")
+		line:SetHighlightTexture("Interface\\Buttons\\WHITE8x8")
+		line:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.08)
+		line:SetScript("OnClick", function()
+			local entry = picker.entry
+			ClosePicker()
+			if entry and entry.player then onClick(entry) end
+		end)
+		return line
+	end
+	picker.mute = Option(function(entry)
+		local muted = ns.Chat:ToggleMute(entry.player)
+		ns.Print((muted and L.CHAT_MUTED or L.CHAT_UNMUTED):format(entry.player))
 	end)
-	picker.mute = mute
+	picker.blockText = Option(function(entry)
+		local text = entry.data and entry.data.text
+		local blocked = ns.Chat:IsBlocked(entry.player, text)
+		ns.Chat:BlockText(entry.player, text, not blocked)
+		ns.Print((blocked and L.KEK_UNBLOCKED_MESSAGE or L.KEK_BLOCKED_MESSAGE):format(entry.player))
+	end)
+	picker.blockAll = Option(function(entry)
+		local blocked = ns.Chat:IsBlocked(entry.player)
+		ns.Chat:BlockAll(entry.player, not blocked)
+		ns.Print((blocked and L.KEK_UNBLOCKED_ALL or L.KEK_BLOCKED_ALL):format(entry.player))
+	end)
 	picker:SetScript("OnHide", function(self) self.entry = nil end)
 	picker:Hide()
 end
@@ -148,6 +163,36 @@ end
 -- Closes the picker (the panel closing, say).
 function StampView:Close()
 	ClosePicker()
+end
+
+-- The picker's lines about the card's player, under the effects, and its
+-- height to fit them: none on your own; mute on anyone else's; on their
+-- KekChat, block that message (when it has words) or all of theirs.
+function Options(entry)
+	local lines = {}
+	local player = entry.player
+	if not ns.IsMe(player) then
+		picker.mute.text:SetText((ns.Chat:IsMuted(player) and L.CHAT_UNMUTE_PLAYER or L.CHAT_MUTE_PLAYER):format(player))
+		lines[#lines + 1] = picker.mute
+		if entry.type == "chat" then
+			local text = entry.data and entry.data.text
+			if text then
+				picker.blockText.text:SetText((ns.Chat:IsBlocked(player, text) and L.KEK_UNBLOCK_MESSAGE or L.KEK_BLOCK_MESSAGE):format(player))
+				lines[#lines + 1] = picker.blockText
+			end
+			picker.blockAll.text:SetText((ns.Chat:IsBlocked(player) and L.KEK_UNBLOCK_ALL or L.KEK_BLOCK_ALL):format(player))
+			lines[#lines + 1] = picker.blockAll
+		end
+	end
+	for _, line in ipairs({ picker.mute, picker.blockText, picker.blockAll }) do line:Hide() end
+	for index, line in ipairs(lines) do
+		line:ClearAllPoints()
+		local top = picker.optionsTop + (index - 1) * LAYOUT.pickerMute
+		line:SetPoint("TOPLEFT", LAYOUT.pickerPad, -top)
+		line:SetPoint("TOPRIGHT", -LAYOUT.pickerPad, -top)
+		line:Show()
+	end
+	picker:SetSize(picker.width, picker.optionsTop + #lines * LAYOUT.pickerMute + LAYOUT.pickerPad)
 end
 
 -- Whether a frame is inside another (a feed card inside the panel).
@@ -177,11 +222,7 @@ function StampView:OpenFor(entry, at)
 	end
 	if not picker then BuildPicker() end
 	picker.entry = entry
-	local mine = ns.IsMe(entry.player)
-	picker.mute:SetShown(not mine)
-	if not mine then
-		picker.mute.text:SetText((ns.Chat:IsMuted(entry.player) and L.CHAT_UNMUTE_PLAYER or L.CHAT_MUTE_PLAYER):format(entry.player))
-	end
+	Options(entry)
 	-- The one you already put on it is greyed out.
 	local _, used = ns.Stamping:Used(key, ns.MyName())
 	for _, cell in ipairs(picker.cells or {}) do
@@ -232,6 +273,9 @@ end
 -- The tooltip lines for a card: how to stamp it, and who has.
 function StampView:Tip(row)
 	if not row.stampEntry then return end
+	-- A KekChat's words, whole: its row's title may cut them off.
+	local words = row.stampEntry.type == "chat" and row.stampEntry.data and row.stampEntry.data.text
+	if words then GameTooltip:AddLine(words, 1, 1, 1, true) end
 	-- Where it happened, when its sender said (collectors\location.lua).
 	local place = ns.Location.Describe(ns.Location.Read(row.stampEntry.data))
 	if place then GameTooltip:AddLine(L.LOCATION_TIP:format(place), 1, 1, 1) end

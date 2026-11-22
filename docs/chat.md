@@ -54,7 +54,33 @@ With **Custom KekChat** on in Settings, the builder sits beside it:
 - **Your saves** (the book, at the right end, beside Save) lists the ones you
   saved. Pick one to load it; right-click one to remove it.
 
-## Pre-made words only (decided 2026-11-15)
+## Your KekChats (0.3.8)
+
+Since 0.3.8 the KekChat button's list holds **your own KekChats**: up to 10
+(`ChatRules.maxMessages`), made in the editor (**Edit your KekChats...** in
+Settings, under KekChat; `ui\kek-editor.lua`). Each is:
+
+- **an icon:** any of the game's, from the icon browser (`ui\icon-browser.lua`):
+  search our tagged list, or with nothing typed page through every icon. An
+  icon is a number (a file ID), so showing one is like showing any;
+- **words of your own**, up to 100 characters (`ChatRules.maxText`). One
+  message is 255 characters; the rest of a KekChat takes about 60, and a few
+  characters (`; = : # %`) travel as three, so 100 fits with room to spare.
+  A feed row shows the start; hovering it shows them whole;
+- **a sound**, from a curated list of the game's own (`ns.KekSounds`: cheering,
+  fanfare, chime...), by SOUNDKIT name so everyone hears the same;
+- **an effect** (`ns.ChatEffects`), which plays the icon over the feed.
+
+The first time, the 10 start as the old built-in quick chats, to change. They
+travel as `S` with `i` (icon), `t` (words), `n` (sound id) and `e` (effect).
+
+**Words are cleaned on both ends** (`Chat.CleanText`): the game's escapes
+(colors, links, textures) are taken out, keeping a link's words; line breaks
+and runs of spaces become one space; anything past the limit is cut, by
+letters, not bytes. Blizzard's chat filters do not reach addon messages, so
+blocking (below) is the safety net.
+
+## Pre-made words only (decided 2026-11-15; replaced by your KekChats, 0.3.8)
 
 Nobody types words of their own. Quest Party chat does not show in the game's
 chat, so the game's reporting, filters and silences cannot reach it; with
@@ -101,11 +127,18 @@ searched by word. Search runs over our own list instead (`data\chat.lua`,
 `GetFileIDFromPath`; paths the game does not know are dropped. With nothing
 typed, ours come first, then every icon in the game to browse.
 
-## Muting
+## Muting and blocking
 
 Right-click any of a player's cards: under the stamps, **Mute** (or
 **Unmute**) them. Their KekChat rows hide, including what they sent before,
-their stamps are ignored, and their sayings do nothing on your screen. Anyone on the game's ignore list is muted too. Kept across reloads.
+their stamps are ignored, and their sayings do nothing on your screen.
+
+On a KekChat row there is more (0.3.8): **Block this message from X** (those
+exact words from that player; the same words from anyone else still show) and **Block
+all KekChat from X** (their stamps still show). Blocked messages hide, past
+ones included, and never sound or play. The editor lists who and what is
+blocked, each with **Unblock** (one short line when nobody is); Settings,
+under KekChat, says how to block and to keep KekChat clean. Saved for the account (`kekBlocks`). Anyone on the game's ignore list is muted too. Kept across reloads.
 (No one can be removed from a channel; muting is what each player controls.)
 
 ## Rules

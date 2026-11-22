@@ -20,6 +20,7 @@ local turnedIn = {} -- [questID] = true, briefly, to tell a turn-in from an aban
 local lastKill, lastCredit
 local recentKill -- the last kill the game named, for naming an XP gain
 local recentTurnIn -- the last quest handed in, whose XP is told on its own row
+local pendingDiscovery -- a place just found, held a moment for the XP it gives
 local knownQuests, watchedQuests, progressSeen, pending = {}, {}, {}, {}
 local lastQuestUpdate
 local ready = false
@@ -315,9 +316,19 @@ function handlers.UI_INFO_MESSAGE(first, second)
 		end
 		return
 	end
-	local zone = message:match(Patterns.discoveryXp) or message:match(Patterns.discovery)
-	if zone then
-		Emit("discovery", { zone = zone })
+	-- A place found: held a moment so the XP it gives (the next XP update,
+	-- or the game's own words) goes on its row, as a quest's does.
+	local zone, xp = message:match(Patterns.discoveryXp)
+	zone = zone or message:match(Patterns.discovery)
+	if zone and not pendingDiscovery then
+		pendingDiscovery = { zone = zone, xp = tonumber(xp), time = GetTime() }
+		C_Timer.After(KILL_LINK_SECONDS, function()
+			local found = pendingDiscovery
+			pendingDiscovery = nil
+			if found then Emit("discovery", { zone = found.zone, xp = found.xp }) end
+		end)
+	elseif zone and xp and pendingDiscovery and pendingDiscovery.zone == zone then
+		pendingDiscovery.xp = tonumber(xp)
 	end
 end
 
@@ -419,6 +430,11 @@ function handlers.PLAYER_XP_UPDATE(unit)
 			current.quest = recentTurnIn.quest
 		end
 		recentTurnIn = nil
+		-- XP from a place just found: on the discovery's row.
+		if not current.quest and current.mob == "" and pendingDiscovery then
+			current.discovery = pendingDiscovery.zone
+			pendingDiscovery.xp = pendingDiscovery.xp or current.xp
+		end
 		Emit("xp", current)
 	end)
 end

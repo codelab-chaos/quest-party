@@ -32,13 +32,14 @@
 --   feedOnlyIf  { field, setting }: an entry with that data field filled only
 --             becomes a feed row while that switch is on. It still updates the
 --             roster (member) either way
---   toldBy    a data field: an entry with it filled is already told by another
---             row (XP from a quest is on the quest's own row), so it is not a
+--   toldBy    data fields: an entry with one filled is already told by another
+--             row (XP from a quest, or a discovery, is on that row), so it is not a
 --             feed row of its own. It still updates the roster
 --   format    data keys to pass through ns.Comma before filling templates
 --   fields    function(data, fields): adds fields the templates use that are
 --             made from the data (KekChat's images and saying, as text)
---   mutable   hidden while its sender is muted (KekChat, chat.lua)
+--   mutable   hidden while its sender is muted, or it is blocked (KekChat,
+--             chat.lua: Hides)
 --   card      makes the type feed a persistent card (see ns.CardKinds below):
 --     kind    which kind of card
 --     keys    data keys that, with the player, identify the card
@@ -149,7 +150,7 @@ ns.FeedTypes = {
 		-- behind its own switch. The XP bar moves either way.
 		feedOnlyIf = { field = "mob", setting = "kills" },
 		-- XP from handing in a quest is on the quest's own row.
-		toldBy = "quest",
+		toldBy = { "quest", "discovery" },
 		-- A run of gains is one row that adds up: kills of the same creature
 		-- ("Kills Wandering Spirit x3 for 243 XP"), or other XP ("+237 XP in 3
 		-- gains"). A new run starts after five minutes without one.
@@ -161,6 +162,10 @@ ns.FeedTypes = {
 		filters = { xp = true },
 		icon = "Interface\\Icons\\inv_misc_map02",
 		text = L.FEED_DISCOVERY,
+		-- The XP finding it gave, on its row (the XP's own entry is toldBy it).
+		detail = L.FEED_QUEST_COMPLETE_DETAIL,
+		detailIf = "xp",
+		format = { xp = true },
 		chat = L.CHAT_DISCOVERY,
 		member = { zone = "zone" },
 	},
@@ -237,6 +242,10 @@ ns.FeedTypes = {
 			local saying = data.saying and ns.SayingById[data.saying]
 			if saying then
 				parts[#parts + 1] = "|cffffffff" .. saying.text .. "|r"
+			end
+			-- Words of their own, made safe when they came (chat.lua, CleanText).
+			if type(data.text) == "string" and data.text ~= "" then
+				parts[#parts + 1] = "|cffffffff" .. data.text:gsub("|", "") .. "|r"
 			end
 			fields.message = table.concat(parts, " ")
 		end,

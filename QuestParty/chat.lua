@@ -106,19 +106,49 @@ local function Entry(player, class, time, icons, saying, effect, virtual)
 	}
 end
 
+-- ========= Words of your own ================================================
+-- A KekChat's words, made safe and short: the game's escape character (|,
+-- colors, links, textures) taken out, line breaks and runs of spaces made one
+-- space, cut to maxText characters without splitting a letter. "" for none.
+function Chat.CleanText(text)
+	if type(text) ~= "string" then return "" end
+	-- Whole escapes first (a color, a link, a texture), keeping a link's words,
+	-- then any | left.
+	text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+		:gsub("|H.-|h(.-)|h", "%1"):gsub("|[TAK].-|[tak]", "")
+		:gsub("|", ""):gsub("%c", " "):gsub("%s+", " "):match("^%s*(.-)%s*$")
+	local most = ns.ChatRules.maxText
+	if #text > most then
+		-- Count letters, not bytes: stop before the letter that goes past it.
+		local letters, cut = 0, #text
+		for position in text:gmatch("()[^\128-\191]") do
+			letters = letters + 1
+			if letters > most then cut = position - 1 break end
+		end
+		text = text:sub(1, cut)
+	end
+	return text
+end
+
 -- ========= Sending ==========================================================
--- Sends images (up to three) and/or a saying, with an effect if wanted, as
--- one message. Returns true, or false and why. It shows here once the server
--- sends it back (comms\sharing.lua), as it does for everyone else.
-function Chat:Send(icons, saying, effect)
+-- Sends images (up to three) and/or a saying, words of your own (text), a
+-- sound (ns.KekSounds) and an effect, as one message. Returns true, or false
+-- and why. It shows here once the server sends it back (comms\sharing.lua),
+-- as it does for everyone else.
+function Chat:Send(icons, saying, effect, text, sound)
 	icons = ValidIcons(icons)
+	text = Chat.CleanText(text)
+	if text == "" then text = nil end
+	if sound ~= nil and not ns.KekSoundById[sound] then
+		return false, L.CHAT_PICK
+	end
 	if saying ~= nil and not ns.SayingById[saying] then
 		return false, L.CHAT_PICK
 	end
 	if effect ~= nil and not ns.ChatEffectById[effect] then
 		return false, L.CHAT_PICK
 	end
-	if #icons == 0 and not saying then
+	if #icons == 0 and not saying and not text then
 		return false, L.CHAT_PICK
 	end
 	if effect and #icons == 0 then
@@ -132,10 +162,100 @@ function Chat:Send(icons, saying, effect)
 		return false, L.CHAT_TIMEOUT:format(math.ceil(seconds))
 	end
 	local _, class = UnitClass("player")
-	if not ns.Sharing.SendSay(icons, saying, effect, class) then
+	if not ns.Sharing.SendSay(icons, saying, effect, class, nil, text, sound) then
 		return false, L.CHAT_NO_CHANNEL
 	end
 	return true
+end
+
+-- ========= Your KekChats ====================================================
+-- Up to maxMessages saved KekChats, made in the editor (ui\kek-editor.lua)
+-- and sent from the KekChat button in one click: { icon, text, sound, effect }.
+-- Saved for the account. The first time, they start as the built-in quick
+-- chats, to change.
+function Chat:KekMessages()
+	return ns.db.kekMessages
+end
+
+-- Saves one (index 1 to maxMessages): its icon and words checked, the sound
+-- and effect only if they are ones we have. Returns true, or false and why.
+function Chat:SetKekMessage(index, message)
+	if type(index) ~= "number" or index < 1 or index > ns.ChatRules.maxMessages then return false, L.CHAT_PICK end
+	local icon = ValidIcon(message and message.icon)
+	local text = Chat.CleanText(message and message.text)
+	if not icon and text == "" then return false, L.CHAT_PICK end
+	local list = ns.db.kekMessages
+	list[index] = {
+		icon = icon,
+		text = text ~= "" and text or nil,
+		sound = message.sound and ns.KekSoundById[message.sound] and message.sound or nil,
+		effect = icon and message.effect and ns.ChatEffectById[message.effect] and message.effect or nil,
+	}
+	Bus:Fire("CHAT_PRESETS_CHANGED")
+	return true
+end
+
+-- Empties one slot (the others stay where they are: the editor's rows).
+function Chat:RemoveKekMessage(index)
+	local list = ns.db.kekMessages
+	if list[index] then
+		list[index] = nil
+		Bus:Fire("CHAT_PRESETS_CHANGED")
+	end
+end
+
+-- Sends one of your KekChats. Returns true, or false and why.
+function Chat:SendKek(index)
+	local message = ns.db.kekMessages[index]
+	if not message then return false, L.CHAT_PICK end
+	return self:Send(message.icon and { message.icon } or {}, nil, message.effect, message.text, message.sound)
+end
+
+-- Plays one of the KekChat sounds (ns.KekSounds) by its id, at the Volume.
+function Chat.PlayKekSound(id)
+	local sound = id and ns.KekSoundById[id]
+	if sound then ns.PlaySound((SOUNDKIT and SOUNDKIT[sound.name]) or sound.kit) end
+end
+
+-- ========= Blocking =========================================================
+-- A player's KekChat can be blocked whole, or one message of theirs (by its
+-- words): nothing blocked shows, plays or sounds here. Saved for the account.
+--   kekBlocks[player] = { all = true, texts = { [words] = true } }
+function Chat:IsBlocked(player, text)
+	local block = player and ns.db.kekBlocks[player]
+	if not block then return false end
+	return block.all == true or (text ~= nil and block.texts[text] == true)
+end
+
+local function Block(player)
+	ns.db.kekBlocks[player] = ns.db.kekBlocks[player] or { texts = {} }
+	return ns.db.kekBlocks[player]
+end
+
+local function Tidy(player)
+	local block = ns.db.kekBlocks[player]
+	if block and not block.all and not next(block.texts) then ns.db.kekBlocks[player] = nil end
+	Bus:Fire("STORE_CHANGED") -- their rows hide or come back
+	Bus:Fire("KEK_BLOCKS_CHANGED")
+end
+
+-- Blocks (or unblocks) all of a player's KekChat.
+function Chat:BlockAll(player, on)
+	if not player or ns.IsMe(player) then return end
+	Block(player).all = on and true or nil
+	Tidy(player)
+end
+
+-- Blocks (or unblocks) one message of a player's, by its words.
+function Chat:BlockText(player, text, on)
+	if not player or ns.IsMe(player) or type(text) ~= "string" or text == "" then return end
+	Block(player).texts[text] = on and true or nil
+	Tidy(player)
+end
+
+-- Whether a KekChat entry shows here: not from someone muted or blocked.
+function Chat:Hides(entry)
+	return self:IsMuted(entry.player) or self:IsBlocked(entry.player, entry.data and entry.data.text)
 end
 
 -- ========= Presets ==========================================================
@@ -393,11 +513,13 @@ end
 Bus:On("CHAT_SAY", function(say)
 	local saying = say.saying and ns.SayingById[say.saying]
 	local icons = ValidIcons(say.icons)
-	if not saying and #icons == 0 then
+	if not saying and #icons == 0 and not say.text then
 		return
 	end
 	local effect = #icons > 0 and say.effect and ns.ChatEffectById[say.effect] or nil
-	if Chat:IsMuted(say.player) then
+	local text = say.text and Chat.CleanText(say.text) or nil
+	if text == "" then text = nil end
+	if Chat:IsMuted(say.player) or Chat:IsBlocked(say.player, text) then
 		return
 	end
 	-- Others' spam is held back here; yours was limited once, when you sent.
@@ -412,14 +534,19 @@ Bus:On("CHAT_SAY", function(say)
 		end
 		return
 	end
+	local sound = say.sound and ns.KekSoundById[say.sound] or nil
 	local entry = Entry(say.player, say.class, say.time or GetServerTime(), icons,
 		saying and saying.id or nil, effect and effect.id or nil, say.virtual)
+	entry.data.text, entry.data.sound = text, sound and sound.id or nil
 	Bus:Fire("ENTRY_RECEIVED", entry)
 	if saying and saying.effect then
 		Bus:Fire("CHAT_EFFECT", saying.effect, say.player)
 	end
 	if effect then
 		Bus:Fire("CHAT_PLAY", entry.data) -- its effect, over the feed
+	end
+	if sound and ns.IsEnabled("chatEffects") then
+		Chat.PlayKekSound(sound.id)
 	end
 end)
 
@@ -445,6 +572,18 @@ end
 Bus:On("INIT", function()
 	ns.db.muted = ns.db.muted or {}
 	ns.db.chatPresets = ns.db.chatPresets or {}
+	ns.db.kekBlocks = ns.db.kekBlocks or {}
+	-- Your KekChats: the first time, the built-in quick chats, to change.
+	if not ns.db.kekMessages then
+		ns.db.kekMessages = {}
+		for _, preset in ipairs(ns.ChatPresets) do
+			local saying = ns.SayingById[preset.saying]
+			local icon = IconID(preset.icons and preset.icons[1] or "")
+			if (icon or saying) and #ns.db.kekMessages < ns.ChatRules.maxMessages then
+				ns.db.kekMessages[#ns.db.kekMessages + 1] = { icon = icon, text = saying and saying.text or nil }
+			end
+		end
+	end
 	RestoreOldMessages()
 	if ns.charDb then ns.charDb.chatPopped = nil end -- KekChat no longer pops out
 	-- Presets from before a message carried a list of images.

@@ -368,9 +368,11 @@ end
 -- True when an entry is shown as a feed row (see feedOnlyIf in data\feed-types.lua).
 local function ShownInFeed(entry, def)
 	local data = entry.data or {}
-	local told = def.toldBy and data[def.toldBy]
-	if told ~= nil and told ~= "" then
-		return false
+	for _, field in ipairs(def.toldBy or {}) do
+		local told = data[field]
+		if told ~= nil and told ~= "" then
+			return false
+		end
 	end
 	local rule = def.feedOnlyIf
 	if not rule then
@@ -527,7 +529,7 @@ function Store:GetFeed(feedFilter)
 	local result = {}
 	for _, entry in ipairs(db.feed) do
 		local def = ns.FeedTypes[entry.type]
-		local muted = def and def.mutable and ns.Chat:IsMuted(entry.player)
+		local muted = def and def.mutable and ns.Chat:Hides(entry)
 		if def and not muted and ns.IsEnabled(def.setting) and ShownInFeed(entry, def) and (feedFilter == true or def.filters[feedFilter]) then
 			result[#result + 1] = entry
 		end

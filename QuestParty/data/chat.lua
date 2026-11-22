@@ -2,6 +2,7 @@
 -- picker can search. See
 -- docs\chat.md and chat.lua.
 local _, ns = ...
+local L = ns.L
 
 ns.ChatRules = {
 	burst = 5, -- messages a player may send in burstSeconds
@@ -14,14 +15,45 @@ ns.ChatRules = {
 	timeoutMax = 120,
 	timeoutForgetSeconds = 300,
 	maxPresets = 20, -- saved image and saying pairs
+	-- Your KekChats (chat.lua, the editor ui\kek-editor.lua): this many, each
+	-- an icon, words of your own up to maxText, a sound and an effect. One
+	-- message carries it all: 255 characters, about 60 of them the rest of the
+	-- message, and a few characters (; = : # %) travel as three.
+	maxMessages = 10,
+	maxText = 100,
 }
+
+-- The sounds a KekChat can carry: fun ones from the game's own (SOUNDKIT
+-- names, so every client plays the same; kit is the id when the name is
+-- missing). Only the id travels; one this version lacks plays nothing.
+ns.KekSounds = {
+	{ id = "cheer", label = L.KEK_SOUND_CHEER, name = "UI_MISSION_SUCCESS_CHEERS", kit = 74702 },
+	{ id = "fanfare", label = L.KEK_SOUND_FANFARE, name = "UI_WORLDQUEST_COMPLETE", kit = 73277 },
+	{ id = "chime", label = L.KEK_SOUND_CHIME, name = "UI_AUTO_QUEST_COMPLETE", kit = 23404 },
+	{ id = "flourish", label = L.KEK_SOUND_FLOURISH, name = "UI_GARRISON_COMMAND_TABLE_FOLLOWER_LEVEL_UP", kit = 46893 },
+	{ id = "levelup", label = L.KEK_SOUND_LEVELUP, name = "UI_ADVENTURES_ADVENTURER_LEVEL_UP", kit = 167127 },
+	{ id = "success", label = L.KEK_SOUND_SUCCESS, name = "UI_GARRISON_COMMAND_TABLE_MISSION_SUCCESS_STINGER", kit = 44330 },
+	{ id = "fail", label = L.KEK_SOUND_FAIL, name = "UI_GARRISON_MISSION_COMPLETE_MISSION_FAIL_STINGER", kit = 43503 },
+	{ id = "party", label = L.KEK_SOUND_PARTY, name = "TRADING_POST_UI_PURCHASE_CELEBRATION", kit = 218231 },
+	{ id = "coins", label = L.KEK_SOUND_COINS, name = "TRADING_POST_UI_COLLECTING_COINS", kit = 218228 },
+	{ id = "coin", label = L.KEK_SOUND_COIN, name = "LOOT_WINDOW_COIN_SOUND", kit = 120 },
+	{ id = "ready", label = L.KEK_SOUND_READY, name = "READY_CHECK", kit = 8960 },
+	{ id = "warning", label = L.KEK_SOUND_WARNING, name = "RAID_WARNING", kit = 8959 },
+	{ id = "queue", label = L.KEK_SOUND_QUEUE, name = "PVP_THROUGH_QUEUE", kit = 8459 },
+	{ id = "countdown", label = L.KEK_SOUND_COUNTDOWN, name = "UI_COUNTDOWN_FINISHED", kit = 158566 },
+	{ id = "built", label = L.KEK_SOUND_BUILT, name = "UI_GARRISON_TOAST_BUILDING_COMPLETE", kit = 44295 },
+	{ id = "alarm", label = L.KEK_SOUND_ALARM, name = "ALARM_CLOCK_WARNING_2", kit = 12867 },
+}
+ns.KekSoundById = {}
+for _, sound in ipairs(ns.KekSounds) do
+	ns.KekSoundById[sound.id] = sound
+end
 
 -- The sayings: the only words Quest Party chat carries. Only an id travels,
 -- so what shows is always from this list, in the reader's own language, and
 -- nobody can put words of their own on anyone's screen. An id this version
 -- does not know (from a newer one) is not shown.
 --   effect  something it also does on everyone's screen ("confetti")
-local L = ns.L
 ns.Sayings = {
 	{ id = "hi", text = L.SAY_HI },
 	{ id = "gz", text = L.SAY_GZ },

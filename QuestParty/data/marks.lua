@@ -12,7 +12,8 @@
 --   scale        the art's share of the square (1 fills it)
 local _, ns = ...
 
--- The concept's families: gold for quests and finds, purple for XP, blue for
+-- The concept's families: gold for quests and finds, purple for XP, orange
+-- for kills, blue for
 -- people and skills, red for death, gray for what is gone or unknown.
 local GOLD = { edge = { 0.88, 0.70, 0.22, 1 }, fill = { 0.14, 0.09, 0.02, 1 } }
 local PURPLE = { edge = { 0.74, 0.38, 0.98, 1 }, fill = { 0.28, 0.07, 0.42, 1 } }
@@ -20,6 +21,7 @@ local BLUE = { edge = { 0.38, 0.64, 1.00, 1 }, fill = { 0.04, 0.11, 0.28, 1 } }
 local RED = { edge = { 0.88, 0.22, 0.18, 1 }, fill = { 0.22, 0.04, 0.03, 1 } }
 local GRAY = { edge = { 0.55, 0.55, 0.55, 1 }, fill = { 0.09, 0.09, 0.09, 1 } }
 local GREEN = { edge = { 0.35, 0.80, 0.40, 1 }, fill = { 0.04, 0.18, 0.07, 1 } } -- KekChat
+local ORANGE = { edge = { 1.00, 0.55, 0.10, 1 }, fill = { 0.24, 0.10, 0.02, 1 } } -- kills, as the kill multiplier (x4)
 
 local function Mark(family, look)
 	look.edge, look.fill = family.edge, family.fill
@@ -38,7 +40,7 @@ ns.MarkLooks = {
 	discovery = Mark(GOLD, { texture = "Interface\\Icons\\INV_Misc_Map_01", crop = true }),
 	skill = Mark(BLUE, { texture = "Interface\\Icons\\Trade_BlackSmithing", crop = true }),
 	joined = Mark(BLUE, { atlas = "socialqueuing-icon-group", texture = "Interface\\Icons\\achievement_guildperk_everybodysfriend", crop = true }),
-	kills = Mark(PURPLE, { texture = "Interface\\Icons\\Ability_DualWield", crop = true }),
+	kills = Mark(ORANGE, { texture = "Interface\\Icons\\Ability_DualWield", crop = true }),
 	death = Mark(RED, { texture = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01", crop = true }),
 	achievement = Mark(GOLD, { texture = "Interface\\Icons\\achievement_reputation_01", crop = true }),
 	chat = Mark(GREEN, { texture = "Interface\\ChatFrame\\UI-ChatIcon-Chat-Up", scale = 0.9 }),

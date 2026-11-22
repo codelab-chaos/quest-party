@@ -574,10 +574,11 @@ Sharing.SendGear = SendGear
 -- when there is no channel to send it to.
 local IMAGE_KEYS = { "i", "i2", "i3" }
 
-function Sharing.SendSay(icons, saying, effect, class, as)
+function Sharing.SendSay(icons, saying, effect, class, as, text, sound)
 	-- w: when it was said (server time), so every client names its card the
-	-- same (data\stamps.lua): each message is a distinct feed entry.
-	local fields = { k = saying, e = effect, c = class or "", w = GetServerTime() }
+	-- same (data\stamps.lua): each message is a distinct feed entry. t: words
+	-- of the sender's own (chat.lua, CleanText), n: a sound's id (ns.KekSounds).
+	local fields = { k = saying, e = effect, c = class or "", w = GetServerTime(), t = text, n = sound }
 	for index, icon in ipairs(icons or {}) do
 		if IMAGE_KEYS[index] then fields[IMAGE_KEYS[index]] = icon end
 	end
@@ -747,13 +748,16 @@ handlers[Kinds.SAY] = function(sender, fields, virtual)
 			icons[#icons + 1] = icon
 		end
 	end
-	local saying, effect = PlainId(fields.k), PlainId(fields.e)
-	if #icons == 0 and not saying then
+	local saying, effect, sound = PlainId(fields.k), PlainId(fields.e), PlainId(fields.n)
+	-- Words of their own: made safe and short here too, whatever was sent.
+	local text = type(fields.t) == "string" and ns.Chat.CleanText(fields.t) or nil
+	if text == "" then text = nil end
+	if #icons == 0 and not saying and not text then
 		return
 	end
 	local class = type(fields.c) == "string" and fields.c ~= "" and fields.c or nil
 	local peer = Session().peers[sender]
-	Bus:Fire("CHAT_SAY", { player = sender, class = class or (peer and peer.class), icons = icons, saying = saying, effect = effect, time = SentWhen(fields.w), virtual = virtual or nil })
+	Bus:Fire("CHAT_SAY", { player = sender, class = class or (peer and peer.class), icons = icons, saying = saying, effect = effect, text = text, sound = sound, time = SentWhen(fields.w), virtual = virtual or nil })
 end
 
 -- A stamp on a feed card (stamps.lua decides whether to keep it).

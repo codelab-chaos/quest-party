@@ -588,7 +588,46 @@ end
 -- book, with Custom KekChat), each in its own picker. A quick chat sends as
 -- soon as it is clicked; a save loads into the bar to change first. Effects
 -- are played on cards, from the stamp picker (ui\stamps.lua).
+-- The KekChat button's list: your saved KekChats (chat.lua; one click sends
+-- one). They are made in the editor, from Settings (ui\kek-editor.lua).
+local function KekEntries()
+	local entries = {}
+	local list = ns.Chat:KekMessages()
+	for index = 1, ns.ChatRules.maxMessages do
+		local message = list[index]
+		if message then
+			local sound = message.sound and ns.KekSoundById[message.sound]
+			local effect = message.effect and ns.ChatEffectById[message.effect]
+			local extra = {}
+			if effect then extra[#extra + 1] = effect.label end
+			if sound then extra[#extra + 1] = sound.label end
+			local text = message.text or ""
+			if #extra > 0 then text = text .. "  |cffffd100" .. table.concat(extra, ", ") .. "|r" end
+			entries[#entries + 1] = {
+				icon = message.icon,
+				text = text,
+				onClick = function()
+					ClosePickers()
+					if not Pressed() then return end
+					local ok, problem = ns.Chat:SendKek(index)
+					if not ok then ChatView:Say(problem) end
+					ChatView:WatchTimeout()
+				end,
+			}
+		end
+	end
+	-- None saved: where to make them (Settings, KekChat).
+	if #entries == 0 then
+		entries[1] = { text = L.KEK_NONE, color = COLORS.muted }
+	end
+	return entries
+end
+
 local function FillPresets(own)
+	if not own then
+		FillList(pickers.presets, KekEntries())
+		return
+	end
 	local entries = {}
 	for _, preset in ipairs(ns.Chat:Presets()) do
 		if (preset.own ~= nil) == own then
@@ -802,6 +841,9 @@ end)
 Bus:On("CHAT_PRESETS_CHANGED", function()
 	if pickers.saves and pickers.saves:IsShown() then
 		FillPresets(true)
+	end
+	if pickers.presets and pickers.presets:IsShown() then
+		FillPresets(false)
 	end
 end)
 

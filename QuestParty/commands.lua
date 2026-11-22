@@ -40,6 +40,7 @@ end
 local function PrintHelp()
 	ns.Print(L.CMD_HELP)
 	ns.Print(L.CMD_HELP_TOGGLE)
+	ns.Print(L.CMD_HELP_TRACKER)
 	ns.Print(L.CMD_HELP_DEBUG)
 	if ns.IsDebug() then
 		ns.Print(L.CMD_HELP_DEV)
@@ -116,6 +117,10 @@ local commands = {
 	end,
 	share = function()
 		ns.Print(ns.Sharing:Status())
+	end,
+	-- The stats tracker's window (experimental: ui\tracker.lua).
+	tracker = function()
+		ns.TrackerView:Toggle()
 	end,
 	stats = function()
 		if not ns.IsDebug() then

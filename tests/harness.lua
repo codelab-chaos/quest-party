@@ -179,8 +179,8 @@ function Harness.new(saved, character, debugBuild, serverTime, options)
 	}
 	local ns = {}
 	local modules = {
-		"core.lua", "locales/en-us.lua", "data/professions.lua", "data/marks.lua", "data/feed-types.lua", "data/filters.lua", "data/settings.lua", "data/themes.lua", "data/slots.lua", "data/chat.lua", "data/effects.lua", "data/stats.lua", "data/scenes.lua", "data/stamps.lua",
-		"store.lua", "stats.lua", "opacity.lua", "chat.lua", "report.lua", "scenes.lua", "magnet.lua", "vitals.lua", "stamps.lua", "colors.lua", "group.lua", "particles.lua", "resolver.lua", "comms/protocol.lua", "comms/origin.lua", "comms/transport.lua", "comms/session.lua", "comms/sharing.lua",
+		"core.lua", "locales/en-us.lua", "data/professions.lua", "data/marks.lua", "data/feed-types.lua", "data/filters.lua", "data/settings.lua", "data/themes.lua", "data/slots.lua", "data/chat.lua", "data/effects.lua", "data/stats.lua", "data/tracker.lua", "data/scenes.lua", "data/stamps.lua",
+		"store.lua", "stats.lua", "tracker.lua", "opacity.lua", "chat.lua", "report.lua", "scenes.lua", "magnet.lua", "vitals.lua", "stamps.lua", "colors.lua", "group.lua", "particles.lua", "resolver.lua", "comms/protocol.lua", "comms/origin.lua", "comms/transport.lua", "comms/session.lua", "comms/sharing.lua",
 		"collectors/patterns.lua", "collectors/samples.lua", "collectors/collectors.lua", "collectors/gear.lua", "collectors/vitals.lua", "collectors/location.lua", "collectors/afk.lua", "collectors/professions.lua",
 		"ui/view-model.lua", "ui/quest-card.lua", "ui/party-model.lua", "ui/confetti.lua", "ui/chat-echo.lua", "ui/event-sounds.lua", "commands.lua",
 		-- Dev mode (with /qp debug on), as at the end of the TOC.

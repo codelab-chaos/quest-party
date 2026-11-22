@@ -7,9 +7,11 @@ CurseForge's changelog field using Markdown formatting.
 
 ### Changed
 
+- Settings reorganized by what each setting is about: Channel, Share my, Feed, Party, KekChat, Window, Data. The window is bigger, every section is evenly spaced, and the recent channels row says so when there are none yet.
+- A place found is one row with the XP it gave ("Discovered: Thunder Ridge", "+80 XP"), as a quest handed in is; its XP is no longer a row of its own. Kill XP stays on kill rows.
 - Custom KekChat is off for now: KekChat is its quick chats and effects. The builder (images, typing, saves) is gone from Settings.
 - A feed row's avatar ring is in its player's own color, as their head and XP bar (your game group's in the party's color).
-- Kill rows ("Kills Kolkar Wrangler x2 for 202 XP") wear the Kills square, not the XP one: a row's square now always matches the filter icon that hides it. XP rows are only XP.
+- Kill rows ("Kills Kolkar Wrangler x2 for 202 XP") wear the Kills square, now orange, not the XP one: a row's square now always matches the filter icon that hides it. XP rows are only XP.
 - Minimize sits right beside close in the title bar; close stays at the far right.
 - The view button shows three bars for compact rows and two for detailed (compact showed one, which looked like minimize).
 - Share location in Settings (on by default): off, nothing of where you are is sent.
@@ -18,6 +20,9 @@ CurseForge's changelog field using Markdown formatting.
 
 ### Added
 
+- Stats tracker: a growing table of what you and your friends do, always on, kept only on your computer and separate from Party Fuel: kills (yours by creature), XP by source, quests, deaths, levels, skill-ups, discoveries, distance travelled and flown, jumps, time played and AFK, sessions, money in and out, KekChats and stamps. /qp tracker shows today, this week or all time. Old days fold into months and years, so it stays small.
+- Your own KekChats: up to 10, made in a new editor (Edit your KekChats... in Settings, under KekChat), each an icon from a browser of every game icon, up to 100 characters of your own words, a sound from a curated list and an effect. They replace the built-in quick chats, which become your starting ten. Long messages show whole when you hover their row.
+- Blocking KekChat: right-click a KekChat to block that message from its sender, or all of their KekChat. The editor lists what is blocked, with Unblock, as tall as that list; Settings, under KekChat, says how to block, beside a note to keep KekChat clean (everyone on the channel sees it).
 - The minimized dock's drawers are the feed's own rows: the same look, stamps, hover and right-click to stamp (or mute) as in the feed. Compact dock in Settings uses one-line rows, so twice as many fit.
 - AFK on the party bars: a player who goes AFK keeps their bar, dimmed with an AFK tag, and hovering it says for how long. It clears the moment they are back. Someone who logged off has no bar, so away and gone never look alike. Friends need 0.3.8 for theirs to show.
 - Show alts: a player's other characters, yours included, stay in the side bar after everyone else as smaller heads with a violet ring and a dimmed portrait ("Alt" on hover), so they save room; click one for its card. On by default; off, each player has one head.

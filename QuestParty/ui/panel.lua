@@ -106,8 +106,8 @@ local ROW_STYLES = {
 
 -- The Settings window.
 local SETTINGS = {
-	width = 480,
-	height = 560,
+	width = 540,
+	height = 660,
 	titleHeight = 32, -- the title, then a gold rule under it
 	headingHeight = 26, -- a section's title and its rule
 	recentHeight = 24, -- the recent channels' row, under the channel's status
@@ -115,6 +115,7 @@ local SETTINGS = {
 	rowHeight = 26, -- a row of switches
 	checkSize = 24,
 	buttonWidth = 96,
+	kekButtonWidth = 180, -- Edit your KekChats
 	sliderHeight = 30,
 	scenarioWidth = 230, -- the scenario dropdown
 	goWidth = 70,
@@ -1195,7 +1196,8 @@ local UpdateConnectionOptions -- below: the recent channels' buttons call it
 -- The recent channels' buttons, in a row after their label, as many as fit.
 local function UpdateRecentChannels(controls)
 	local list = ns.Session:RecentChannels()
-	controls.recentLabel:SetShown(#list > 0)
+	-- Never an empty band: with none to offer, it says so.
+	controls.recentLabel:SetText(#list > 0 and L.CHANNEL_RECENT or L.CHANNEL_RECENT_NONE)
 	local x = (controls.recentLabel:GetStringWidth() or 40) + 12
 	local room = (controls.content:GetWidth() or 300) - 8
 	for index = 1, math.max(#list, #controls.recent) do
@@ -2147,9 +2149,39 @@ local function BuildSlider(content, _width, slider, y)
 	return y + SETTINGS.sliderHeight
 end
 
+-- KekChat: a word on keeping it clean, your saved messages' editor
+-- (ui\kek-editor.lua, where the blocked list is too), and how to block.
+local function SettingsNote(content, text, y, width)
+	local note = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	note:SetPoint("TOPLEFT", 4, -y)
+	note:SetWidth(width - 8)
+	note:SetJustifyH("LEFT")
+	note:SetWordWrap(true)
+	note:SetText(text)
+	return y + math.ceil(note:GetStringHeight() or 14) + 8
+end
+
+local function KekChatLead(content, width, y)
+	y = SettingsNote(content, L.KEK_CLEAN_NOTE, y, width)
+	local button = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+	button:SetSize(SETTINGS.kekButtonWidth, 22)
+	button:SetPoint("TOPLEFT", 4, -y)
+	button:SetText(L.KEK_EDIT)
+	button:SetScript("OnClick", function() ns.KekEditor:Toggle() end)
+	SettingsTip(button, L.KEK_EDIT, L.KEK_EDIT_TIP)
+	y = y + 30
+	return SettingsNote(content, L.KEK_BLOCK_HOW, y, width)
+end
+
+-- What a section draws under its heading before its switches (its lead in
+-- data\settings.lua, SettingGroups).
+local SettingsLeads = { kekchat = KekChatLead }
+
 -- A group's switches, in two columns, then its sliders.
 local function BuildSwitches(content, width, group, y)
 	y = SettingsHeading(content, group.label, y)
+	local lead = group.lead and SettingsLeads[group.lead]
+	if lead then y = lead(content, width, y) end
 	local column = (width - 4) / 2
 	local index = 0
 	for _, setting in ipairs(ns.Settings) do
@@ -2176,6 +2208,7 @@ local function BuildSwitches(content, width, group, y)
 	end
 	return y + SETTINGS.sectionGap
 end
+
 
 -- Clearing and forgetting: each forget button says how much it holds.
 local function BuildData(content, y)

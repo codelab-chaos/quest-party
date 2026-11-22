@@ -28,10 +28,12 @@ data\slots.lua
 data\chat.lua
 data\effects.lua
 data\stats.lua
+data\tracker.lua
 data\scenes.lua
 data\stamps.lua
 store.lua
 stats.lua
+tracker.lua
 opacity.lua
 chat.lua
 report.lua
@@ -63,6 +65,10 @@ ui\effect-grid.lua
 ui\map-pins.lua
 ui\fade.lua
 ui\opacity-slider.lua
+ui\icon-browser.lua
+ui\kek-editor.lua
+ui\kek-blocked.lua
+ui\tracker.lua
 ui\stamps.lua
 ui\quest-card.lua
 ui\panel.lua

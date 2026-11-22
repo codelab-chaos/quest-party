@@ -266,6 +266,32 @@ test("collectors do not attach an old unrelated kill to a quest", function()
 	equal(w.ns.Store:GetCards("quest")[1].data.kills, 0)
 end)
 
+test("a place found is one row with the XP it gave, and that XP is not a second row", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	w.xp = 100
+	w:event("PLAYER_LOGIN")
+	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 368, "Discovered: Thunder Ridge")
+	w.xp = 180
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(2)
+	local rows = w.ns.ViewModel:Build("all")
+	equal(#rows, 1)
+	equal(rows[1].title, "Discovered: |cffffd100Thunder Ridge|r")
+	equal(rows[1].summary, "+80 XP")
+	-- The XP still counts: the bar moved.
+	local mine
+	for _, bar in ipairs(w.ns.ViewModel:PartyBars()) do if bar.name == w.ns.MyName() then mine = bar end end
+	equal(mine.have, 180)
+	-- A place found with no XP (or none yet) still has its row, and later XP is its own.
+	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 368, "Discovered: Red Cloud Mesa")
+	w:advance(2)
+	w.xp = 230
+	w:event("PLAYER_XP_UPDATE", "player")
+	w:advance(2)
+	equal(#w.ns.ViewModel:Build("all"), 3)
+end)
+
 test("a quest handed in is one gold row with its XP, and its XP is not a second row", function()
 	local w = Harness.new({ switches = { chatEcho = false } })
 	w:share() -- the channel is the feed: your own news comes back on it
@@ -2084,6 +2110,7 @@ test("your own events always show in the feed, and read exactly like a friend's"
 	w:event("PLAYER_LEVEL_UP", "<secret>") -- in combat: the game hides the level
 	w:advance(1)
 	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 368, "Discovered: Red Cloud Mesa")
+	w:advance(2) -- a discovery waits a moment for its XP
 	w.ns.Collectors:Handle("CHAT_MSG_SKILL", "Your skill in First Aid has increased to 12.")
 	w.ns.Collectors:Handle("ACHIEVEMENT_EARNED", 6)
 	w.ns.Collectors:Handle("PLAYER_DEAD")
@@ -2671,6 +2698,7 @@ test("every message is sent once and counted, whatever the game answers: the cha
 	equal(#chatRows(w), 1) -- and back on the channel, read as yours
 	-- What comes after it goes out too: nothing waits behind it.
 	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 368, "Discovered: Red Cloud Mesa")
+	w:advance(2) -- a discovery waits a moment for its XP
 	local kinds = {}
 	for _, entry in ipairs(w.ns.Store:GetFeed(true)) do kinds[entry.type] = true end
 	equal(kinds.discovery, true)
@@ -2710,6 +2738,7 @@ test("location: every update says where it happened, and each player's last know
 	equal(hello[#hello].fields.wy, 301)
 	-- An update says where it happened, and its row keeps it.
 	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 368, "Discovered: Red Cloud Mesa")
+	w:advance(2) -- a discovery waits a moment for its XP
 	local sent = sentOfKind(w, "E")
 	equal(sent[#sent].fields.wm, 1413)
 	local row
@@ -2788,6 +2817,90 @@ test("AFK: you going away is said at once; a friend away keeps their bar, marked
 	equal(Bar("Buddy"), nil)
 end)
 
+test("stats tracker: each number reads as its kind says (data-driven formatters)", function()
+	local w = Harness.new()
+	local T = w.ns.TrackerText
+	equal(T("k", 1234), "1,234")
+	equal(T("x", 2450), "2,450 XP")
+	equal(T("ta", 59), "0m")
+	equal(T("ta", 3 * 3600 + 12 * 60), "3h 12m")
+	equal(T("ta", 2 * 86400 + 5 * 3600), "2d 5h")
+	equal(T("mg", 900), "900 yd")
+	equal(T("mg", 3520), "2.0 mi")
+	equal(T("gi", 123456), "12g 34s 56c")
+	equal(T("go", 250), "2s 50c")
+	equal(T("go", 7), "7c")
+	-- Every stat has a known category and kind.
+	local categories = {}
+	for _, category in ipairs(w.ns.TrackerCategories) do categories[category.id] = true end
+	for _, stat in ipairs(w.ns.TrackerStats) do
+		assert(categories[stat.category], stat.id .. " has a category")
+		assert(w.ns.TrackerFormat[stat.type], stat.id .. " has a format")
+	end
+end)
+
+test("stats tracker: counts from the feed for everyone heard, yours measured, sparse, separate from Fuel", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	w:hear("E", { t = "xp", c = "MAGE", xp = 300, gains = 3, mob = "Kobold", level = 9, currentXP = 300, maxXP = 1000 }, "Friend")
+	w:hear("E", { t = "quest_complete", c = "MAGE", quest = "Rite", xp = 500 }, "Friend")
+	w:hear("E", { t = "death", c = "MAGE", zone = "The Barrens", level = 9 }, "Friend")
+	local view = w.ns.Tracker:View("Friend", "all")
+	local found = {}
+	for _, section in ipairs(view.sections) do
+		for _, row in ipairs(section.rows) do found[row.label] = row.text end
+	end
+	equal(found[w.ns.L.TRACK_KILLS], "3")
+	equal(found[w.ns.L.TRACK_KILL_XP], "300 XP")
+	equal(found[w.ns.L.TRACK_QUESTS_DONE], "1")
+	equal(found[w.ns.L.TRACK_DEATHS], "1")
+	equal(found[w.ns.L.TRACK_JUMPS], nil) -- nothing happened: not stored, not shown
+	equal(w.ns.db.tracker.Friend.total.j, nil)
+	-- Yours, measured: jumps, time, money, a kill by creature id.
+	local me = w.ns.MyName()
+	w.ns.Tracker:Jumped()
+	w.ns.Tracker:Tick()
+	w.env.GetMoney = function() return 1000 end
+	w.ns.Tracker:Money()
+	w.env.GetMoney = function() return 6000 end
+	w.ns.Tracker:Money()
+	w.ns.Tracker:Kill(w.ns.Tracker.NpcId("Creature-0-1-0-1-3098-0000ABCDEF"))
+	w.ns.Tracker:NameKills("Scorpid Worker", 1)
+	local mine = w.ns.db.tracker[me]
+	equal(mine.total.j, 1)
+	equal(mine.total.ta, w.ns.TrackerRules.clock)
+	equal(mine.total.gi, 5000)
+	equal(mine.mobs[3098].n, "Scorpid Worker")
+	equal(mine.mobs[3098].k, 1)
+	equal(w.ns.Tracker.NpcId("Player-1-0ABC"), nil)
+	-- Dev mode's pretend players are never counted.
+	w.ns.Tracker:Count({ type = "death", player = "Pretend", data = {}, emulated = true })
+	equal(w.ns.db.tracker.Pretend, nil)
+end)
+
+test("stats tracker: old days fold into months and months into years; totals never change", function()
+	local w = Harness.new()
+	equal(select(1, w.ns.Tracker.YearMonth(0)), 1970)
+	local year, month = w.ns.Tracker.YearMonth(20412) -- 2025-11-21
+	equal(year, 2025)
+	equal(month, 11)
+	local book = w.ns.Tracker:Book("Friend")
+	local now = 20412 * 86400
+	w.ns.Tracker:Add("Friend", "k", 5, now)
+	w.ns.Tracker:Add("Friend", "k", 7, now - 100 * 86400) -- past the days kept
+	w.ns.Tracker:Add("Friend", "k", 9, now - 900 * 86400) -- past the months kept
+	w.ns.Tracker:Rollup(now)
+	local days, months, years = 0, 0, 0
+	for _ in pairs(book.days) do days = days + 1 end
+	for _ in pairs(book.months) do months = months + 1 end
+	for _ in pairs(book.years) do years = years + 1 end
+	equal(days, 1)
+	equal(months, 1)
+	equal(years, 1)
+	equal(book.total.k, 21)
+	equal(w.ns.Tracker:Period("Friend", "today", now).k, 5)
+end)
+
 test("opacity: the slider sets it, and On hover leaves it, makes it solid, or fainter", function()
 	local w = Harness.new()
 	local O = w.ns.Opacity
@@ -2831,12 +2944,14 @@ test("where you are goes out alone after a quiet minute, only if you moved; a fr
 	w.ns.Sharing.SendWhere()
 	equal(Alone(), 1) -- not a minute yet
 	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 368, "Discovered: Red Cloud Mesa") -- an update says it
+	w:advance(2) -- a discovery waits a moment for its XP
 	w:advance(45)
 	w.ns.Sharing.SendWhere()
 	equal(Alone(), 1) -- the update reset the minute
 	-- Share location off: nothing of where goes, with updates or alone.
 	w.ns.SetEnabled("shareLocation", false)
 	w.ns.Collectors:Handle("UI_INFO_MESSAGE", 368, "Discovered: Camp Taurajo")
+	w:advance(2) -- a discovery waits a moment for its XP
 	sent = sentOfKind(w, "E")
 	equal(sent[#sent].fields.wm, nil)
 	spot[1] = 0.9
@@ -3269,6 +3384,67 @@ test("KekChat's old list moves into the feed at its times, and goes", function()
 	equal(feed[2].data.saying, "hi")
 	equal(feed[3].data.icons[1], 133000)
 	equal(feed[3].data.w, 2000) -- named by its moment, like a new one
+end)
+
+test("your own KekChats: up to ten, words of your own made safe and short, a sound and an effect", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w.env.GetFileIDFromPath = function(path) return #path * 10 end
+	local Chat = w.ns.Chat
+	-- They start as the built-in quick chats, to change.
+	local list = Chat:KekMessages()
+	assert(#list > 0 and #list <= w.ns.ChatRules.maxMessages, "seeded")
+	equal(list[1].text, w.ns.L.SAY_HI)
+	-- Words: the game's escapes gone, spaces tidied, cut to maxText letters.
+	equal(Chat.CleanText("  hi |cffff0000there|r\n  friend  "), "hi there friend")
+	equal(Chat.CleanText("get |Hitem:19019|h[Thunderfury]|h |TInterface\\Icons\\x:0|tnow"), "get [Thunderfury] now")
+	equal(#Chat.CleanText(string.rep("a", 300)), w.ns.ChatRules.maxText)
+	equal(Chat.CleanText(string.rep("é", 150)), string.rep("é", w.ns.ChatRules.maxText)) -- letters, not bytes
+	-- Saving checks it; a sound or effect we do not have is left off.
+	equal(Chat:SetKekMessage(1, { icon = 133000, text = "Pull the next pack!", sound = "cheer", effect = "fireworks" }), true)
+	equal(Chat:SetKekMessage(2, { icon = 133001, text = "hey", sound = "nope", effect = "nope" }), true)
+	equal(list[2].sound, nil)
+	equal(list[2].effect, nil)
+	equal(Chat:SetKekMessage(11, { icon = 133000 }), false) -- ten at most
+	-- Sent in one message, read back by everyone: the words, the sound, the effect.
+	w:share()
+	local played = {}
+	w.env.PlaySound = function(kit) played[#played + 1] = kit end
+	equal(Chat:SendKek(1), true)
+	local sent = sentOfKind(w, "S")
+	equal(sent[#sent].fields.t, "Pull the next pack!")
+	equal(sent[#sent].fields.n, "cheer")
+	assert(#sent[#sent].message.text <= w.ns.Protocol.maxLength, "fits")
+	local row = chatRows(w)[1]
+	equal(row.data.text, "Pull the next pack!")
+	equal(row.data.sound, "cheer")
+	equal(#played, 1)
+	-- A friend's words arrive cleaned, whatever they sent.
+	w:hear("S", { t = "|Hitem:1|hfree loot|h " .. string.rep("x", 200), i = 133000 }, "Friend")
+	local theirs = chatRows(w)[2].data.text
+	equal(theirs:find("|", 1, true), nil)
+	equal(#theirs, w.ns.ChatRules.maxText)
+end)
+
+test("blocking KekChat: one message from a player, or all of theirs; unblocking brings them back", function()
+	local w = Harness.new({ switches = { chatEcho = false } })
+	w:share()
+	local Chat = w.ns.Chat
+	w:hear("S", { t = "buy gold cheap", i = 133000 }, "Pest")
+	w:hear("S", { t = "hello all", i = 133000 }, "Pest")
+	w:hear("S", { t = "hello all", i = 133000 }, "Friend")
+	equal(#chatRows(w), 3)
+	Chat:BlockText("Pest", "buy gold cheap", true)
+	equal(#chatRows(w), 2) -- that message, from that player, is hidden
+	w:hear("S", { t = "buy gold cheap", i = 133000 }, "Pest")
+	equal(#chatRows(w), 2) -- and not taken again
+	Chat:BlockAll("Pest", true)
+	equal(#chatRows(w), 1) -- all of theirs; Friend's "hello all" still shows
+	equal(chatRows(w)[1].player, "Friend")
+	Chat:BlockAll("Pest", false)
+	Chat:BlockText("Pest", "buy gold cheap", false)
+	equal(#chatRows(w), 3)
+	Chat:BlockAll(w.ns.MyName(), true)
+	equal(Chat:IsBlocked(w.ns.MyName()), false) -- not yourself
 end)
 
 test("what friends send is only ever an image number and a known saying", function()

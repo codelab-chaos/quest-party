@@ -18,6 +18,15 @@
   CurseForge upload (manual).
 - **vitals-over-channel** (idea, later, if evidence): power may not be secret; if `issecretvalue(UnitPower("player"))`
   is false in game, mana/rage/energy could travel for friends outside your group.
+
+## 0.3.8 (branch `v038`, from 2026-11-20)
+
+- **companion** (vision, 2026-11-21, `docs/companion.md`): an outside helper (MCP or app) that reads the saved file,
+  plans with a WoW database, and writes `QuestPartyPlan/Plan.lua` (a code file, so a `/reload` loads it without
+  wiping it); Quest Party hands the plan to RXPGuides or WaypointUI through their APIs. Nothing built.
+- **stats-tracker** (experimental, ideas 2026-11-21, `docs/stats-tracker.md`): a growing, sparse, rolled-up stats
+  table per player (kills by NPC id from PARTY_KILL, XP by source, time active and AFK, zones, records), separate
+  from Fuel. Phase 1: grow the table; then a You page, numbers on the wire, trivia under strict rarity rules.
 - **position-heartbeat** (built 2026-11-20 for 0.3.8): a WHERE (`L`) message after 60s with no other update, only if moved.
 - **power-charge-event** (story, 0.3.8): a timed party event, such as 10 minutes to get as many kills as possible.
   How it starts is to be designed: someone kicks it off, a random trigger, or a smart trigger from what the party is
