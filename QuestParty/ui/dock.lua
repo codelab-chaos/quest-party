@@ -20,8 +20,15 @@ local LAYOUT = {
 
 -- The drawers: feed rows this long. At rest the housing shows each row's
 -- mark and half its avatar (Panel:DockRest); sliding out shows the rest.
--- Compact dock (Settings): one-line rows, so twice as many fit.
-local DRAWER = { length = 232, entries = 7, compactEntries = 14 }
+local DRAWER = { length = 232 }
+
+-- How many drawers: Dock size (Settings) is in lines, a compact (one-line)
+-- entry taking one and a regular (two-line) entry two.
+local function Entries()
+	local lines = math.floor(ns.GetSlider("dockLines") or 14)
+	if ns.IsEnabled("dockCompact") then return lines end
+	return math.max(2, math.floor(lines / 2))
+end
 
 local view
 local nextId = 0
@@ -176,14 +183,13 @@ function Dock:Point()
 end
 
 local function Build()
-	local compact = ns.IsEnabled("dockCompact")
 	view = ns.MagnetDock.Create(UIParent, {
 		side = Side(), onClick = Open, onMoved = Moved, content = Content,
 		layout = (function()
 			local peek = math.ceil(ns.Panel:DockRest(DockStyle()))
 			return { key = ns.Panel:FeedRowHeight(DockStyle()), peek = peek, extend = DRAWER.length - peek }
 		end)(),
-		model = { maxEntries = compact and DRAWER.compactEntries or DRAWER.entries },
+		model = { maxEntries = Entries() },
 	})
 	local frame = view:GetFrame()
 	frame:SetFrameStrata("MEDIUM")
@@ -192,6 +198,12 @@ local function Build()
 end
 
 Bus:On("READY", Build)
+-- Dock size: the housing fits the new count; a shown dock fills again.
+Bus:On("SLIDER_CHANGED", function(id)
+	if id ~= "dockLines" or not view then return end
+	view:SetMaxEntries(Entries())
+	if view:GetFrame():IsShown() then Dock:Show() end
+end)
 Bus:On("SETTING_CHANGED", function(id)
 	-- Compact dock: a new dock in the new shape, where the old one was.
 	if id == "dockCompact" and view then

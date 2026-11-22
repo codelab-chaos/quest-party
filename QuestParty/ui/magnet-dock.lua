@@ -314,6 +314,14 @@ function View:Clear()
 	self:Draw()
 end
 
+-- How many keys it holds: the housing grows or shrinks to fit (the model
+-- lets the oldest go as new ones come past it).
+function View:SetMaxEntries(count)
+	self.model.config.maxEntries = count
+	Shape(self)
+	self:Draw()
+end
+
 function View:SetSide(side)
 	self.side = side == "LEFT" and "LEFT" or "RIGHT"
 	Shape(self)

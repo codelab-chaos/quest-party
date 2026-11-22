@@ -2499,12 +2499,10 @@ end
 
 -- Opens the panel on its Settings, wherever it was (docked, hidden): from the
 -- game's own Options (ui\game-options.lua).
+-- Opens Settings, whatever the panel is doing: docked, it stays docked.
 function Panel:OpenSettings()
 	if not frame then return end
-	if ns.charDb.docked then
-		self:Restore()
-	end
-	frame:Show()
+	if not ns.charDb.docked then frame:Show() end
 	self:ShowOptions(true)
 end
 
@@ -2577,7 +2575,8 @@ function Panel:Minimize()
 	if not frame or not frame:IsShown() or shrink:IsPlaying() then return end
 	SavePosition()
 	ns.charDb.docked = true
-	self:ShowOptions(false)
+	-- Settings stays open: it is its own window, and the dock's own settings
+	-- (Dock size, Compact dock) are best set while looking at the dock.
 	ns.Dock:Show()
 	AimShrink()
 	growing = false

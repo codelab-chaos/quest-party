@@ -91,6 +91,7 @@ ns.SettingSliders = {
 	{ id = "volume", group = "window", label = L.SET_VOLUME, tip = L.SET_VOLUME_TIP, min = 0, max = 3, step = 1, default = 2, labels = "VolumeLevels" },
 	{ id = "questCardStyle", group = "feed", label = L.SET_QUEST_CARD, tip = L.SET_QUEST_CARD_TIP, min = 0, max = 3, step = 1, default = 0, labels = "QuestCardStyles" },
 	{ id = "partyCap", group = "party", label = L.SET_PARTY_CAP, tip = L.SET_PARTY_CAP_TIP, min = 10, max = 20, step = 1, default = 10, format = "%d" },
+	{ id = "dockLines", group = "window", label = L.SET_DOCK_LINES, tip = L.SET_DOCK_LINES_TIP, min = 4, max = 40, step = 1, default = 14, format = "%d" },
 	{ id = "gutterScale", group = "feed", label = L.SET_GUTTER_SCALE, tip = L.SET_GUTTER_SCALE_TIP, min = 0.75, max = 2, step = 0.05, default = 1.5, format = "%.2fx" },
 }
 

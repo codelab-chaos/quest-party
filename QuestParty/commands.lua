@@ -41,6 +41,7 @@ local function PrintHelp()
 	ns.Print(L.CMD_HELP)
 	ns.Print(L.CMD_HELP_TOGGLE)
 	ns.Print(L.CMD_HELP_TRACKER)
+	ns.Print(L.CMD_HELP_SETTINGS)
 	ns.Print(L.CMD_HELP_DEBUG)
 	if ns.IsDebug() then
 		ns.Print(L.CMD_HELP_DEV)
@@ -121,6 +122,13 @@ local commands = {
 	-- The stats, on the Fuel tab (ui\tracker.lua).
 	tracker = function()
 		ns.Panel:OpenTab("report", "stats")
+	end,
+	-- Settings, docked or not: the dock stays as it is.
+	settings = function()
+		ns.Panel:OpenSettings()
+	end,
+	options = function()
+		ns.Panel:OpenSettings()
 	end,
 	stats = function()
 		if not ns.IsDebug() then

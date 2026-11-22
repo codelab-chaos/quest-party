@@ -51,6 +51,22 @@ return function(Harness, options)
 		local ok, problem = pcall(function() ns.Panel:SelectFilter(filter.id) end)
 		if not ok then problems[#problems + 1] = filter.id .. ": " .. tostring(problem) end
 	end
+	-- Dock size: in lines, a regular entry two, a compact one; resized live.
+	local sized, sizeProblem = pcall(function()
+		local view
+		local create = ns.MagnetDock.Create
+		ns.MagnetDock.Create = function(...) view = create(...) return view end
+		ns.SetEnabled("dockCompact", false) -- builds a new dock
+		ns.MagnetDock.Create = create
+		assert(view.model.config.maxEntries == 7, "14 lines: 7 entries, got " .. tostring(view.model.config.maxEntries))
+		ns.SetSlider("dockLines", 20)
+		assert(view.model.config.maxEntries == 10, "20 lines: 10 entries")
+		ns.Dock:Show()
+		ns.SetSlider("dockLines", 6)
+		assert(view.model.config.maxEntries == 3, "6 lines: 3 entries")
+		ns.Dock:Hide()
+	end)
+	if not sized then problems[#problems + 1] = "dock size: " .. tostring(sizeProblem) end
 	-- Every view of a tab with several (Fuel | Stats).
 	for _, filter in ipairs(ns.Filters) do
 		for _, view in ipairs(filter.views or {}) do
