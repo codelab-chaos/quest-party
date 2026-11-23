@@ -32,11 +32,14 @@ and profession gains without losing ongoing progress in a stream of chat.
   discoveries, deaths, professions and achievements. Your gear is the one
   thing you choose to share (**Share my gear** in Settings).
 
-<p>
-  <img src="docs/imgbarn/all-tab-1-1.png" alt="The All tab, with quest cards, XP and other progress in one feed" height="451">
-  <img src="docs/imgbarn/quest-tab-1-1.png" alt="The Quests tab, with quest cards and objective progress bars" height="447">
-  <img src="docs/imgbarn/options.png" alt="The Options panel" height="378">
-</p>
+| | | |
+|:---:|:---:|:---:|
+| <img src="docs/imgbarn/nomal-feed-038.png" alt="The feed in detailed rows: kills, discoveries, deaths and quest progress, with friends' stamps on the cards" height="440"> | <img src="docs/imgbarn/feed-singles-038.png" alt="The feed in compact, one-line rows" height="440"> | <img src="docs/imgbarn/feed-view-038.png" alt="The feed with quests handed in and taken, and a quest objective's progress" height="440"> |
+| **The feed**, with friends' stamps | **Compact rows**, twice as many | **Quests** taken, handed in and on the way |
+| <img src="docs/imgbarn/events-sound-yay-038.png" alt="A KekChat effect raining over the feed" height="440"> | <img src="docs/imgbarn/transparency-038.png" alt="Quest Party see-through, with the opacity slider open from the title bar" height="440"> | <img src="docs/imgbarn/minimized-view-038.png" alt="Quest Party minimized to the dock, a drawer pulled out with its stamps" height="440"> |
+| **KekChat effects** over the feed | **Opacity**, set live from the title bar | **The dock**: minimized, drawers pull out |
+| <img src="docs/imgbarn/stats-038.png" alt="The Stats view: the game's own numbers beside Quest Party's, then combat, questing, growth, exploring, time, wealth and social" height="440"> | <img src="docs/imgbarn/party-fuel-breakdown.png" alt="Party Fuel's vat, sliced by kind: deaths, skill-ups, levels, quests, kills and XP" height="440"> | |
+| **Stats**, the game's numbers beside ours | **Party Fuel**, sliced by kind | |
 
 Quest Party is being built for social questing, so friends can follow each
 other's adventures even when they are in different places. Create or join a
