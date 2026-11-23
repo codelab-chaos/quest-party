@@ -19,7 +19,11 @@
 - **vitals-over-channel** (idea, later, if evidence): power may not be secret; if `issecretvalue(UnitPower("player"))`
   is false in game, mana/rage/energy could travel for friends outside your group.
 
-## 0.3.8 (branch `v038`, from 2026-11-20)
+## 0.3.9 (branch `v039`, from 2026-11-23)
+
+- In progress: see the changelog's Unreleased section.
+
+## 0.3.8 (released 2026-11-22, tag `v0.3.8`)
 
 - **companion** (vision, 2026-11-21, `docs/companion.md`): an outside helper (MCP or app) that reads the saved file,
   plans with a WoW database, and writes `QuestPartyPlan/Plan.lua` (a code file, so a `/reload` loads it without
